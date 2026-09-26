@@ -321,7 +321,7 @@ class SearchInput(ToolInput):
     content: str | None = Field(None, description="text or regex that file contents must contain")
     regex: bool = False
     max_results: int = Field(50, ge=1, le=1000)
-    max_depth: int = Field(12, ge=1, le=64)
+    max_depth: int = Field(12, ge=1, le=64, description="folder levels to descend; keep the default unless asked")
     file_glob: str = Field("*", description="restrict content search to these files, e.g. '*.py'")
 
 
@@ -365,11 +365,16 @@ def search_files(root: Path, args: SearchInput, ctx: ToolContext, tool: Tool) ->
         content_re = re.compile(args.content if args.regex else re.escape(args.content), re.IGNORECASE)
     results: list[dict[str, Any]] = []
     scanned = 0
+    pruned = 0
     root_depth = len(root.parts)
     for dirpath, dirs, files in os.walk(root):
         ctx.cancel.raise_if_cancelled()
         depth = len(Path(dirpath).parts) - root_depth
-        dirs[:] = [d for d in dirs if d.lower() not in _SKIP and not d.startswith(".")] if depth < args.max_depth else []
+        keep = [d for d in dirs if d.lower() not in _SKIP and not d.startswith(".")]
+        if depth + 1 >= args.max_depth and keep:
+            pruned += len(keep)
+            keep = []
+        dirs[:] = keep
         for fname in files:
             if name_pat and not fnmatch.fnmatch(fname.lower(), name_pat.lower()):
                 continue
@@ -406,7 +411,9 @@ def search_files(root: Path, args: SearchInput, ctx: ToolContext, tool: Tool) ->
         for m in r.get("matches", []):
             lines.append(f"    {m['line']}: {m['text']}")
     summary = f"Found {len(results)} match{'es' if len(results) != 1 else ''}" + (f" (scanned {scanned} files)" if content_re else "")
-    return tool.ok(summary, {"root": str(root), "results": results, "scanned": scanned},
+    if pruned:
+        summary += f"; {pruned} deeper folder(s) not searched because of max_depth={args.max_depth} — raise max_depth to search them"
+    return tool.ok(summary, {"root": str(root), "results": results, "scanned": scanned, "folders_not_searched": pruned},
                    model_view=summary + "\n" + "\n".join(lines), source=f"fs-search:{root}")
 
 

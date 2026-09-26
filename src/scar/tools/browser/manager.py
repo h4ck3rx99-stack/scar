@@ -93,14 +93,14 @@ class BrowserManager:
             kwargs["channel"] = channel
         try:
             self._ctx = await self._pw.chromium.launch_persistent_context(str(profile), **kwargs)
-        except Exception as exc:  # noqa: BLE001 - Playwright raises its own Error types
+        except Exception as exc:
             if channel != "chromium":
                 log.warning("browser_channel_failed", channel=channel, error=str(exc)[:200])
                 kwargs.pop("channel", None)
                 channel = "chromium"
                 try:
                     self._ctx = await self._pw.chromium.launch_persistent_context(str(profile), **kwargs)
-                except Exception as exc2:  # noqa: BLE001
+                except Exception as exc2:
                     raise CapabilityUnavailable(f"cannot start a browser: {exc2}", "docs/browser.md") from exc2
             else:
                 raise CapabilityUnavailable(f"cannot start Chromium (run `uv run playwright install chromium`): {exc}",

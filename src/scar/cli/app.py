@@ -298,7 +298,7 @@ def config_set(key: str, value: str) -> None:
     data[field] = parsed
     try:
         Settings.model_validate({**Settings().model_dump(), field: parsed})
-    except Exception as exc:  # noqa: BLE001 - show validation problems verbatim
+    except Exception as exc:
         console.print(f"[red]Invalid value: {exc}[/red]")
         raise typer.Exit(2) from exc
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -553,7 +553,7 @@ def daemon_start() -> None:
         if asyncio.run(daemon_alive(settings.data_path)):
             console.print(f"[green]✓[/green] daemon started (PID {pid})")
             return
-    console.print(f"[red]The daemon did not come up; see `scar logs`.[/red]")
+    console.print("[red]The daemon did not come up; see `scar logs`.[/red]")
     raise typer.Exit(1)
 
 
@@ -618,7 +618,7 @@ def daemon_install() -> None:
         AuditLog(db).append("autostart_installed" if ok else "autostart_install_failed", {"command": logon_task_command(), "output": out})
     finally:
         db.close()
-    console.print(("[green]✓[/green] installed" if ok else f"[red]failed:[/red] {out}"))
+    console.print("[green]✓[/green] installed" if ok else f"[red]failed:[/red] {out}")
 
 
 @daemon_app.command("uninstall")

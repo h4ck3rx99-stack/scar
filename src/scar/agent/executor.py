@@ -75,7 +75,8 @@ class Executor:
     async def run(self, task: TaskState, ctx: ToolContext, ctxb: ContextBuilder, budget: BudgetTracker, *,
                   plan_first: bool, role: str = "executor") -> ExecOutcome:
         cats = categories_for(task.objective)
-        tools = self.registry.select(cats, role=role, limit=60)
+        limit = 60 if self.s.router.cloud_available("reasoning") else 24
+        tools = self.registry.select(cats, role=role, limit=limit)
         schemas = self.registry.function_schemas(tools)
         names = {t.name for t in tools}
         wire = {wire_name(t.name) for t in tools} | names
@@ -96,8 +97,20 @@ class Executor:
             if local_route and ctxb.budget_tokens > LOCAL_BUDGET_TOKENS:
                 ctxb.budget_tokens = LOCAL_BUDGET_TOKENS
             req = ctxb.request(schemas, max_tokens=2048)
-            resp = await self.s.router.chat("reasoning", req, task=task, compactor=ctxb.compact_for_overflow,
-                                            data_classes=self._data_classes(task))
+            try:
+                resp = await self.s.router.chat("reasoning", req, task=task, compactor=ctxb.compact_for_overflow,
+                                                data_classes=self._data_classes(task))
+            except AllProvidersFailed as exc:
+                if len(schemas) <= 14 or not any(a.kind == ProviderErrorKind.CONTEXT_OVERFLOW for a in exc.attempts):
+                    raise
+                # too big for every reachable model: offer fewer tools and a tighter context, once
+                tools = [t for t in tools if t.internal] + [t for t in tools if not t.internal][:12]
+                schemas = self.registry.function_schemas(tools)
+                names = {t.name for t in tools}
+                wire = {wire_name(t.name) for t in tools} | names
+                ctxb.budget_tokens = max(3000, ctxb.budget_tokens // 2)
+                req = ctxb.request(schemas, max_tokens=1536)
+                resp = await self.s.router.chat("reasoning", req, task=task, data_classes=self._data_classes(task))
             budget.add_tokens(resp.usage.prompt_tokens + resp.usage.completion_tokens)
             calls = resp.tool_calls
             if not calls and resp.content:
@@ -115,8 +128,10 @@ class Executor:
                 if actions_taken == 0:
                     return ExecOutcome(TaskStatus.SUCCEEDED, text, None)
                 v = verify_finish(task, text, [], self.s, self.registry)
-                return ExecOutcome(TaskStatus.SUCCEEDED if v.verified is not False else TaskStatus.FAILED,
-                                   honest_summary(text, v), v)
+                last = next((o for o in reversed(task.observations) if o.tool not in ("ask_user", "read_artifact")), None)
+                last_failed = last is not None and last.result.status != ToolStatus.OK
+                ok = v.verified is not False and not last_failed
+                return ExecOutcome(TaskStatus.SUCCEEDED if ok else TaskStatus.FAILED, honest_summary(text, v), v)
             ctxb.add_assistant_calls(resp.content, calls)
             bad_calls = 0
             for call in calls[:6]:
@@ -200,10 +215,11 @@ class Executor:
             return
         for step in task.plan.steps:
             if not step.done:
-                if not step.candidate_tools or tool_name in step.candidate_tools:
-                    if obs.result.verification is None or obs.result.verification.verified is not False:
-                        step.done = True
-                        self.s.bus.publish(TaskProgress(task_id=task.task_id, message=obs.result.summary))
+                matches = not step.candidate_tools or tool_name in step.candidate_tools
+                ok = obs.result.verification is None or obs.result.verification.verified is not False
+                if matches and ok:
+                    step.done = True
+                    self.s.bus.publish(TaskProgress(task_id=task.task_id, message=obs.result.summary))
                 break
 
     def _penalise(self, provider: str, model: str, why: str) -> None:
@@ -250,6 +266,9 @@ def compact_json(obj: Any) -> str:
 
 def provider_unavailable_message(exc: AllProvidersFailed) -> str:
     reasons = sorted({a.kind.value for a in exc.attempts})
+    if "context_overflow" in reasons and not any(a.kind.value in ("rate_limit", "transient", "quota") for a in exc.attempts):
+        return ("That request was too large for the language model available right now (its context window is too "
+                "small). Try a narrower request, or configure a cloud provider with a larger context (see `scar doctor`).")
     return ("I can't reason about that right now — no language model is reachable "
             f"({', '.join(reasons) or 'none configured'}). I can still do quick commands like opening apps or folders, "
             "screenshots, system info, reminders and memory. Run `scar doctor` to see how to fix this.")

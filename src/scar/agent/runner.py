@@ -11,11 +11,11 @@ from typing import Any
 
 import structlog
 
+from scar.agent.clarify import Question
 from scar.agent.context import DEFAULT_BUDGET_TOKENS, ContextBuilder, role_prompt
 from scar.agent.executor import ExecOutcome, Executor, budget_exceeded_summary, provider_unavailable_message
 from scar.agent.fastpath.grammar import FastPath, FastPlan
 from scar.agent.planner import needs_plan
-from scar.agent.clarify import Question
 from scar.core.budgets import TASK_CLASS_WALL_SECONDS, Budget, BudgetTracker
 from scar.core.cancel import CancelToken
 from scar.core.errors import BudgetExceeded, Cancelled
@@ -191,7 +191,7 @@ class TaskManager:
         except AllProvidersFailed as exc:
             task.status = TaskStatus.FAILED
             task.result_summary = provider_unavailable_message(exc)
-        except Exception as exc:  # noqa: BLE001 - a task crash must be reported, not take down the runtime
+        except Exception as exc:
             log.exception("task_crashed", task_id=task.task_id)
             task.status = TaskStatus.FAILED
             task.result_summary = f"Something went wrong inside SCAR: {type(exc).__name__}: {exc}"
@@ -361,6 +361,10 @@ def render_reply(tool: str, result: Any) -> str:
     if tool == "screen.describe":
         detail = data.get("vision") or (data.get("ocr_text") or "")[:400]
         return f"{result.summary}.\n{detail}".strip()
+    if tool == "dev.run_tests":
+        failures = (data.get("report") or {}).get("failures") or []
+        names = ", ".join(f["name"] for f in failures[:10])
+        return f"{result.summary}." + (f" Failing: {names}." if names else "")
     if tool == "memory.recall":
         return "\n".join(f"- {m['text']}" for m in data.get("memories", [])) or "I don't have anything on that."
     return result.summary

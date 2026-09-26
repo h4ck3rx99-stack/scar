@@ -126,7 +126,7 @@ class BrowserOpen(Tool):
         tid, page = await (bm.new_tab() if args.new_tab else bm.page(args.tab))
         try:
             resp = await page.goto(url, wait_until=args.wait_until, timeout=45000)
-        except Exception as exc:  # noqa: BLE001 - playwright TimeoutError/Error
+        except Exception as exc:
             raise _pw_error(exc) from exc
         title = await page.title()
         status = resp.status if resp is not None else None
@@ -153,7 +153,7 @@ def _normalize_url(url: str) -> str:
     url = url.strip()
     if re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:", url) and not re.match(r"^[a-zA-Z]:\\", url):
         return url
-    if url.startswith("localhost") or url.startswith("127.0.0.1"):
+    if url.startswith(("localhost", "127.0.0.1")):
         return "http://" + url
     return "https://" + url
 
@@ -182,7 +182,7 @@ class BrowserNavigate(Tool):
                 await page.go_forward(timeout=PLAYWRIGHT_TIMEOUT)
             else:
                 await page.reload(timeout=30000)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _pw_error(exc) from exc
         return self.ok(f"{args.action.title()}: {page.url}", {"tab": tid, "url": page.url})
 
@@ -206,7 +206,7 @@ class BrowserTabs(Tool):
     async def run(self, args: TabsInput, ctx: ToolContext) -> ToolResult:
         bm = ctx.services.browser
         if args.action == "new":
-            tid, _ = await bm.new_tab()
+            await bm.new_tab()
         elif args.action in ("switch", "close"):
             if args.tab is None:
                 raise ToolInputError("give tab")
@@ -249,7 +249,7 @@ class BrowserClick(Tool):
         bm = ctx.services.browser
         if bm is not None and bm.running:
             try:
-                page = bm._tabs[args.tab or bm._active].page  # noqa: SLF001 - read-only peek for risk facts
+                page = bm._tabs[args.tab or bm._active].page
                 a.facts.domains.append(_domain(page.url))
             except (KeyError, AttributeError, TypeError):
                 pass
@@ -270,7 +270,7 @@ class BrowserClick(Tool):
             else:
                 await loc.click(button=args.button, timeout=PLAYWRIGHT_TIMEOUT)
             await page.wait_for_load_state("domcontentloaded", timeout=PLAYWRIGHT_TIMEOUT)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _pw_error(exc) from exc
         return self.ok(f"Clicked; now at {page.url}", {"tab": tid, "url_before": before, "url": page.url,
                                                        "title": await page.title()})
@@ -343,7 +343,7 @@ class BrowserType(Tool):
             if args.submit:
                 await loc.press("Enter", timeout=PLAYWRIGHT_TIMEOUT)
                 await page.wait_for_load_state("domcontentloaded", timeout=PLAYWRIGHT_TIMEOUT)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _pw_error(exc) from exc
         return self.ok("Entered text" + (" and submitted" if args.submit else ""), {"tab": tid, "url": page.url,
                                                                                     "submitted": args.submit})
@@ -379,7 +379,7 @@ class BrowserPress(Tool):
         tid, page = await ctx.services.browser.page(args.tab)
         try:
             await page.keyboard.press(args.key)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _pw_error(exc) from exc
         return self.ok(f"Pressed {args.key}", {"tab": tid, "url": page.url})
 
@@ -406,7 +406,7 @@ class BrowserSelect(Tool):
                 chosen = await loc.select_option(label=args.option, timeout=5000)
             except Exception:  # noqa: BLE001 - fall back to value match
                 chosen = await loc.select_option(value=args.option, timeout=5000)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _pw_error(exc) from exc
         return self.ok(f"Selected {args.option}", {"tab": tid, "selected": chosen})
 
@@ -484,7 +484,7 @@ class BrowserExtract(Tool):
                 text = "\n".join(await page.locator(args.selector).all_inner_texts())
         except ToolInputError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _pw_error(exc) from exc
         text = text[: args.max_chars]
         data["text"] = text
@@ -545,7 +545,7 @@ class BrowserWait(Tool):
                 await page.wait_for_url(re.compile(re.escape(args.url_contains)), timeout=ms)
             if args.load_state:
                 await page.wait_for_load_state(args.load_state, timeout=ms)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise ToolError(f"condition not met within {args.timeout_s:.0f}s", "Timeout") from exc
         return self.ok("Condition met", {"tab": tid, "url": page.url})
 
@@ -599,7 +599,7 @@ class BrowserDownload(Tool):
             await download.save_as(str(dest))
         except ToolError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _pw_error(exc) from exc
         return self.ok(f"Downloaded {dest.name}", {"tab": tid, "path": str(dest), "url": download.url,
                                                    "size": dest.stat().st_size, "sha256": sha256_file(dest)})
@@ -649,7 +649,7 @@ class BrowserUpload(Tool):
         loc = await resolve_locator(page, args)
         try:
             await loc.set_input_files(paths, timeout=PLAYWRIGHT_TIMEOUT)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _pw_error(exc) from exc
         return self.ok(f"Attached {len(paths)} file(s)", {"tab": tid, "files": paths})
 

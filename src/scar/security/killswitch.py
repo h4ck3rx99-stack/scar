@@ -83,7 +83,10 @@ class KillSwitch:
             self.last_error = str(exc)
             return False
         try:
-            listener = keyboard.GlobalHotKeys({self.hotkey: lambda: self.trigger("hotkey")})
+            def on_hotkey() -> None:
+                self.trigger("hotkey")
+
+            listener = keyboard.GlobalHotKeys({self.hotkey: on_hotkey})
             listener.daemon = True
             listener.start()
         except (ValueError, OSError, RuntimeError) as exc:

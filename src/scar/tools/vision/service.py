@@ -133,7 +133,7 @@ def marks_from_uia(elements: list[dict[str, Any]], bounds: tuple[int, int, int, 
         if e.get("offscreen") or e.get("control_type") not in CLICKABLE:
             continue
         w, h = e["right"] - e["left"], e["bottom"] - e["top"]
-        if w < 4 or h < 4 or w > (r0 - l0) * 0.95 and h > (b0 - t0) * 0.9:
+        if w < 4 or h < 4 or (w > (r0 - l0) * 0.95 and h > (b0 - t0) * 0.9):
             continue
         if e["right"] < l0 or e["left"] > r0 or e["bottom"] < t0 or e["top"] > b0:
             continue

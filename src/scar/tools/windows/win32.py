@@ -286,15 +286,15 @@ def set_state(hwnd: int, state: str) -> None:
 def move_resize(hwnd: int, left: int | None, top: int | None, width: int | None, height: int | None) -> None:
     if user32.IsIconic(hwnd) or _placement(hwnd) == SW_MAXIMIZE:
         user32.ShowWindow(hwnd, SW_RESTORE)
-    l, t, r, b = _rect(hwnd)
+    left0, t, r, b = _rect(hwnd)
     wl = wintypes.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(wl))
     # compensate for the invisible DWM border so the *visible* frame lands where asked
-    dx_l, dy_t = l - wl.left, t - wl.top
+    dx_l, dy_t = left0 - wl.left, t - wl.top
     dx_r, dy_b = wl.right - r, wl.bottom - b
-    x = (left if left is not None else l) - dx_l
+    x = (left if left is not None else left0) - dx_l
     y = (top if top is not None else t) - dy_t
-    w = (width if width is not None else r - l) + dx_l + dx_r
+    w = (width if width is not None else r - left0) + dx_l + dx_r
     h = (height if height is not None else b - t) + dy_t + dy_b
     user32.SetWindowPos(hwnd, 0, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE)
 

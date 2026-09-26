@@ -68,12 +68,29 @@ def services(settings, sandbox: Path) -> Iterator[object]:  # type: ignore[no-un
 @pytest.fixture
 async def runtime_parts(services) -> AsyncIterator[dict[str, object]]:  # type: ignore[no-untyped-def]
     """Registry + pipeline wired with every tool module (no agent)."""
+    from scar.memory.store import MemoryStore
     from scar.runtime.registration import build_registry
+    from scar.tools.dev.devserver import DevServerManager
+    from scar.tools.monitor.service import MonitorService
+    from scar.tools.notify.service import Notifier
     from scar.tools.pipeline import ToolPipeline
+    from scar.tools.scheduler.service import Scheduler
+    from tests.helpers import FakeEmbeddings
 
+    services.memory = MemoryStore(services.db, FakeEmbeddings())
+    notifier = Notifier(services)
+    notifier._toast = lambda title, message: False  # never pop real toasts during tests
+    services.notifier = notifier
+    services.scheduler = Scheduler(services)
+    services.monitors = MonitorService(services)
+    services.devservers = DevServerManager(services)
     registry = build_registry(services)
     pipeline = ToolPipeline(services, registry)
     yield {"services": services, "registry": registry, "pipeline": pipeline}
+    await services.monitors.stop_all()
+    await services.devservers.stop_all()
+    await services.scheduler.stop()
+    services.processes.kill_all()
 
 
 @pytest.fixture

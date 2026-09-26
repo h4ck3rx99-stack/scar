@@ -6,7 +6,6 @@ import time
 
 import httpx
 import pytest
-import respx
 from pydantic import BaseModel, SecretStr
 
 from scar.core.events import EventBus

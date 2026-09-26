@@ -210,7 +210,7 @@ class WindowsClose(Tool):
             raise ToolError("refusing to force-close a system process window", "Refused")
         win32.close_window(w.hwnd)
         deadline = time.monotonic() + args.wait_s
-        while time.monotonic() < deadline and win32.window_exists(w.hwnd):
+        while time.monotonic() < deadline and win32.window_exists(w.hwnd):  # noqa: ASYNC110 - no OS event for window destruction
             await asyncio.sleep(0.25)
         forced = False
         if win32.window_exists(w.hwnd):

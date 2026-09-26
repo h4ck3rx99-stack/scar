@@ -8,10 +8,9 @@ from datetime import datetime
 from typing import Any
 
 from scar.agent.prompts import load
-from scar.core.types import Observation, TaskState, ToolStatus
+from scar.core.types import Observation, Provenance, TaskState, ToolStatus
 from scar.providers.base import ChatMessage, ChatRequest, ToolCall
 from scar.security.injection import UNTRUSTED_RULE, wrap_untrusted
-from scar.core.types import Provenance
 
 CHARS_PER_TOKEN = 4
 DEFAULT_BUDGET_TOKENS = 24_000
@@ -148,8 +147,8 @@ class ContextBuilder:
             summary = "; ".join(
                 f"{tc.name}" for m in dropped for tc in m.tool_calls)[:600]
             outcomes = "; ".join(m.content.splitlines()[0][:100] for m in dropped if m.role == "tool")[:900]
-            self.turns = [ChatMessage(role="user", content=f"[SCAR runtime] Earlier steps (compacted): calls {summary}. "
-                                                          f"Outcomes: {outcomes}")] + self.turns[cut:]
+            note = ChatMessage(role="user", content=f"[SCAR runtime] Earlier steps (compacted): calls {summary}. Outcomes: {outcomes}")
+            self.turns = [note, *self.turns[cut:]]
         # 3. still too big (huge recent result): truncate the largest recent tool message
         while self.tokens() > self.budget_tokens:
             idx = max(range(len(self.turns)), key=lambda i: len(self.turns[i].content), default=None)

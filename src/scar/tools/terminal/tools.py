@@ -30,7 +30,7 @@ def _render(o: ProcessOutcome, label: str) -> tuple[str, dict[str, Any], str]:
     status = ("timed out" if o.timed_out else "cancelled" if o.cancelled else "stopped (idle)" if o.idle_killed
               else f"exit code {o.exit_code}")
     summary = f"{label} finished: {status} in {o.duration_s:.1f}s"
-    data = {"argv": o.argv[:1] + ["…"] if "-EncodedCommand" in o.argv else o.argv, "cwd": o.cwd, "exit_code": o.exit_code,
+    data = {"argv": [*o.argv[:1], "…"] if "-EncodedCommand" in o.argv else o.argv, "cwd": o.cwd, "exit_code": o.exit_code,
             "duration_s": o.duration_s, "stdout": o.stdout, "stderr": o.stderr, "stdout_bytes": o.stdout_bytes,
             "stderr_bytes": o.stderr_bytes, "timed_out": o.timed_out, "cancelled": o.cancelled,
             "idle_killed": o.idle_killed, "stdout_ref": o.stdout_ref, "stderr_ref": o.stderr_ref, "notes": o.notes}
@@ -98,11 +98,7 @@ class TerminalRun(Tool):
         return f"Running {first}." if first else None
 
     async def run(self, args: RunInput, ctx: ToolContext) -> ToolResult:
-        cwd = args.cwd
-        if cwd:
-            cwd = str(check_path(ctx, cwd, PathOp.EXECUTE).path)
-        else:
-            cwd = ctx.services.extras.get("cwd")
+        cwd = str(check_path(ctx, args.cwd, PathOp.EXECUTE).path) if args.cwd else ctx.services.extras.get("cwd")
         settings = ctx.services.settings
         timeout = min(args.timeout_s or settings.command_timeout, settings.command_timeout_max)
         argv, tmp = shell_argv(args.command, args.shell)

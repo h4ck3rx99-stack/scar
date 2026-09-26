@@ -49,8 +49,15 @@ class FastPath:
         low = t.lower()
         if not t or len(t) > 240:
             return None
-        for handler in (self._control, self._remember, self._remind, self._editor_folder, self._browser_url, self._screenshot,
-                        self._sysinfo, self._processes, self._media, self._window, self._open_app):
+        compound = re.search(r"(?i)(,|;|\bthen\b|\band\b)\s*(start|run|open|tell|let|create|send|email|save|write|fix|find|"
+                             r"search|commit|push|install|build|close|delete|summari[sz]e|notify|go|navigate|read|copy|move|watch)\b",
+                             t)
+        handlers = (self._control, self._remember, self._remind, self._tests, self._watch, self._editor_folder, self._browser_url,
+                    self._screenshot, self._sysinfo, self._processes, self._media, self._window, self._open_app)
+        if compound:
+            # multi-step objectives belong to the planner; only whole-utterance intents stay deterministic
+            handlers = (self._control, self._remember, self._remind, self._browser_url)
+        for handler in handlers:
             plan = handler(t, low)
             if plan is not None:
                 return plan
@@ -82,6 +89,32 @@ class FastPath:
         if m:
             return FastPlan("reminder", [FastCall("schedule.reminder", {"when": m.group(2), "text": m.group(1)})])
         return None
+
+    def _tests(self, t: str, low: str) -> FastPlan | None:
+        m = re.match(r"(?i)^run (?:the |all (?:the )?)?tests(?: (?:in|for|of) (?:the )?(?P<folder>.+?))?(?: project| folder| repo)?$", t)
+        if not m:
+            return None
+        phrase = m.group("folder")
+        if not phrase or phrase.lower() in ("this", "this folder", "here", "this project"):
+            cwd = self.s.extras.get("cwd")
+            return FastPlan("run_tests", [FastCall("dev.run_tests", {"path": cwd} if cwd else {})])
+        cands = self.folders.resolve(phrase)
+        if len(cands) != 1:
+            return None
+        return FastPlan("run_tests", [FastCall("dev.run_tests", {"path": cands[0].path})])
+
+    def _watch(self, t: str, low: str) -> FastPlan | None:
+        m = re.match(r"(?i)^(?:watch|monitor)\s+(?:the\s+)?(?:process\s+)?(?:(?:pid|process)\s+)?(?P<target>\d+|[\w.-]+?)"
+                     r"(?:\s+process)?\s+and\s+(?:tell|let|notify|alert)\s+me\s+(?:know\s+)?if\s+it\s+(?P<what>crashes|exits|stops|dies|ends)$", t)
+        if not m:
+            return None
+        target = m.group("target")
+        args: dict[str, Any] = {"kind": "process", "notify_on": "crash" if m.group("what") in ("crashes", "dies") else "any_exit"}
+        if target.isdigit():
+            args["pid"] = int(target)
+        else:
+            args["process_name"] = target
+        return FastPlan("watch_process", [FastCall("monitor.start", args)])
 
     def _editor_folder(self, t: str, low: str) -> FastPlan | None:
         m = re.match(rf"(?i)^(?:open|launch|start)\s+{EDITORS}\s+(?:in|on|at|with|for)\s+(?:the\s+)?(?P<folder>.+?)(?:\s+folder)?$", t) \

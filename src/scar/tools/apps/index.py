@@ -68,7 +68,7 @@ class AppIndex:
     # ------------------------------------------------------------------ build
     @staticmethod
     def _start_menu_dirs() -> list[Path]:
-        dirs = [Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Microsoft/Windows/Start Menu/Programs",
+        dirs = [Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "Microsoft/Windows/Start Menu/Programs",
                 Path(os.environ.get("APPDATA", str(Path.home() / "AppData/Roaming"))) / "Microsoft/Windows/Start Menu/Programs"]
         return [d for d in dirs if d.exists()]
 
@@ -212,7 +212,7 @@ class AppIndex:
             for w in wanted:
                 if not w:
                     continue
-                if w == exe or w == n:
+                if w in (exe, n):
                     best = max(best, 1.0)
                 elif n.startswith(w + " ") or exe.startswith(w.replace(" ", "")):
                     best = max(best, 0.85)
@@ -239,7 +239,7 @@ def vscode_cli() -> str | None:
     code = shutil.which("code")
     if code:
         return code
-    for base in (os.environ.get("LOCALAPPDATA", ""), os.environ.get("ProgramFiles", "")):
+    for base in (os.environ.get("LOCALAPPDATA", ""), os.environ.get("PROGRAMFILES", "")):
         for p in (Path(base) / "Programs/Microsoft VS Code/bin/code.cmd", Path(base) / "Microsoft VS Code/bin/code.cmd"):
             if p.exists():
                 return str(p)

@@ -143,7 +143,7 @@ class DevServerManager:
 
     async def wait_ready(self, ds: DevServer, timeout: float) -> bool:
         waiters = {asyncio.ensure_future(ds.ready_event.wait()), asyncio.ensure_future(ds.exited_event.wait())}
-        done, pending = await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        _done, pending = await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
         for p in pending:
             p.cancel()
         return ds.ready_event.is_set()

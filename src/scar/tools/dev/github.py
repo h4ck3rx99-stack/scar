@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import subprocess
 from pathlib import Path
@@ -174,8 +175,10 @@ class GitHubCi(Tool):
         ref = args.ref
         if ref == "HEAD":
             try:
-                ref = subprocess.run(["git", "rev-parse", "HEAD"], cwd=args.repo or ctx.services.extras.get("cwd") or ".",
-                                     capture_output=True, text=True, timeout=10).stdout.strip() or "HEAD"
+                proc = await asyncio.to_thread(subprocess.run, ["git", "rev-parse", "HEAD"],
+                                               cwd=args.repo or ctx.services.extras.get("cwd") or ".", capture_output=True,
+                                               text=True, timeout=10)
+                ref = proc.stdout.strip() or "HEAD"
             except (OSError, subprocess.SubprocessError):
                 ref = "HEAD"
         data = await gh.request("GET", f"/repos/{slug}/commits/{ref}/check-runs", params={"per_page": 50})

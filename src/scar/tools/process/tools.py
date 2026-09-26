@@ -141,7 +141,8 @@ class ProcessStart(Tool):
         else:
             import subprocess
 
-            proc = subprocess.Popen([exe, *args.args], cwd=cwd, creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+            proc = await asyncio.to_thread(subprocess.Popen, [exe, *args.args], cwd=cwd,
+                                           creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
             pid = proc.pid
         return self.ok(f"Started {os.path.basename(exe)} (PID {pid})", {"pid": pid, "program": exe, "managed": args.managed})
 

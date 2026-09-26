@@ -65,7 +65,7 @@ def backup_file(ctx: ToolContext, path: Path, max_backups: int = 500, max_age_da
     root: Path = ctx.services.settings.backups_path
     root.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%S")
-    digest = hashlib.sha1(str(path).lower().encode()).hexdigest()[:10]  # noqa: S324 - filename bucketing only
+    digest = hashlib.sha1(str(path).lower().encode()).hexdigest()[:10]
     dest = root / f"{stamp}_{digest}_{path.name}"
     shutil.copy2(path, dest)
     _prune_backups(root, max_backups, max_age_days)

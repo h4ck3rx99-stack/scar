@@ -65,9 +65,9 @@ class Redactor:
             self._known[value] = name
             self._known_re = re.compile("|".join(re.escape(v) for v in sorted(self._known, key=len, reverse=True)))
 
-    def add_secrets(self, items: Mapping[str, str | None] | Iterable[tuple[str, str | None]]) -> None:
-        pairs = items.items() if isinstance(items, Mapping) else items
-        for name, value in pairs:
+    def add_secrets(self, items: Iterable[tuple[str, str | None]]) -> None:
+        """Register (name, value) pairs, e.g. ``redactor.add_secrets(mapping.items())``."""
+        for name, value in items:
             self.add_secret(name, value)
 
     @property

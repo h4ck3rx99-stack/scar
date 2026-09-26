@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import threading
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from typing import Any, Literal
 
@@ -188,7 +188,7 @@ class EventBus:
                 sub.loop.call_soon_threadsafe(sub.offer, event)
 
     @contextlib.asynccontextmanager
-    async def subscribe(self, kinds: set[str] | None = None) -> AsyncIterator[asyncio.Queue[Event]]:
+    async def subscribe(self, kinds: set[str] | None = None) -> AsyncGenerator[asyncio.Queue[Event], None]:
         sub = _Subscription(asyncio.get_running_loop(), self._queue_size, frozenset(kinds) if kinds else None)
         with self._lock:
             self._subs.append(sub)

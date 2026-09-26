@@ -52,7 +52,7 @@ def python_for(root: Path) -> str:
 def detect_project(root: Path, preferred_pm: str | None = None) -> ProjectInfo:
     info = ProjectInfo(root=str(root))
     if (root / "pyproject.toml").exists() or (root / "setup.py").exists() or (root / "requirements.txt").exists() \
-            or any(root.glob("test_*.py")) or (root / "tests").is_dir() and any((root / "tests").glob("*.py")):
+            or any(root.glob("test_*.py")) or ((root / "tests").is_dir() and any((root / "tests").glob("*.py"))):
         info.kinds.append("python")
         pm = preferred_pm or ("uv" if (root / "uv.lock").exists() else "poetry" if (root / "poetry.lock").exists()
                               else "uv" if (root / "pyproject.toml").exists() and shutil.which("uv") else "pip")

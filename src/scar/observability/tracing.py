@@ -37,9 +37,8 @@ class Tracer:
             return
         entry = {"at": now_iso(), "kind": kind, **global_redactor().redact_obj(data)}
         line = json.dumps(entry, default=str, ensure_ascii=False)
-        with self._lock:
-            with self.path_for(task_id).open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
+        with self._lock, self.path_for(task_id).open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
 
     def read(self, task_id: str) -> list[dict[str, Any]]:
         p = self.path_for(task_id)

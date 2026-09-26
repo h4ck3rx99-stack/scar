@@ -50,9 +50,10 @@ def test_autonomy_matrix(engine: PolicyEngine, key, want) -> None:  # type: igno
 @settings(max_examples=100, deadline=None)
 @given(st.integers(0, 4), st.booleans(), st.sampled_from(list(GrantScope)))
 def test_critical_never_auto_allowed(level: int, with_grant: bool, scope: GrantScope) -> None:
+    import tempfile
+
     from scar.security.grants import GrantStore
     from scar.storage.db import Database
-    import tempfile
 
     db = Database(Path(tempfile.mkdtemp()) / "p.db")
     try:
@@ -161,7 +162,6 @@ async def test_approval_allow_session_creates_grant_and_reuses(runtime_parts, ct
 async def test_toctou_changed_args_require_reapproval(runtime_parts, ctx_factory, sandbox: Path) -> None:
     from scar.security.approval import ApprovalResolution
 
-    s = runtime_parts["services"]
     p = runtime_parts["pipeline"]
     (sandbox / "victim.txt").write_text("x")
     (sandbox / "approved.txt").write_text("x")

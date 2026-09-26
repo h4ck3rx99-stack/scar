@@ -13,10 +13,9 @@ from pathlib import Path
 import pytest
 
 from scar.agent.runner import TaskManager
-from scar.core.types import PolicyDecision, ToolStatus
+from scar.core.types import Provenance, ToolStatus
 from scar.security.grants import Grant, GrantKind, GrantScope, UserAuthority
 from scar.security.injection import detect, wrap_untrusted
-from scar.core.types import Provenance
 from scar.security.scope import ScopeAnchor
 from scar.security.taint import TaintTracker
 from tests.helpers import ScriptedChatClient, call, install_scripted_router, reply

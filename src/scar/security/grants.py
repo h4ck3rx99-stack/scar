@@ -132,7 +132,7 @@ class GrantStore:
 
     # ---------------- mutations (user only) ----------------
     def create(self, grant: Grant, authority: UserAuthority) -> Grant:
-        if not isinstance(authority, UserAuthority):
+        if not isinstance(authority, UserAuthority):  # pyright: ignore[reportUnnecessaryIsInstance] - runtime guard for untyped callers
             raise PermissionError("grants can only be created with user authority")
         grant.created_via = authority.channel
         if grant.scope == GrantScope.SESSION:
@@ -153,7 +153,7 @@ class GrantStore:
         return grant
 
     def revoke(self, grant_id: str, authority: UserAuthority) -> bool:
-        if not isinstance(authority, UserAuthority):
+        if not isinstance(authority, UserAuthority):  # pyright: ignore[reportUnnecessaryIsInstance] - runtime guard for untyped callers
             raise PermissionError("grants can only be revoked with user authority")
         if grant_id in self._memory:
             del self._memory[grant_id]
@@ -163,7 +163,7 @@ class GrantStore:
         ) > 0
 
     def revoke_all(self, authority: UserAuthority) -> int:
-        if not isinstance(authority, UserAuthority):
+        if not isinstance(authority, UserAuthority):  # pyright: ignore[reportUnnecessaryIsInstance] - runtime guard for untyped callers
             raise PermissionError("grants can only be revoked with user authority")
         n = len(self._memory)
         self._memory.clear()

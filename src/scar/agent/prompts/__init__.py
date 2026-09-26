@@ -8,4 +8,4 @@ PROMPT_VERSION = "v1"
 
 
 def load(name: str) -> str:
-    return resources.files(__package__).joinpath(f"{name}_{PROMPT_VERSION}.md").read_text(encoding="utf-8")
+    return resources.files(__package__ or "scar.agent.prompts").joinpath(f"{name}_{PROMPT_VERSION}.md").read_text(encoding="utf-8")

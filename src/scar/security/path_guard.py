@@ -130,7 +130,7 @@ def canonicalize(raw: str, base: str | Path | None = None) -> tuple[str, str | N
     if lowered.startswith("\\\\?\\unc\\"):
         p = "\\\\" + p[8:]
         notes.append("stripped \\\\?\\UNC prefix")
-    elif lowered.startswith("\\\\?\\") or lowered.startswith("\\??\\"):
+    elif lowered.startswith(("\\\\?\\", "\\??\\")):
         p = p[4:]
         notes.append("stripped \\\\?\\ prefix")
     elif lowered.startswith("\\\\.\\"):

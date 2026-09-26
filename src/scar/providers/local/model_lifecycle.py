@@ -155,7 +155,7 @@ class LocalModelManager:
             url = f"http://127.0.0.1:{port}"
             argv = [binary, "-m", model_path, "--host", "127.0.0.1", "--port", str(port),
                     "-c", str(self.settings.local_llm_ctx), "-ngl", str(decision.gpu_layers if decision.use_gpu else 0),
-                    "--jinja", "--no-webui"]
+                    "--jinja", "--no-webui", "--parallel", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0"]
             if mmproj:
                 argv += ["--mmproj", mmproj]
             log_path = self.settings.log_path / f"llama-server-{key}.log"

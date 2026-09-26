@@ -152,7 +152,7 @@ class Settings(BaseSettings):
     local_llm_url: str = "http://127.0.0.1:8080"
     local_llm_server_bin: str = ""
     local_llm_model_path: str = ""
-    local_llm_ctx: int = 8192
+    local_llm_ctx: int = 16384
     local_vlm_model_path: str = ""
     local_vlm_mmproj_path: str = ""
     ollama_url: str = "http://127.0.0.1:11434"
@@ -178,7 +178,7 @@ class Settings(BaseSettings):
     battery_saver_threshold: int = Field(default=25, ge=0, le=100)
     # --- privacy ---
     privacy_mode: Literal["open", "balanced", "strict"] = "balanced"
-    privacy_overrides: dict[str, str] = Field(default_factory=dict)
+    privacy_overrides: Annotated[dict[str, str], NoDecode] = Field(default_factory=dict)
     # --- budgets ---
     max_steps: int = 40
     max_retries: int = 3
@@ -303,8 +303,12 @@ class Settings(BaseSettings):
 def load_settings(**overrides: Any) -> Settings:
     """Load settings; ``overrides`` are CLI flags (highest precedence)."""
     clean = {k: v for k, v in overrides.items() if v is not None}
+    from pydantic_settings.exceptions import SettingsError
+
     try:
         return Settings(**clean)
+    except SettingsError as exc:
+        raise ConfigError(f"invalid configuration: {exc}") from exc
     except ValidationError as exc:
         lines = []
         for err in exc.errors():

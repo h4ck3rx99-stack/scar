@@ -317,7 +317,7 @@ class ProviderRouter:
                 log.info("provider_error", provider=spec.id, model=model, kind=err.kind.value, retry_after=err.retry_after)
                 if err.kind == ProviderErrorKind.TRANSIENT and attempt == 0:
                     self.health.failure(err)
-                    await asyncio.sleep(0.5 + random.random())  # noqa: S311 - jitter, not crypto
+                    await asyncio.sleep(0.5 + random.random())
                     continue
                 if err.kind == ProviderErrorKind.CONTEXT_OVERFLOW:
                     if compactor is not None and not compacted:
@@ -336,6 +336,16 @@ class ProviderRouter:
             self.egress.record(spec.id, classes)
         if task is not None:
             task.record_usage(spec.id, model, resp.usage.prompt_tokens, resp.usage.completion_tokens, ",".join(classes))
+
+    def cloud_available(self, category: str) -> bool:
+        """True if some non-local candidate for the category has credentials and is not cooling down."""
+        for cand in ordered_candidates(self.catalog, category, self.settings):
+            spec = self.catalog.providers.get(cand.provider)
+            if spec is None or spec.local or not self.credential_status(spec)[0]:
+                continue
+            if not cand.models or any(self.health.get(spec.id, m).usable() for m in cand.models):
+                return True
+        return False
 
     # ------------------------------------------------------------------ diagnostics
     async def probe(self, provider_id: str, category: str = "reasoning") -> dict[str, Any]:

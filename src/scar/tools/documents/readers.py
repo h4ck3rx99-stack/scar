@@ -24,7 +24,7 @@ def read_pdf_bytes(data: bytes, max_pages: int = 500) -> str:
         if reader.is_encrypted:
             try:
                 reader.decrypt("")
-            except Exception as exc:  # noqa: BLE001 - pypdf raises various errors for encrypted files
+            except Exception as exc:
                 raise ToolError("the PDF is password-protected", "Encrypted") from exc
         parts: list[str] = []
         total = 0
@@ -50,8 +50,8 @@ def read_pdf(path: Path) -> tuple[str, dict[str, Any]]:
         meta["pages"] = len(reader.pages)
         info = reader.metadata or {}
         meta.update({k.lstrip("/"): str(v) for k, v in dict(info).items() if isinstance(k, str)})
-    except Exception:  # noqa: BLE001 - metadata is optional
-        pass
+    except Exception as exc:  # noqa: BLE001 - metadata is optional; the text was already extracted
+        meta["metadata_error"] = str(exc)[:120]
     if not text.replace("--- page", "").strip(" -\n0123456789"):
         meta["note"] = "no text layer (scanned PDF?) — use screen.ocr on page images"
     return text, meta
@@ -62,7 +62,7 @@ def read_docx(path: Path) -> tuple[str, dict[str, Any]]:
 
     try:
         d = docx.Document(str(path))
-    except Exception as exc:  # noqa: BLE001 - python-docx raises PackageNotFoundError/KeyError etc.
+    except Exception as exc:
         raise ToolError(f"cannot read DOCX: {exc}", "BadDocument") from exc
     parts: list[str] = []
     for para in d.paragraphs:
@@ -121,8 +121,8 @@ def image_meta(path: Path) -> dict[str, Any]:
             exif = img.getexif()
             for k, v in list(exif.items())[:40]:
                 meta[str(ExifTags.TAGS.get(k, k))] = str(v)[:120]
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 - EXIF is optional
+            meta["exif_error"] = str(exc)[:120]
     return meta
 
 

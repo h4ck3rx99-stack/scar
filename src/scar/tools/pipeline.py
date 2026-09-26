@@ -24,8 +24,8 @@ from pydantic import ValidationError
 from scar.core.cancel import run_cancellable
 from scar.core.errors import (
     ApprovalDenied,
-    CapabilityUnavailable,
     Cancelled,
+    CapabilityUnavailable,
     FocusLost,
     PathViolation,
     PolicyDenied,
@@ -332,6 +332,9 @@ class ToolPipeline:
         except (OSError, ValueError, RuntimeError, LookupError, TypeError) as exc:
             log.warning("tool_exception", tool=tool.name, error=str(exc), error_type=type(exc).__name__)
             return ToolResult.failure(f"{type(exc).__name__}: {exc}", type(exc).__name__)
+        except Exception as exc:
+            log.exception("tool_internal_error", tool=tool.name)
+            return ToolResult.failure(f"internal error in {tool.name}: {type(exc).__name__}: {exc}", "InternalError")
 
     @contextlib.asynccontextmanager
     async def _slot(self, tool: Tool) -> AsyncIterator[None]:

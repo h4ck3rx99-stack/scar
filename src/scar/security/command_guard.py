@@ -54,7 +54,7 @@ _LOW_EXES = {
     "whoami", "hostname", "ipconfig", "systeminfo", "tasklist", "where", "ver", "vol", "tree", "findstr", "find",
     "more", "sort", "fc", "comp", "date", "time", "echo", "type", "dir", "cd", "chdir", "path", "set", "cls",
     "nvidia-smi", "getmac", "nslookup", "ping", "tracert", "pathping", "netstat", "arp", "route_print", "query",
-    "wmic_get", "driverquery", "powercfg_q", "systeminfo", "winver", "rem", "title", "color", "help", "pwd", "ls",
+    "wmic_get", "driverquery", "powercfg_q", "winver", "rem", "title", "color", "help", "pwd", "ls",
     "cat", "head", "tail", "wc", "grep", "which", "true", "false",
 }
 
@@ -375,7 +375,7 @@ class CommandGuard:
         if inv.dynamic or not name:
             reasons.append("dynamically computed command name (possible obfuscation)")
             return RiskLevel.CRITICAL, False
-        if name.startswith("$") or name.startswith("&"):
+        if name.startswith(("$", "&")):
             reasons.append("invokes a variable or expression as a command")
             return RiskLevel.CRITICAL, False
 
@@ -655,7 +655,7 @@ def _argument_list(args: list[str]) -> list[str]:
 
 def _looks_like_path(a: str) -> bool:
     s = a.strip("'\"")
-    if not s or s.startswith("-") and not re.match(r"^-[A-Za-z]+:[A-Za-z]:\\", s):
+    if not s or (s.startswith("-") and not re.match(r"^-[A-Za-z]+:[A-Za-z]:\\", s)):
         return False
     if ":" in s and s.split(":", 1)[0].lower() in ("http", "https", "ftp", "file", "ssh", "git"):
         return False
@@ -668,8 +668,8 @@ def _git_risk(args: list[str], reasons: list[str]) -> RiskLevel:
     sub = next((a.lower() for a in args if not a.startswith("-")), "")
     lowered = [a.lower() for a in args]
     if sub == "push":
-        if any(a in ("--force", "-f", "--force-with-lease", "--mirror", "--delete", "-d") or a.startswith("+") or
-               a.startswith("--force") for a in lowered):
+        if any(a in ("--force", "-f", "--force-with-lease", "--mirror", "--delete", "-d") or a.startswith(("+", "--force"))
+               for a in lowered):
             reasons.append("force/destructive push rewrites remote history")
             return RiskLevel.CRITICAL
         reasons.append("git push publishes commits")

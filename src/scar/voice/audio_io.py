@@ -79,7 +79,7 @@ class Microphone:
             self._stream = sd.InputStream(device=self.device, samplerate=rate, channels=1, dtype="int16", blocksize=block,
                                           callback=self._callback)
             self._stream.start()
-        except Exception as exc:  # noqa: BLE001 - PortAudio raises many error types
+        except Exception as exc:
             self.error = str(exc)
             raise
 

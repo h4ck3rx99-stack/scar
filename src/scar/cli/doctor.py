@@ -95,8 +95,8 @@ class Doctor:
                 import pynvml
 
                 self.add("gpu", True, f"NVML driver {pynvml.nvmlSystemGetDriverVersion()}, CUDA {pynvml.nvmlSystemGetCudaDriverVersion() / 1000:.1f}")
-            except Exception:  # noqa: BLE001 - informational
-                pass
+            except Exception as exc:  # noqa: BLE001 - informational only
+                self.add("gpu", None, f"driver/CUDA version unavailable: {exc}")
         else:
             self.add("gpu", None, "no NVIDIA GPU via NVML", snap.nvml_error or "local models will run on CPU")
 

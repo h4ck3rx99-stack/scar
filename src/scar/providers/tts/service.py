@@ -221,7 +221,7 @@ class TtsService:
                 async for chunk in comm.stream():
                     if chunk.get("type") == "audio" and chunk.get("data"):
                         chunks.append(chunk["data"])
-            except Exception as exc:  # noqa: BLE001 - unofficial service: any failure means fall through
+            except Exception as exc:
                 raise ProviderError(ProviderErrorKind.TRANSIENT, f"edge-tts failed: {exc}") from exc
             if not chunks:
                 raise ProviderError(ProviderErrorKind.MALFORMED, "edge-tts returned no audio")
@@ -231,7 +231,7 @@ class TtsService:
                 raise ProviderError(ProviderErrorKind.UNAVAILABLE, "Windows SAPI not available")
             try:
                 return await asyncio.to_thread(self.sapi.synth_sync, text, self.settings.tts_voice if self.settings.tts_provider == "sapi" else "")
-            except Exception as exc:  # noqa: BLE001 - COM errors surface as pywintypes.com_error
+            except Exception as exc:
                 raise ProviderError(ProviderErrorKind.TRANSIENT, f"SAPI failed: {exc}") from exc
         if provider == "kokoro":
             ok, why = self.kokoro.available()

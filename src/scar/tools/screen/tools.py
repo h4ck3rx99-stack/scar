@@ -243,7 +243,8 @@ async def locate(args: LocateInput, ctx: ToolContext) -> dict[str, Any]:
         w = win32.window_info(hwnd)
     bounds = (w.left, w.top, w.right, w.bottom)
     target = args.target.strip().strip("'\"")
-    core = _core_label(target)
+    full = " ".join(target.lower().split())
+    variants = list(dict.fromkeys([full, _core_label(target)]))
     elements: list[dict[str, Any]] = []
     uia = ctx.services.uia
     if uia is not None:
@@ -257,8 +258,9 @@ async def locate(args: LocateInput, ctx: ToolContext) -> dict[str, Any]:
     for e in elements:
         if e.get("offscreen") or not e.get("name"):
             continue
-        score = difflib.SequenceMatcher(None, core, e["name"].lower()).ratio()
-        if e["name"].lower() == core:
+        name_l = e["name"].lower()
+        score = max(difflib.SequenceMatcher(None, v, name_l).ratio() for v in variants)
+        if name_l in variants:
             score = 1.0
         if "Invoke" in e.get("patterns", []) or e["control_type"] in ("ButtonControl", "HyperlinkControl", "MenuItemControl"):
             score += 0.05
@@ -273,8 +275,9 @@ async def locate(args: LocateInput, ctx: ToolContext) -> dict[str, Any]:
     res = await _ocr(ctx, c.image)
     for ln in res.lines:
         text = ln.text.lower()
-        if core and (core == text or (len(core) >= 3 and core in text and len(text) <= len(core) + 12)):
-            words = [wd for wd in ln.words if wd.text.lower() in core.split()] or ln.words
+        hit = next((v for v in variants if v and (v == text or (len(v) >= 3 and v in text and len(text) <= len(v) + 12))), None)
+        if hit:
+            words = [wd for wd in ln.words if wd.text.lower() in hit.split()] or ln.words
             x0 = min(wd.x for wd in words)
             x1 = max(wd.x + wd.w for wd in words)
             y0 = min(wd.y for wd in words)
@@ -303,10 +306,14 @@ async def locate(args: LocateInput, ctx: ToolContext) -> dict[str, Any]:
 
 
 def _core_label(target: str) -> str:
-    t = target.lower()
-    for filler in ("the ", " button", " link", " tab", " menu", " icon", " field", " box", "click ", "press "):
-        t = t.replace(filler, " ")
-    return " ".join(t.split())
+    """'click the blue Save button' -> 'blue save'; leading verbs and trailing element nouns only."""
+    import re as _re
+
+    t = " ".join(target.lower().split())
+    t = _re.sub(r"^(please\s+)?(click|press|tap|select|choose|hit|open)\s+(on\s+)?", "", t)
+    t = _re.sub(r"^the\s+", "", t)
+    t = _re.sub(r"\s+(button|link|tab|menu item|menu|icon|field|box|checkbox|option)$", "", t)
+    return t.strip() or " ".join(target.lower().split())
 
 
 class VisionLocate(Tool):

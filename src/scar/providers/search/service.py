@@ -151,7 +151,7 @@ class SearchService:
                 results = await asyncio.wait_for(asyncio.to_thread(run), timeout=30)
             except TimeoutError as exc:
                 raise ProviderError(ProviderErrorKind.TRANSIENT, "ddgs timed out", provider="ddgs") from exc
-            except Exception as exc:  # noqa: BLE001 - unofficial scraper raises many error types
+            except Exception as exc:
                 msg = str(exc)
                 kind = ProviderErrorKind.RATE_LIMIT if "ratelimit" in msg.lower() or "202" in msg else ProviderErrorKind.TRANSIENT
                 raise ProviderError(kind, msg[:200], provider="ddgs") from exc

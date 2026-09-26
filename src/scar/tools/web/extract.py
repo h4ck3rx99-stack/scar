@@ -14,8 +14,8 @@ def extract_main(html: str, url: str | None = None) -> str:
                                    output_format="txt")
         if text and len(text.strip()) > 80:
             return text.strip()
-    except Exception:  # noqa: BLE001 - trafilatura can raise on malformed markup
-        pass
+    except Exception:  # noqa: BLE001 - trafilatura can raise on malformed markup; fall back to plain extraction
+        return html_to_text(html)
     return html_to_text(html)
 
 

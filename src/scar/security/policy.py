@@ -280,8 +280,8 @@ class PolicyEngine:
             return PolicyOutcome(PolicyDecision.ASK, "approval required for every action with side effects", risk, matched_rules=ids)
 
         # 10. autonomy mapping
-        if allow_rule and risk <= RiskLevel.HIGH and inp.autonomy_level >= 2:
-            if risk <= RiskLevel.MEDIUM or inp.autonomy_level >= 4:
+        if allow_rule and risk <= RiskLevel.HIGH and inp.autonomy_level >= 2 and (
+                risk <= RiskLevel.MEDIUM or inp.autonomy_level >= 4):
                 return PolicyOutcome(PolicyDecision.ALLOW, f"allowed by policy rule {next(r.id for r in matched if r.effect == PolicyDecision.ALLOW)}", risk, matched_rules=ids)
         ad = autonomy_decision(inp.autonomy_level, risk, allow_rule_or_grant=allow_rule)
         return PolicyOutcome(ad.decision, ad.reason, risk, matched_rules=ids)

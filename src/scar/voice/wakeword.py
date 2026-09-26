@@ -37,7 +37,7 @@ class WakeWord:
             self.model_dir.mkdir(parents=True, exist_ok=True)
             try:
                 download_models([self.name], target_directory=str(self.model_dir))
-            except Exception as exc:  # noqa: BLE001 - network/download errors
+            except Exception as exc:
                 raise CapabilityUnavailable(f"could not download wake-word model {self.name!r}: {exc}", "docs/voice.md") from exc
         if not ww.exists():
             raise CapabilityUnavailable(f"unknown wake word {self.name!r} (try hey_jarvis, alexa, hey_mycroft)", "docs/voice.md")

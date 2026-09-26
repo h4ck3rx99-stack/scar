@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
@@ -110,10 +111,8 @@ async def run_cancellable(awaitable: Awaitable[T], token: CancelToken) -> T:
         if task in done:
             return task.result()
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):  # the task is being torn down; its error is moot
             await task
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001 - task is being torn down
-            pass
         raise Cancelled(token.reason)
     finally:
         waiter.cancel()

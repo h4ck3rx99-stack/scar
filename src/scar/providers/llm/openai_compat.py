@@ -113,6 +113,10 @@ class OpenAICompatClient:
                 "type": "json_schema",
                 "json_schema": {"name": req.json_schema_name, "schema": req.json_schema, "strict": False},
             }
+        if self.provider == "llamacpp":
+            payload["repeat_penalty"] = 1.15  # small local models loop without it
+            # hidden "thinking" (Qwen3 etc.) is discarded anyway; skipping it makes local steps several times faster
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         if req.reasoning_effort and self.provider in ("groq", "openai", "cerebras", "openrouter"):
             payload["reasoning_effort"] = req.reasoning_effort
         return payload

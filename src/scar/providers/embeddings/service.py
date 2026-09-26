@@ -37,7 +37,7 @@ class EmbeddingService:
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
                 try:
                     self._model = TextEmbedding(self.model_name, cache_dir=str(self.cache_dir), threads=2)
-                except Exception as exc:  # noqa: BLE001 - download/ONNX errors vary widely
+                except Exception as exc:
                     raise CapabilityUnavailable(f"embedding model {self.model_name} could not be loaded: {exc}",
                                                 "docs/memory.md") from exc
                 if self.local is not None:

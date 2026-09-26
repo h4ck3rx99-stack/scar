@@ -18,6 +18,11 @@ def _obs_data(task: TaskState, tool_prefix: str) -> list[dict[str, Any]]:
     return [o.result.data for o in task.observations if o.tool.startswith(tool_prefix) and o.result.status == ToolStatus.OK]
 
 
+def _fetch_log(services: Any, task_id: str) -> list[str]:
+    logs: dict[str, list[str]] = services.extras.get("fetch_log") or {}
+    return list(logs.get(task_id) or [])
+
+
 def verify_finish(task: TaskState, summary: str, evidence: list[dict[str, Any]], services: Any, registry: Any) -> VerificationResult:
     checks: list[Check] = []
     ev: dict[str, Any] = {}
@@ -52,12 +57,12 @@ def verify_finish(task: TaskState, summary: str, evidence: list[dict[str, Any]],
             except (ImportError, OSError):
                 pass
         elif kind == "url" and d.get("url"):
-            allowed = fetched_urls(services.db, task.task_id, services.extras.get("fetch_log", {}).get(task.task_id, []))
+            allowed = fetched_urls(services.db, task.task_id, _fetch_log(services, task.task_id))
             opened = [o["url"] for o in _obs_data(task, "browser.") if isinstance(o.get("url"), str)]
             ok, _bad = check_citations(str(d["url"]), allowed | {u.lower().rstrip("/") for u in opened})
             checks.append(Check(name=f"URL {d['url']} was loaded", passed=bool(ok) or str(d["url"]) in opened))
         elif kind == "tests":
-            reports = [o.get("report") for o in _obs_data(task, "dev.run_tests") if o.get("report")]
+            reports: list[dict[str, Any]] = [r for o in _obs_data(task, "dev.run_tests") if isinstance(r := o.get("report"), dict)]
             if reports:
                 last = reports[-1]
                 if "failed" in d:
@@ -89,7 +94,7 @@ def verify_finish(task: TaskState, summary: str, evidence: list[dict[str, Any]],
     # citations in the final summary must have been fetched
     urls = re.findall(r"https?://\S+", summary)
     if urls:
-        allowed = fetched_urls(services.db, task.task_id, services.extras.get("fetch_log", {}).get(task.task_id, []))
+        allowed = fetched_urls(services.db, task.task_id, _fetch_log(services, task.task_id))
         _ok, bad = check_citations(summary, allowed)
         checks.append(Check(name="summary cites only fetched URLs", passed=not bad, detail=", ".join(bad[:3])))
     # automatic evidence: verified side-effecting actions in this task count as deterministic checks

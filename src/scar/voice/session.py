@@ -198,7 +198,7 @@ class VoiceSession:
                 self._show(f"Voice problem: {exc}. Continuing with text.")
                 self.active = False
                 return
-            except Exception as exc:  # noqa: BLE001 - keep the session alive across transient errors
+            except Exception as exc:
                 log.exception("voice_loop_error")
                 self._show(f"Voice error: {exc}")
                 await asyncio.sleep(1)

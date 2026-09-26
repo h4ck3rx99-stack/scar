@@ -541,6 +541,18 @@ class DevRunTests(Tool):
         return res
 
 
+async def _tests_verify(self: DevRunTests, args: TestsInput, result: ToolResult, ctx: ToolContext) -> VerificationResult:
+    rep = result.data.get("report") or {}
+    code = result.data.get("exit_code")
+    consistent = rep.get("parsed") and ((rep.get("failed", 0) + rep.get("errors", 0) > 0) == (code not in (0, None)))
+    return VerificationResult.from_checks([Check(name="test run completed and results parsed", passed=bool(rep.get("parsed"))),
+                                           Check(name="exit code consistent with parsed results", passed=bool(consistent),
+                                                 detail=f"exit {code}")], {"report": rep})
+
+
+DevRunTests.verify = _tests_verify  # type: ignore[method-assign]
+
+
 def _failure_excerpts(text: str, failures: list[dict[str, str]], limit: int = 8000) -> str:
     """Pull the traceback sections for failing tests (pytest '____ test_x ____' blocks)."""
     blocks = re.split(r"(?m)^_{3,} (.+?) _{3,}$", text)
