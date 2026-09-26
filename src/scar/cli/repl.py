@@ -38,8 +38,11 @@ class Repl:
             event.current_buffer.insert_text("\n")
 
         settings.data_path.mkdir(parents=True, exist_ok=True)
-        self.prompt: PromptSession[str] = PromptSession(history=FileHistory(str(settings.data_path / "history.txt")),
-                                                        key_bindings=kb)
+        self.prompt: PromptSession[str] | None
+        try:
+            self.prompt = PromptSession(history=FileHistory(str(settings.data_path / "history.txt")), key_bindings=kb)
+        except Exception:  # noqa: BLE001 - no Windows console (e.g. mintty): plain line input
+            self.prompt = None
 
     def _install_sigint(self) -> None:
         import signal
@@ -60,8 +63,11 @@ class Repl:
         console.print(f"[bold]SCAR[/bold] ready ({mode}). Type /help for examples.")
         while True:
             try:
-                with patch_stdout():
-                    line = await self.prompt.prompt_async("› ")
+                if self.prompt is not None:
+                    with patch_stdout():
+                        line = await self.prompt.prompt_async("› ")
+                else:
+                    line = await asyncio.to_thread(input, "> ")
             except (EOFError, KeyboardInterrupt):
                 return
             line = line.strip()

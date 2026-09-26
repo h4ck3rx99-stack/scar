@@ -40,7 +40,11 @@ async def ainput(prompt: str, *, password: bool = False) -> str:
         session: PromptSession[str] = PromptSession()
         with patch_stdout():
             return await session.prompt_async(prompt, is_password=password)
-    except (ImportError, OSError, EOFError):
+    except Exception:  # noqa: BLE001 - no usable console for prompt_toolkit: plain input
+        if password:
+            import getpass
+
+            return await asyncio.to_thread(getpass.getpass, prompt)
         return await asyncio.to_thread(input, prompt)
 
 

@@ -51,7 +51,6 @@ def _run(coro: Any) -> Any:
 @app.callback()
 def main_callback(
     ctx: typer.Context,
-    objective: Annotated[list[str] | None, typer.Argument(help="Objective to run once, e.g. scar \"open VS Code in C:\\x\"")] = None,
     voice: Annotated[bool, typer.Option("--voice", help="Start a voice session (with text fallback)")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show tools and timings")] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Show internals: providers, fallbacks, logs")] = False,
@@ -65,6 +64,7 @@ def main_callback(
         overrides["autonomy_level"] = autonomy
     _STATE["overrides"] = {k: v for k, v in overrides.items() if v is not None}
     _STATE["verbose"], _STATE["debug"], _STATE["no_daemon"] = verbose, debug, no_daemon
+    _STATE["background"] = background
     if ctx.invoked_subcommand is not None:
         return
     settings = _settings()
@@ -73,10 +73,16 @@ def main_callback(
         from scar.voice.cli import run_voice
 
         raise typer.Exit(_run(run_voice(settings, renderer)))
-    if objective:
-        text = " ".join(objective)
-        raise typer.Exit(_run(_one_shot(settings, renderer, text, background, not no_daemon)))
     raise typer.Exit(_run(_repl(settings, renderer, not no_daemon)))
+
+
+@app.command("run", hidden=True)
+def run_objective(objective: Annotated[list[str], typer.Argument(help="What SCAR should do")]) -> None:
+    """Run one objective (`scar "<objective>"` is shorthand for this)."""
+    settings = _settings()
+    renderer = Renderer(verbose=_STATE.get("verbose", False), debug=_STATE.get("debug", False))
+    text = " ".join(objective)
+    raise typer.Exit(_run(_one_shot(settings, renderer, text, _STATE.get("background", False), not _STATE.get("no_daemon"))))
 
 
 async def _one_shot(settings: Settings, renderer: Renderer, text: str, background: bool, prefer_daemon: bool) -> int:
@@ -672,7 +678,25 @@ def _auth(name: str) -> None:
     _run(go())
 
 
+SUBCOMMANDS = {"run", "doctor", "status", "logs", "config", "tasks", "permissions", "memory", "providers", "daemon", "voice",
+               "auth", "--help", "-h"}
+
+
+def _route_argv(argv: list[str]) -> list[str]:
+    """`scar [options] <objective words>` → `scar [options] run <objective words>`."""
+    for i, tok in enumerate(argv):
+        if tok.startswith("-"):
+            if tok in ("--help", "-h"):
+                return argv
+            continue
+        if tok in SUBCOMMANDS:
+            return argv
+        return [*argv[:i], "run", *argv[i:]]
+    return argv
+
+
 def main() -> None:
+    sys.argv[1:] = _route_argv(sys.argv[1:])
     if sys.platform == "win32":
         os.environ.setdefault("PYTHONIOENCODING", "utf-8")
         try:
