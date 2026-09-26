@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 URL_RE = re.compile(r"https?://[^\s)\]>\"'`]+")
-FETCH_TOOLS = ("web.fetch", "browser.open", "browser.extract", "browser.navigate", "browser.click")
+FETCH_TOOLS = ("web.fetch", "browser.open", "browser.extract", "browser.navigate", "browser.click", "web.research")
 
 
 def _norm(url: str) -> str:

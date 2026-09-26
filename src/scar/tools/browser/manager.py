@@ -64,6 +64,7 @@ class BrowserManager:
         self._lock = asyncio.Lock()
         self.state = BrowserState()
         self.downloads: list[dict[str, Any]] = []
+        self._tab_urls: dict[int, str] = {}  # last known URL per tab, kept for crash recovery
         self.fetch_log: list[str] = []  # URLs actually loaded (for citation checks)
 
     @property
@@ -121,16 +122,21 @@ class BrowserManager:
         tid = self._next_id
         self._next_id += 1
         self._tabs[tid] = Tab(tid, page)
-        page.on("close", lambda *_: self._tabs.pop(tid, None))
+        page.on("close", lambda *_: self._on_close(tid))
         page.on("crash", lambda *_: self._mark_crashed(f"tab {tid} crashed"))
         page.on("download", self._on_download)
-        page.on("framenavigated", lambda frame: self._log_nav(frame))
+        page.on("framenavigated", lambda frame: self._log_nav(frame, tid))
         self._active = tid
         return tid
 
-    def _log_nav(self, frame: Any) -> None:
+    def _on_close(self, tid: int) -> None:
+        # a page close can mean "user closed the tab" or "the browser died"; URLs are only forgotten in close_tab()
+        self._tabs.pop(tid, None)
+
+    def _log_nav(self, frame: Any, tid: int) -> None:
         try:
             if frame.parent_frame is None and frame.url.startswith("http"):
+                self._tab_urls[tid] = frame.url
                 self.fetch_log.append(frame.url)
                 del self.fetch_log[:-500]
         except Exception:  # noqa: BLE001 - frame may be detached
@@ -146,10 +152,11 @@ class BrowserManager:
     def _mark_crashed(self, why: str) -> None:
         if self._ctx is None:
             return
+        if self.state.crashed:
+            return
         self.state.crashed = True
         self.state.crash_count += 1
-        with contextlib.suppress(Exception):
-            self.state.last_urls = [t.page.url for t in self._tabs.values() if t.page.url.startswith("http")]
+        self.state.last_urls = list(dict.fromkeys(self._tab_urls.values()))
         log.warning("browser_crashed", reason=why)
 
     async def ensure(self) -> None:
@@ -162,6 +169,7 @@ class BrowserManager:
                     await self._ctx.close()
                 self._ctx = None
             await self._launch()
+            self._tab_urls.clear()
             for url in restore[:5]:
                 page = await self._ctx.new_page()
                 with contextlib.suppress(Exception):
@@ -197,6 +205,7 @@ class BrowserManager:
             raise ToolError(f"tab {tab} does not exist", "NotFound")
         await t.page.close()
         self._tabs.pop(tab, None)
+        self._tab_urls.pop(tab, None)
         if self._active == tab:
             self._active = max(self._tabs) if self._tabs else None
 

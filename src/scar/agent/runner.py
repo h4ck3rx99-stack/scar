@@ -219,9 +219,15 @@ class TaskManager:
             self._remember_turn(task.objective, task.result_summary)
             mem = self.s.memory
             if mem is not None and task.observations and task.status in (TaskStatus.SUCCEEDED, TaskStatus.FAILED):
-                with contextlib.suppress(ValueError):
-                    mem.store(f"Task '{task.objective[:120]}' → {task.status.value}: {task.result_summary[:200]}", "task_history",
-                              importance=0.3, source="runtime", trust="runtime", ttl_days=30)
+                text = f"Task '{task.objective[:120]}' → {task.status.value}: {task.result_summary[:200]}"
+
+                def _store_history() -> None:  # embedding is CPU work: keep it off the event loop
+                    with contextlib.suppress(ValueError):
+                        mem.store(text, "task_history", importance=0.3, source="runtime", trust="runtime", ttl_days=30)
+
+                fut = asyncio.get_running_loop().run_in_executor(None, _store_history)
+                fut.add_done_callback(lambda f: f.cancelled() or not f.exception() or
+                                      log.warning("task_history_store_failed", error=str(f.exception())[:200]))
         if task.background and self.s.notifier is not None:
             title = "Task finished" if task.status == TaskStatus.SUCCEEDED else "Task needs attention"
             asyncio.create_task(self.s.notifier.notify(title, task.result_summary[:240], task_id=task.task_id))

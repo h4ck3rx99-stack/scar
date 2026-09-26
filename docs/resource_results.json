@@ -1,0 +1,195 @@
+{
+  "at": "2026-09-27 04:51:52",
+  "idle": {
+    "seconds": 60,
+    "avg_cpu_percent_of_machine": 0.002,
+    "max_cpu_percent_of_machine": 0.1,
+    "rss_mb": 75.1,
+    "threads": 21,
+    "children": [],
+    "resource_samples_taken_while_idle": 0,
+    "artifacts_created_while_idle": 0,
+    "stt_loaded": false,
+    "embeddings_loaded": false,
+    "voice_active": false,
+    "pass_cpu_below_2pct": true
+  },
+  "gpu": {
+    "vram_mb_before": 562.9453125,
+    "vram_mb_while_loaded": 6562.4140625,
+    "vram_mb_after_idle": 562.9453125,
+    "load_and_first_reply_ms": 11828,
+    "reply": "OK.",
+    "server_pids": [
+      15820,
+      23156
+    ],
+    "server_pids_alive_after_idle": [],
+    "lifecycle_events": [
+      "04:53:01 started llama-server (llm) pid 15820 on port 8080 with -ngl 99 (GPU offload 99 layers within 6144 MiB)",
+      "04:53:35 stopped llama-server (llm): idle for 24s"
+    ],
+    "gpu_processes_after": [
+      {
+        "pid": 6836,
+        "name": "CrossDeviceResume.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 13924,
+        "name": "StartMenuExperienceHost.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 13900,
+        "name": "SearchHost.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 1260,
+        "name": "dwm.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 17064,
+        "name": "msedgewebview2.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 17496,
+        "name": "LockApp.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 17280,
+        "name": "TextInputHost.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 20388,
+        "name": "PhoneExperienceHost.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 20308,
+        "name": "IntelGraphicsSoftware.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 16508,
+        "name": "claude.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 20292,
+        "name": "claude.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 21428,
+        "name": "Code.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 6836,
+        "name": "CrossDeviceResume.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 13924,
+        "name": "StartMenuExperienceHost.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 13900,
+        "name": "SearchHost.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 1260,
+        "name": "dwm.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 17064,
+        "name": "msedgewebview2.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 17496,
+        "name": "LockApp.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 17280,
+        "name": "TextInputHost.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 20388,
+        "name": "PhoneExperienceHost.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 20308,
+        "name": "IntelGraphicsSoftware.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 16508,
+        "name": "claude.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 20292,
+        "name": "claude.exe",
+        "used_mb": 0.0
+      },
+      {
+        "pid": 21428,
+        "name": "Code.exe",
+        "used_mb": 0.0
+      }
+    ],
+    "pass_released": true
+  },
+  "orphans": {
+    "children_after_complete_and_cancel": [],
+    "scar_helper_pids": [
+      8424,
+      23324
+    ],
+    "managed": [],
+    "pass_no_orphans": true
+  },
+  "bounded": {
+    "event_queue_after_100k": 256,
+    "fetch_cache_entries": 0,
+    "search_cache_entries": 0,
+    "artifact_retention_bytes_cap": 2147483648,
+    "pass_bounded": true
+  },
+  "routing": {
+    "reasoning_order": [
+      "groq",
+      "gemini",
+      "cerebras",
+      "openrouter",
+      "mistral",
+      "nvidia",
+      "cloudflare",
+      "huggingface",
+      "anthropic",
+      "openai",
+      "ollama",
+      "llamacpp"
+    ],
+    "local_after_cloud": true,
+    "cloud_available_now": false,
+    "local_inference_policy": "fallback_only"
+  },
+  "after_shutdown": {
+    "children": [],
+    "llama_server_running": false
+  }
+}

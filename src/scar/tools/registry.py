@@ -76,13 +76,23 @@ class ToolRegistry:
             out.append(tool)
         return out
 
-    def select(self, categories: set[str] | None, role: str = "executor", limit: int = 40) -> list[Tool]:
-        """Curated subset for the model: internal tools + tools in the requested categories."""
+    def select(self, categories: set[str] | None, role: str = "executor", limit: int = 40,
+               boost: list[str] | None = None) -> list[Tool]:
+        """Curated subset for the model: internal tools first, then boosted tools, then tools by category overlap."""
         tools = self.available(role)
-        if not categories:
-            return tools[:limit]
-        chosen = [t for t in tools if t.internal or set(t.categories) & categories]
-        return chosen[:limit]
+        boost = boost or []
+        if categories:
+            tools = [t for t in tools if t.internal or set(t.categories) & categories or t.name in boost]
+
+        def rank(t: Tool) -> tuple[int, int, int]:
+            if t.internal:
+                return (0, 0, 0)
+            if t.name in boost:
+                return (1, boost.index(t.name), 0)
+            overlap = len(set(t.categories) & (categories or set()))
+            return (2, -overlap, 0)
+
+        return sorted(tools, key=rank)[:limit]
 
     def info(self) -> list[ToolInfo]:
         out: list[ToolInfo] = []

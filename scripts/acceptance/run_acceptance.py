@@ -68,6 +68,12 @@ class FixtureServer:
         self.srv.shutdown()
 
 
+def clean(task: TaskState) -> bool:
+    """SCAR's own outcome must be a clean success: no failed verification, no denied steps in the reply."""
+    reply = task.result_summary.lower()
+    return task.status.value == "succeeded" and "verification failed" not in reply and "denied" not in reply
+
+
 def close_windows(pred: Callable[[win32.WindowInfo], bool]) -> int:
     n = 0
     for w in win32.list_windows():
@@ -238,7 +244,7 @@ class Harness:
         target = tree / "dir4" / "sub1" / "notes_final.txt"
         target.write_text("the unique phrase is quartz-lantern-5521")
         task = await self.run(f"Find the file in {tree} that contains the phrase 'quartz-lantern-5521'")
-        ok = task.status.value == "succeeded" and str(target).lower() in task.result_summary.lower()
+        ok = clean(task) and str(target).lower() in task.result_summary.lower()
         return {"status": "VERIFIED" if ok else "FAILED",
                 "evidence": {"reply": task.result_summary, "expected": str(target), "tools": self.tools_used(task)}}
 
@@ -299,7 +305,9 @@ class Harness:
         changed = subprocess.run(["git", "diff", "--name-only"], cwd=repo, capture_output=True, text=True).stdout.split()
         stat = subprocess.run(["git", "diff", "--numstat"], cwd=repo, capture_output=True, text=True).stdout.split()
         lines_changed = sum(int(x) for x in stat[0:2]) if len(stat) >= 2 and stat[0].isdigit() else -1
-        ok = (after.returncode == 0 and changed == ["src/calc.py"] and 0 < lines_changed <= 4)
+        ran_tests_after_fix = any(o.tool in ("dev.run_tests", "terminal.run", "terminal.exec") and o.result.status.value == "ok"
+                                  for o in task.observations[[o.tool for o in task.observations].index("fs.edit") + 1:])             if "fs.edit" in [o.tool for o in task.observations] else False
+        ok = (clean(task) and after.returncode == 0 and changed == ["src/calc.py"] and 0 < lines_changed <= 4 and ran_tests_after_fix)
         return {"status": "VERIFIED" if ok else "FAILED",
                 "evidence": {"reply": task.result_summary, "pytest_after": after.stdout.strip().splitlines()[-1:],
                              "files_changed": changed, "lines_changed": lines_changed, "tools": self.tools_used(task),
@@ -317,7 +325,7 @@ class Harness:
         cited = URL_RE.findall(text)
         _good, bad = check_citations(text, allowed)
         on_topic = ":=" in text or "walrus" in text.lower()
-        ok = doc.exists() and len(text) > 200 and on_topic and bool(cited) and not bad
+        ok = clean(task) and doc.exists() and len(text) > 200 and on_topic and bool(cited) and not bad
         return {"status": "VERIFIED" if ok else "FAILED",
                 "evidence": {"reply": task.result_summary, "doc_chars": len(text), "cited": cited, "unverified_citations": bad,
                              "fetched": sorted(allowed)[:10], "tools": self.tools_used(task), "search": self.s.search.last_provider}}
@@ -352,7 +360,7 @@ class Harness:
                 await self.s.devservers.stop(ds.id)
                 cancellable = ds.exit_code is not None
             evidence["cancelled_ok"] = cancellable
-            ok = (bool(w) and ds is not None and ds.ready_line is not None and ds.http_status is not None and bool(notes)
+            ok = (clean(task) and bool(w) and ds is not None and ds.ready_line is not None and ds.http_status is not None and bool(notes)
                   and managed and cancellable)
             return {"status": "VERIFIED" if ok else "FAILED", "evidence": evidence}
         finally:
@@ -369,7 +377,7 @@ class Harness:
         mid = next((o.result.data.get("id") for o in task.observations if o.tool == "monitor.start"), None)
         m = self.s.monitors.monitors.get(mid) if mid else None
         for _ in range(100):
-            if m is not None and m.events:
+            if m is not None and m.status != "active":  # "fired" is set after the notification is delivered
                 break
             await asyncio.sleep(0.2)
         ev = m.events[0] if m and m.events else {}

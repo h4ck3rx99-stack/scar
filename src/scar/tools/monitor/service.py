@@ -45,6 +45,7 @@ class MonitorService:
     def __init__(self, services: Any) -> None:
         self.s = services
         self.monitors: dict[str, Monitor] = {}
+        self._shutting_down = False
         limits = getattr(services.admission, "limits", None)
         self.max_monitors = limits.max_monitors if limits else 20
         self.min_interval = limits.monitor_min_interval_s if limits else 5.0
@@ -77,7 +78,9 @@ class MonitorService:
         try:
             await coro
         except asyncio.CancelledError:
-            if m.status == "active":
+            # a runtime shutdown leaves the monitor "active" in the database so it re-arms on the next start;
+            # only an explicit user cancel (cancel()) marks it cancelled
+            if m.status == "active" and not self._shutting_down:
                 self._set_status(m, "cancelled")
             raise
         except Exception as exc:  # noqa: BLE001 - a broken monitor is reported, never crashes the runtime
@@ -104,6 +107,7 @@ class MonitorService:
         return True
 
     async def stop_all(self) -> None:
+        self._shutting_down = True
         for m in list(self.monitors.values()):
             m.cancel.cancel("shutdown")
             if m.task is not None:

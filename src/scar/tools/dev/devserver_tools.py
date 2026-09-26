@@ -21,8 +21,8 @@ TERMINAL = Requires(setting="terminal_enabled")
 class StartInput(ToolInput):
     path: str = Field(description="project folder")
     command: str | None = Field(None, description="command line; default: the project's dev/start script")
-    ready_pattern: str | None = Field(None, description="regex that marks readiness in the output")
-    url: str | None = Field(None, description="URL to probe; default: first localhost URL printed")
+    ready_pattern: str | None = Field(None, description="extra readiness regex (usually omit; common ready lines are detected)")
+    url: str | None = Field(None, description="usually omit: the URL the server prints is detected and probed automatically")
     wait_ready_s: float = Field(120, ge=0, le=900, description="0 = return immediately; readiness is reported later")
     notify_when_ready: bool = True
 
@@ -47,7 +47,17 @@ class DevServerStart(Tool):
         info = detect_project(root)
         if not info.dev_command:
             raise ToolError("no dev/start script detected; pass command", "NoCommand")
-        return " ".join(f'"{c}"' if " " in c else c for c in info.dev_command)
+        # PowerShell needs the call operator to run a quoted executable path
+        return "& " + " ".join(f"'{c}'" if " " in c else c for c in info.dev_command)
+
+    def _argv(self, args: StartInput, root: Path) -> list[str]:
+        if args.command:
+            argv, _tmp = shell_argv(args.command, "powershell")
+            return argv
+        info = detect_project(root)
+        if not info.dev_command:
+            raise ToolError("no dev/start script detected; pass command", "NoCommand")
+        return list(info.dev_command)  # detected command: run the argv directly, no shell
 
     def assess(self, args: StartInput, ctx: ToolContext) -> RiskAssessment:
         root = Path(ctx.services.path_guard.check(args.path, PathOp.EXECUTE).canonical)
@@ -71,7 +81,7 @@ class DevServerStart(Tool):
     async def run(self, args: StartInput, ctx: ToolContext) -> ToolResult:
         root = check_path(ctx, args.path, PathOp.EXECUTE).path
         cmd = self._command(args, root)
-        argv, _tmp = shell_argv(cmd, "powershell")
+        argv = self._argv(args, root)
         mgr = ctx.services.devservers
         ds = await mgr.start(argv, str(root), ready_pattern=args.ready_pattern, url=args.url, task_id=ctx.task_id,
                              label=f"{root.name}: {cmd[:40]}")

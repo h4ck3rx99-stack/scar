@@ -188,4 +188,60 @@ class WebFetch(Tool):
         return self.ok(f"Read {page.get('title') or page['url']}", page, model_view=view, source=f"web:{page['url']}")
 
 
-TOOLS: list[type[Tool]] = [WebSearch, WebFetch]
+class ResearchInput(ToolInput):
+    query: str = Field(min_length=2, description="what to research")
+    max_sources: int = Field(3, ge=1, le=8)
+    chars_per_source: int = Field(2500, ge=300, le=20000)
+
+
+class WebResearch(Tool):
+    name = "web.research"
+    description = ("Research a topic in one step: web search, then fetch and extract the top sources. Returns excerpts "
+                   "with their URLs and retrieval times; these URLs become citable. Use for 'research X', 'find information "
+                   "about X', then write the summary with documents.write and list the sources.")
+    input_model = ResearchInput
+    capabilities = ("web.search", "web.fetch")
+    categories = ("web", "research", "documents")
+    output_trust = TrustLevel.UNTRUSTED_EXTERNAL
+    timeout = 180.0
+
+    def progress_line(self, args: ResearchInput) -> str | None:
+        return "Researching."
+
+    async def run(self, args: ResearchInput, ctx: ToolContext) -> ToolResult:
+        try:
+            provider, hits = await ctx.services.search.search(args.query, max(args.max_sources * 2, 5))
+        except AllProvidersFailed as exc:
+            raise CapabilityUnavailable("web search is unavailable (no search provider reachable)",
+                                        "docs/providers.md#search", str(exc)) from exc
+        sources: list[dict[str, Any]] = []
+        failures: list[str] = []
+        log = ctx.services.extras.setdefault("fetch_log", {}).setdefault(ctx.task_id, [])
+        for hit in hits:
+            if len(sources) >= args.max_sources:
+                break
+            if not hit.url.startswith(("http://", "https://")):
+                continue
+            try:
+                page = await fetch_url(hit.url)
+            except ToolError as exc:
+                failures.append(f"{hit.url}: {exc}")
+                continue
+            text = (page.get("text") or "").strip()
+            if len(text) < 200:
+                failures.append(f"{hit.url}: too little text")
+                continue
+            log.extend([hit.url, page["url"]])
+            sources.append({"title": page.get("title") or hit.title, "url": page["url"], "retrieved_at": page["retrieved_at"],
+                            "excerpt": text[: args.chars_per_source]})
+        del log[:-400]
+        if not sources:
+            raise ToolError("no source could be fetched: " + "; ".join(failures[:4]), "NoSources")
+        view = "\n\n".join(f"[{i + 1}] {s['title']}\n{s['url']} (retrieved {s['retrieved_at']})\n{s['excerpt']}"
+                            for i, s in enumerate(sources))
+        return self.ok(f"Read {len(sources)} sources about '{args.query}'", {"provider": provider, "sources": sources,
+                                                                            "failed": failures},
+                       model_view=view, source=f"research:{args.query[:60]}")
+
+
+TOOLS: list[type[Tool]] = [WebSearch, WebFetch, WebResearch]

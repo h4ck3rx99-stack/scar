@@ -40,7 +40,9 @@ def restrict_to_user(path: Path) -> None:
     dacl = win32security.ACL()
     dacl.AddAccessAllowedAce(win32security.ACL_REVISION, con.FILE_ALL_ACCESS, user)
     sd.SetSecurityDescriptorDacl(1, dacl, 0)
-    win32security.SetFileSecurity(str(path), win32security.DACL_SECURITY_INFORMATION | 0x80000000, sd)  # PROTECTED_DACL
+    # protect the DACL so inherited ACEs from the parent folder are removed
+    sd.SetSecurityDescriptorControl(win32security.SE_DACL_PROTECTED, win32security.SE_DACL_PROTECTED)
+    win32security.SetFileSecurity(str(path), win32security.DACL_SECURITY_INFORMATION, sd)
 
 
 class InstanceLock:

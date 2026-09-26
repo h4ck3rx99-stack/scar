@@ -56,7 +56,7 @@ class FastPath:
                     self._screenshot, self._sysinfo, self._processes, self._media, self._window, self._open_app)
         if compound:
             # multi-step objectives belong to the planner; only whole-utterance intents stay deterministic
-            handlers = (self._control, self._remember, self._remind, self._browser_url)
+            handlers = (self._control, self._remember, self._remind, self._watch, self._browser_url)
         for handler in handlers:
             plan = handler(t, low)
             if plan is not None:

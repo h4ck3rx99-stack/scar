@@ -20,7 +20,7 @@ import shutil
 import socket
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
@@ -57,6 +57,7 @@ class ServerState:
     last_used: float = field(default_factory=time.monotonic)
     gpu_layers: int = 0
     started_at: float = field(default_factory=time.time)
+    inflight: int = 0
 
 
 def _port_free(host: str, port: int) -> bool:
@@ -144,6 +145,9 @@ class LocalModelManager:
             mmproj = self.settings.local_vlm_mmproj_path if vlm else ""
             if mmproj and Path(mmproj).exists():
                 size_mb += Path(mmproj).stat().st_size / 2**20
+            if await self._evict_idle_peers(key):
+                # SCAR's own idle model held the VRAM; measure again now that it is released
+                await asyncio.to_thread(self.admission.monitor.refresh)
             decision = self.admission.local_inference(size_mb, purpose=key, fallback=fallback)
             if not decision.admitted:
                 raise ProviderError(ProviderErrorKind.RESOURCE, decision.reason, provider="llamacpp")
@@ -201,6 +205,28 @@ class LocalModelManager:
         self._servers.pop(key, None)
         self._log(f"stopped llama-server ({key}): {reason}")
         return True
+
+    async def _evict_idle_peers(self, key: str) -> bool:
+        """One local model at a time on the GPU: stop SCAR's other llama-server when it is not serving a request,
+        so the model being started gets the VRAM instead of falling back to CPU. It restarts on demand."""
+        stopped = False
+        for other, st in list(self._servers.items()):
+            if other != key and st.owned and st.inflight == 0:
+                stopped = await self.stop_server(other, f"making room for the {key} model") or stopped
+        return stopped
+
+    @contextlib.contextmanager
+    def serving(self, key: str) -> Iterator[None]:
+        """Mark a request in flight so the server is never evicted mid-request."""
+        st = self._servers.get(key)
+        if st is not None:
+            st.inflight += 1
+        try:
+            yield
+        finally:
+            if st is not None:
+                st.inflight -= 1
+                st.last_used = time.monotonic()
 
     def touch(self, key: str) -> None:
         st = self._servers.get(key)

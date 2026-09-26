@@ -50,6 +50,7 @@ class TaintTracker:
         self._untrusted_chars = 0
         self._trusted: list[str] = []
         self._confirmed: set[str] = set()
+        self._own: set[str] = set()
         self._local: deque[tuple[str, str]] = deque(maxlen=200)
         self._lock = threading.Lock()
 
@@ -94,8 +95,17 @@ class TaintTracker:
         with self._lock:
             self._confirmed.add(_norm(value))
 
+    def record_own(self, values: list[str]) -> None:
+        """Argument values of actions that already passed the taint check. External output that later echoes
+        them (e.g. a terminal printing the command it ran) does not make them externally derived."""
+        with self._lock:
+            for v in values:
+                n = _norm(v)
+                if len(n) >= _MIN_LEN:
+                    self._own.add(n)
+
     def _in_trusted(self, norm: str) -> bool:
-        if norm in self._confirmed:
+        if norm in self._confirmed or norm in self._own:
             return True
         return any(norm in t for t in self._trusted)
 

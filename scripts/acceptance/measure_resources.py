@@ -126,9 +126,15 @@ async def main(idle_seconds: int) -> int:
         ctx.cancel.cancel("measure")
         await long_task
         await asyncio.sleep(1)
-        kids = [f"{c.name()}#{c.pid}" for c in me.children(recursive=True)]
-        results["orphans"] = {"children_after_complete_and_cancel": kids, "managed": [m.pid for m in rt.services.processes.list()],
-                              "pass_no_orphans": not [k for k in kids if k.lower().startswith(("ping", "powershell", "python"))]}
+        helper_pids: set[int] = set()
+        parser = rt.services.command_guard.ps_parser
+        if parser is not None and parser._proc is not None:  # SCAR's own parse-only helper (idle-reaped after 5 min)
+            hp = psutil.Process(parser._proc.pid)
+            helper_pids = {hp.pid, *(c.pid for c in hp.children(recursive=True))}
+        kids = [f"{c.name()}#{c.pid}" for c in me.children(recursive=True) if c.pid not in helper_pids]
+        results["orphans"] = {"children_after_complete_and_cancel": kids, "scar_helper_pids": sorted(helper_pids),
+                              "managed": [m.pid for m in rt.services.processes.list()],
+                              "pass_no_orphans": not kids}
 
         # ---- 4. bounded growth
         bus = EventBus(queue_size=256)

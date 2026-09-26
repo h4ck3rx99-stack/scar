@@ -1,0 +1,58 @@
+{
+  "sandbox": "C:\\Users\\Avani\\scar-sandbox\\daemon-20260927-045722",
+  "start1": "\u00e2\u0153\u201c daemon started (PID 22828)",
+  "remember": {
+    "task_id": "task_01a0e00b7bf24dc3dd37",
+    "status": "succeeded",
+    "summary": "Remembered (saved)",
+    "verified": true
+  },
+  "remind": {
+    "task_id": "task_01a0e00b7de59d607df5",
+    "status": "succeeded",
+    "summary": "I'll remind you at Sun 27 Sep 04:57",
+    "verified": true
+  },
+  "watch": {
+    "task_id": "task_01a0e00b7df2dbfe6440",
+    "status": "succeeded",
+    "summary": "Watching process (mon_01a0e00b7df5f1bf7066); I'll notify you",
+    "verified": true
+  },
+  "stopped_before_due": true,
+  "stop": "Stopping\u00e2\u20ac\u00a6\n\u00e2\u0153\u201c daemon stopped",
+  "start2": "\u00e2\u0153\u201c daemon started (PID 18612)",
+  "daemon_up_after_restart": true,
+  "alias_persisted": [
+    {
+      "text": "folder alias 'restart-check-1790465244' -> C:\\Users\\Avani\\scar-sandbox\\daemon-20260927-045722"
+    }
+  ],
+  "schedule": [
+    {
+      "status": "done",
+      "missed_count": 1,
+      "fired_count": 1
+    }
+  ],
+  "monitor": [
+    {
+      "status": "interrupted",
+      "target_json": "{\"pid\": 23284, \"name\": \"python.exe\", \"crash_only\": true, \"create_time\": 1790465244.652454}"
+    }
+  ],
+  "tasks": [
+    {
+      "objective": "remember that my restart-check-1790465244 folder is at C:\\Users\\Avani\\scar-sandbox\\daemon-20260927-045722",
+      "status": "succeeded"
+    },
+    {
+      "objective": "remind me in 30 seconds to restart-check-1790465244",
+      "status": "succeeded"
+    }
+  ],
+  "missed_notifications": [
+    "Missed while SCAR was off"
+  ],
+  "status": "VERIFIED"
+}

@@ -64,7 +64,7 @@ The full list with comments is in [`.env.example`](../.env.example).
 | `SCAR_LOCAL_LLM_URL` | `'http://127.0.0.1:8080'` | llama.cpp server URL to reuse or start. |
 | `SCAR_LOCAL_LLM_SERVER_BIN` | `''` | Path to llama-server.exe (default: PATH). |
 | `SCAR_LOCAL_LLM_MODEL_PATH` | `''` | GGUF model SCAR starts llama-server with. |
-| `SCAR_LOCAL_LLM_CTX` | `8192` | Context size for the managed server. |
+| `SCAR_LOCAL_LLM_CTX` | `16384` | Context size for the managed server. |
 | `SCAR_LOCAL_VLM_MODEL_PATH` | `''` | GGUF vision model. |
 | `SCAR_LOCAL_VLM_MMPROJ_PATH` | `''` | Vision projector (mmproj) for the VLM. |
 | `SCAR_OLLAMA_URL` | `'http://127.0.0.1:11434'` | Ollama server URL (used if running). |

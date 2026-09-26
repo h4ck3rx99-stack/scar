@@ -168,6 +168,28 @@ async def test_browser_navigate_extract_type_click(runtime_parts, ctx_factory, s
         await services.browser.close()
 
 
+async def test_starting_one_model_evicts_scars_other_idle_model(services, fake_llama: Path, tmp_path: Path) -> None:
+    s = services.settings
+    for name in ("llm.gguf", "vlm.gguf"):
+        (tmp_path / name).write_bytes(bytes(1024))
+    s.local_llm_server_bin = str(fake_llama)
+    s.local_llm_model_path = str(tmp_path / "llm.gguf")
+    s.local_vlm_model_path = str(tmp_path / "vlm.gguf")
+    s.local_vlm_mmproj_path = ""
+    s.local_llm_url = f"http://127.0.0.1:{_free_port()}"
+    s.local_inference_policy = "fallback_only"
+    lm = services.local_models
+    await lm.ensure_llamacpp(vlm=True)
+    with lm.serving("vlm"):
+        await lm.ensure_llamacpp()  # the vision model is mid-request: it must not be evicted
+        assert set(lm._servers) == {"llm", "vlm"}
+    await lm.stop_server("llm")
+    await lm.ensure_llamacpp()  # now idle: evicted so the LLM gets the VRAM
+    assert set(lm._servers) == {"llm"}
+    assert "stopped llama-server (vlm): making room for the llm model" in " ".join(lm.events)
+    await lm.shutdown()
+
+
 # ---------------------------------------------------------------- dev server
 async def test_devserver_ready_and_crash(runtime_parts, ctx_factory, tmp_path: Path) -> None:
     port = _free_port()
@@ -198,6 +220,25 @@ async def test_devserver_ready_and_crash(runtime_parts, ctx_factory, tmp_path: P
         if crashes:
             break
     assert crashes and ds.status().startswith("crashed")
+
+
+
+async def test_devserver_wrong_url_and_pattern_hints_do_not_hide_readiness(runtime_parts, ctx_factory, tmp_path: Path) -> None:
+    port = _free_port()
+    (tmp_path / "server.py").write_text(textwrap.dedent(f'''
+        import http.server
+        print("Server ready at http://127.0.0.1:{port}", flush=True)
+        http.server.HTTPServer(("127.0.0.1", {port}), http.server.SimpleHTTPRequestHandler).serve_forever()
+    '''))
+    p = runtime_parts["pipeline"]
+    services = runtime_parts["services"]
+    services.settings.allowed_roots = [str(tmp_path)]
+    obs = await p.execute("devserver.start", {"path": str(tmp_path), "command": f'& "{sys.executable}" server.py',
+                                              "ready_pattern": "Server listening on", "url": f"http://localhost:{_free_port()}",
+                                              "wait_ready_s": 30}, ctx_factory(f"start the dev server in {tmp_path}"))
+    assert obs.result.ok, obs.result.summary
+    assert obs.result.data["url"] == f"http://127.0.0.1:{port}" and obs.result.data["http_status"] is not None
+    await services.devservers.stop_all()
 
 
 # ---------------------------------------------------------------- CLI

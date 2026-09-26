@@ -166,6 +166,11 @@ class ResourceMonitor:
             self.samples_taken += 1
         return self._last
 
+    def refresh(self) -> ResourceSnapshot:
+        """Force a fresh sample (after SCAR itself freed resources)."""
+        self._last = None
+        return self.last
+
     def _push(self, snap: ResourceSnapshot) -> None:
         self.history.append(snap)
         if len(self.history) > self._max_history:

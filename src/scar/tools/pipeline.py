@@ -258,6 +258,9 @@ class ToolPipeline:
         action.decision = outcome.decision
         action.decision_reason = outcome.reason
         assessment.level = max(assessment.level, outcome.risk)
+        if not tainted and tool.sensitive_args and outcome.decision == PolicyDecision.ALLOW:
+            ctx.taint.record_own([v for k, v in _string_args(action.args) if k.split(".", 1)[0].split("[", 1)[0]
+                                  in tool.sensitive_args])
         return PreparedCall(tool, action, args, assessment, outcome)
 
     async def _ask(

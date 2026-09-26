@@ -300,7 +300,11 @@ class ProviderRouter:
         for attempt in range(2):
             t0 = time.perf_counter()
             try:
-                resp = await client.chat(model, request)
+                if self.local is not None and spec.kind == "llamacpp":
+                    with self.local.serving("vlm" if model == "local-vlm" else "llm"):
+                        resp = await client.chat(model, request)
+                else:
+                    resp = await client.chat(model, request)
                 self.health.success(spec.id, model, resp.latency_ms or (time.perf_counter() - t0) * 1000)
                 tried.append(Attempt(spec.id, model, "ok", resp.latency_ms))
                 if self.local is not None:

@@ -292,3 +292,51 @@ def test_detect_project(tmp_path: Path) -> None:
     (tmp_path / "pnpm-lock.yaml").write_text("")
     info = detect_project(tmp_path)
     assert info.package_manager == "pnpm" and info.dev_command[-1] == "dev" and info.test_command[1] == "test"
+
+
+async def test_monitor_rearm_after_restart(runtime_parts, tmp_path: Path) -> None:
+    from scar.tools.monitor.service import MonitorService
+
+    services = runtime_parts["services"]
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    services.monitors.watch_folder(str(folder))
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.5)"])
+    services.monitors.watch_process(proc.pid)
+    await services.monitors.stop_all()  # "SCAR stopped"
+    for m in services.monitors.monitors.values():  # persisted rows stay active, as after a crash/stop
+        services.db.execute("UPDATE monitors SET status = 'active' WHERE monitor_id = ?", (m.id,))
+    proc.wait(10)
+    restarted = MonitorService(services)
+    notes = restarted.rearm()
+    kinds = {m.kind for m in restarted.monitors.values()}
+    assert kinds == {"folder"}  # the folder watch resumes
+    assert any("process ended while SCAR was off" in n for n in notes)
+    await restarted.stop_all()
+
+
+def test_fast_path_compound_keeps_own_phrases(services) -> None:  # type: ignore[no-untyped-def]
+    from scar.agent.fastpath.grammar import FastPath
+
+    fp = FastPath(services)
+    assert fp.match("watch process 1234 and tell me if it crashes").calls[0].tool == "monitor.start"
+    assert fp.match(r"open VS Code in C:\x, start the dev server, and tell me when it's ready") is None
+
+
+def test_card_detection_no_false_positive_on_paths() -> None:
+    assert check_write(r"my project folder is at C:\Users\x\daemon-20260927-035820", "semantic").allowed
+    assert not check_write("card 4111-1111-1111-1111", "semantic").allowed
+    assert not check_write("amex 3782 822463 10005", "semantic").allowed
+
+
+def test_winrt_before_onnxruntime_does_not_crash() -> None:
+    """winrt bundles an older msvcp140.dll; loaded first, it made a later onnxruntime import crash the process.
+    Importing scar pins the system copy, so the order no longer matters."""
+    import importlib.util
+
+    # find_spec only: without the scar package imported first, importing winrt here could crash this process
+    if importlib.util.find_spec("onnxruntime") is None or importlib.util.find_spec("winrt") is None:
+        pytest.skip("winrt or onnxruntime not installed")
+    code = "import scar\nimport winrt.windows.media.ocr\nimport onnxruntime\nprint('alive')\n"
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0 and "alive" in proc.stdout, proc.stderr[-800:]

@@ -27,7 +27,7 @@ log = structlog.get_logger("scar.executor")
 
 CATEGORY_HINTS: list[tuple[str, set[str]]] = [
     (r"\b(browser|website|web ?page|site|url|https?://|google|chrome|edge|youtube|link|form|log ?in|tab)\b", {"browser", "web"}),
-    (r"\b(research|look up|find (out|information)|search (the web|online|for)|news|compare|summari[sz]e)\b", {"web", "documents"}),
+    (r"\b(research|look up|find (out|information)|search (the web|online|for)|news|compare|summari[sz]e)\b", {"web", "documents", "research"}),
     (r"\b(e-?mail|inbox|gmail|outlook|mail)\b", {"email", "contacts", "documents"}),
     (r"\b(message|text|telegram|discord|whatsapp|dm|chat)\b", {"messaging", "contacts"}),
     (r"\b(calendar|meeting|event|appointment|schedule a|invite)\b", {"calendar", "contacts"}),
@@ -45,6 +45,32 @@ CATEGORY_HINTS: list[tuple[str, set[str]]] = [
     (r"\b(command|terminal|powershell|cmd|script|run)\b", {"terminal", "fs"}),
 ]
 BASE_CATEGORIES = {"fs", "memory"}
+
+# objective keywords -> tools that should be offered first (important when the local tool limit applies)
+TOOL_HINTS: list[tuple[str, list[str]]] = [
+    (r"\b(dev(elopment)? server|devserver|start the server|npm run dev|localhost)\b", ["devserver.start", "devserver.status", "devserver.stop"]),
+    (r"\b(vs ?code|visual studio code|editor|open .* (in|with) code)\b", ["apps.launch"]),
+    (r"\b(open|launch|start) (the )?(app|application|chrome|edge|notepad|spotify|explorer)\b", ["apps.launch"]),
+    (r"\b(research|look up|find (out|information)|summari[sz]e .* (web|online|sources))\b", ["web.research", "documents.write", "web.fetch"]),
+    (r"\b(document|report|docx|pdf|save .* to)\b", ["documents.write", "documents.read"]),
+    (r"\b(test|tests|failing|bug|fix)\b", ["dev.run_tests", "code.repo_map", "fs.search", "fs.read", "fs.edit", "git.diff"]),
+    (r"\b(find|search|locate|which file)\b", ["fs.search", "fs.list"]),
+    (r"\b(create|write|make) (a )?(file|note)\b", ["fs.write"]),
+    (r"\b(watch|monitor|crash|tell me when|let me know when)\b", ["monitor.start", "notify.send"]),
+    (r"\b(remind|reminder)\b", ["schedule.reminder"]),
+    (r"\b(screen|click|button|window)\b", ["screen.describe", "vision.click", "uia.inspect", "windows.list"]),
+    (r"\b(email|mail)\b", ["contacts.resolve", "email.send", "email.search", "email.read"]),
+    (r"\b(message|telegram|discord|whatsapp)\b", ["contacts.resolve", "message.send"]),
+]
+
+
+def boosted_tools(objective: str) -> list[str]:
+    low = objective.lower()
+    out: list[str] = []
+    for pattern, names in TOOL_HINTS:
+        if re.search(pattern, low):
+            out += [n for n in names if n not in out]
+    return out
 
 
 def categories_for(objective: str) -> set[str]:
@@ -76,7 +102,7 @@ class Executor:
                   plan_first: bool, role: str = "executor") -> ExecOutcome:
         cats = categories_for(task.objective)
         limit = 60 if self.s.router.cloud_available("reasoning") else 24
-        tools = self.registry.select(cats, role=role, limit=limit)
+        tools = self.registry.select(cats, role=role, limit=limit, boost=boosted_tools(task.objective))
         schemas = self.registry.function_schemas(tools)
         names = {t.name for t in tools}
         wire = {wire_name(t.name) for t in tools} | names
@@ -85,6 +111,7 @@ class Executor:
             task.plan = await self.planner.plan(task, sorted(names))
             task.status = TaskStatus.RUNNING
         malformed_streak = 0
+        nudges = 0
         replans = 0
         warned_repeat: set[str] = set()
         actions_taken = 0
@@ -122,6 +149,15 @@ class Executor:
                     if malformed_streak >= 2:
                         self._penalise(resp.provider, resp.model, "empty responses")
                     ctxb.add_note("Your last reply was empty. Continue: call a tool or finish.")
+                    continue
+                # the model announced an action instead of taking it ("I'll fix it now"): nudge it to act (bounded)
+                last_sentence = re.split(r"(?<=[.!?])\s+", text.strip())[-1].lower()
+                if actions_taken and nudges < 2 and re.search(
+                        r"(i'll|i will|let me|let's|i am going to|i'm going to|next,? i|now i|i can now)", last_sentence):
+                    nudges += 1
+                    ctxb.add_assistant_text(text)
+                    ctxb.add_note("You described a next step but did not do it. Perform it now with a tool call, "
+                                  "or call finish if the objective is already complete.")
                     continue
                 # plain answer: conversational reply, or a final summary without calling finish
                 ctxb.add_assistant_text(text)

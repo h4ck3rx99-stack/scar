@@ -155,6 +155,17 @@ class FsWrite(Tool):
             raise ToolError(f"{p} is a directory", "IsDirectory")
         if args.mode == "create" and p.exists():
             raise ToolError(f"{p} already exists (use mode=overwrite or fs.edit)", "Exists")
+        if p.suffix.lower() in (".md", ".markdown", ".txt", ".html", ".htm", ".rst") and ctx.task is not None:
+            from scar.tools.web.citations import check_citations, fetched_urls
+
+            allowed = fetched_urls(ctx.services.db, ctx.task_id, (ctx.services.extras.get("fetch_log") or {}).get(ctx.task_id, []))
+            _ok, unverified = check_citations(args.content, allowed)
+            user_text = ctx.scope.user_text if ctx.scope is not None else ""
+            unverified = [u for u in unverified if u.lower().rstrip("/") not in user_text.lower()]
+            if unverified:
+                raise ToolError("refusing to write a document citing URLs that were not fetched in this task (possible "
+                                f"fabricated sources): {', '.join(unverified[:5])}. Fetch them first (web.research / "
+                                "web.fetch) or remove them.", "UnverifiedCitation")
         backup = backup_file(ctx, p) if p.exists() else None
         p.parent.mkdir(parents=True, exist_ok=True)
         data = args.content.encode(args.encoding)

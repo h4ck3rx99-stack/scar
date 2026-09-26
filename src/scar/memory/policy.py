@@ -7,8 +7,11 @@ from dataclasses import dataclass
 
 from scar.security.redaction import global_redactor
 
+# contiguous 13-19 digits, or 4-digit groups (4-4-4-1..4 / 4-6-5), not glued to words, paths or dates
+_CARD = r"(?<![\w\\/.:-])(?:\d{13,19}|\d{4}(?:[ -]\d{4}){2}[ -]\d{1,4}|\d{4}[ -]\d{6}[ -]\d{5})(?![\w\\/.:-])"
+
 _SENSITIVE = [
-    ("payment card number", re.compile(r"\b(?:\d[ -]?){13,19}\b")),
+    ("payment card number", re.compile(_CARD)),
     ("government id", re.compile(r"(?i)\b(ssn|social security|passport|aadhaar|pan card|national id)\b.{0,20}\d")),
     ("us ssn", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
     ("password", re.compile(r"(?i)\b(password|passcode|pin|otp)\b\s*(is|:|=)")),
@@ -44,7 +47,7 @@ def check_write(text: str, category: str) -> WriteCheck:
 
 
 def _luhn_any(text: str) -> bool:
-    for m in re.finditer(r"\b(?:\d[ -]?){13,19}\b", text):
+    for m in re.finditer(_CARD, text):
         digits = [int(d) for d in re.sub(r"\D", "", m.group(0))]
         total = 0
         for i, d in enumerate(reversed(digits)):

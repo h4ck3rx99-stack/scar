@@ -25,6 +25,14 @@ DEFAULT_READY = r"(?i)(ready|listening|started server|server started|running at|
 URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?[^\s'\"]*")
 
 
+def _valid(pattern: str) -> bool:
+    try:
+        re.compile(f"(?i)(?:{pattern})")
+    except re.error:
+        return False
+    return True
+
+
 @dataclass
 class DevServer:
     id: str
@@ -45,6 +53,7 @@ class DevServer:
     exited_event: asyncio.Event = field(default_factory=asyncio.Event)
     task_id: str | None = None
     label: str = ""
+    printed_urls: list[str] = field(default_factory=list)
 
     def status(self) -> str:
         if self.exit_code is not None:
@@ -71,7 +80,9 @@ class DevServerManager:
             raise RuntimeError(f"too many dev servers running ({len(alive)})")
         proc, mp = await self.s.processes.spawn(argv, cwd=cwd, env=child_env(), name=label or argv[0], kind="devserver",
                                                 owner_task=None)
-        ds = DevServer(id=new_id("dev"), argv=argv, cwd=cwd, ready_pattern=ready_pattern or DEFAULT_READY, url=url,
+        # a caller-supplied pattern widens the default instead of replacing it: a wrong guess must not hide readiness
+        pattern = f"(?i)(?:{ready_pattern})|{DEFAULT_READY.removeprefix('(?i)')}" if ready_pattern and _valid(ready_pattern) else DEFAULT_READY
+        ds = DevServer(id=new_id("dev"), argv=argv, cwd=cwd, ready_pattern=pattern, url=url,
                        proc=proc, managed=mp, task_id=task_id, label=label or " ".join(argv)[:60])
         self.servers[ds.id] = ds
         asyncio.create_task(self._pump(ds, proc.stdout), name=f"devserver-out-{ds.id}")
@@ -93,10 +104,13 @@ class DevServerManager:
             line = global_redactor().redact(raw.decode("utf-8", errors="replace").rstrip())
             clean = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line)
             ds.lines.append(clean)
-            if ds.url is None:
-                m = URL_RE.search(clean)
-                if m:
-                    ds.url = m.group(0).replace("0.0.0.0", "127.0.0.1").rstrip("/.,)")
+            m = URL_RE.search(clean)
+            if m:
+                printed = m.group(0).replace("0.0.0.0", "127.0.0.1").rstrip("/.,)")
+                if printed not in ds.printed_urls and len(ds.printed_urls) < 8:
+                    ds.printed_urls.append(printed)
+                if ds.url is None:
+                    ds.url = printed
             if ds.ready_line is None and pattern.search(clean):
                 ds.ready_line = clean[:200]
                 asyncio.create_task(self._probe(ds))
@@ -106,11 +120,13 @@ class DevServerManager:
         for _ in range(attempts):
             if ds.exit_code is not None:
                 return
-            if ds.url:
+            # the server's own printed URLs outrank a caller-supplied guess
+            for candidate in dict.fromkeys([*ds.printed_urls, *([ds.url] if ds.url else [])]):
                 try:
                     async with httpx.AsyncClient(timeout=3.0, follow_redirects=True) as c:
-                        r = await c.get(ds.url)
+                        r = await c.get(candidate)
                     if r.status_code < 500:
+                        ds.url = candidate
                         ds.http_status = r.status_code
                         ds.ready_at = time.time()
                         ds.ready_event.set()
@@ -119,7 +135,7 @@ class DevServerManager:
                                                         message=f"Dev server ready at {ds.url}"))
                         return
                 except httpx.HTTPError:
-                    pass
+                    continue
             await asyncio.sleep(0.5)
         if ds.url is None:
             # no URL known: the output pattern alone is the best available signal; record that honestly

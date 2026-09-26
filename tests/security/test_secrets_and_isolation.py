@@ -122,3 +122,40 @@ async def test_scar_refuses_to_read_its_own_secrets(runtime_parts, ctx_factory) 
     (services.settings.data_path / "ipc.json").write_text('{"token": "x"}')
     obs = await runtime_parts["pipeline"].execute("fs.read", {"path": str(services.settings.data_path / "ipc.json")}, ctx_factory("x"))
     assert obs.result.status.value == "denied"
+
+
+@pytest.mark.windows
+def test_ipc_token_file_acl_is_user_only(tmp_path: Path) -> None:
+    import subprocess
+
+    from scar.runtime.ipc import restrict_to_user
+
+    p = tmp_path / "ipc.json"
+    p.write_text("{}")
+    restrict_to_user(p)
+    out = subprocess.run(["icacls", str(p)], capture_output=True, text=True).stdout
+    aces = [ln for ln in out.splitlines() if ":(" in ln]
+    assert len(aces) == 1 and "(F)" in aces[0] and "Everyone" not in out and "Users" not in out.split(":(")[0].split("\\")[-1]
+
+
+async def test_ipc_rejects_bad_token(tmp_path: Path) -> None:
+    from scar.runtime.ipc import IpcClient, IpcServer
+
+    async def handler(first, conn):  # type: ignore[no-untyped-def]
+        await conn.send({"type": "pong"})
+
+    srv = IpcServer(tmp_path, handler)
+    await srv.start()
+    try:
+        c = IpcClient(tmp_path)
+        assert await c.connect()
+        c._token = "wrong"
+        resp = await c.request("ping")
+        assert resp == {"type": "error", "error": "unauthorized"}
+        await c.close()
+        good = IpcClient(tmp_path)
+        await good.connect()
+        assert (await good.request("ping"))["type"] == "pong"
+        await good.close()
+    finally:
+        await srv.stop()

@@ -15,7 +15,7 @@ from scar.tools.base import Tool, ToolContext, ToolInput
 from scar.tools.documents.readers import read_any
 from scar.tools.documents.writers import write_document
 from scar.tools.fs.common import backup_file, check_path, sha256_file
-from scar.tools.web.citations import check_citations, fetched_urls
+from scar.tools.web.citations import URL_RE, check_citations, fetched_urls
 
 
 class ReadInput(ToolInput):
@@ -106,6 +106,12 @@ class DocumentsWrite(Tool):
         body = args.content + ("\n\n## Sources\n" + "\n".join(f"- {u}" for u in args.sources) if args.sources and
                                not all(u in args.content for u in args.sources) else "")
         allowed = fetched_urls(ctx.services.db, ctx.task_id, ctx.services.extras.get("fetch_log", {}).get(ctx.task_id, []))
+        if not URL_RE.search(body):
+            # provenance: a document written in a task that read web sources lists the sources actually fetched
+            consulted = list(dict.fromkeys(u for u in (ctx.services.extras.get("fetch_log") or {}).get(ctx.task_id, [])
+                                           if u.startswith(("http://", "https://"))))[:10]
+            if consulted:
+                body += "\n\n## Sources consulted\n" + "\n".join(f"- {u}" for u in consulted)
         user_urls = set()
         if ctx.scope is not None:
             _ok, from_user = check_citations(ctx.scope.user_text, set())

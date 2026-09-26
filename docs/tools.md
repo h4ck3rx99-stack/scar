@@ -183,6 +183,7 @@ Generated from the registry by `scripts/gen_docs.py`.
 | `vision.click` | MEDIUM | local | input.mouse | Click an on-screen element described in words ('click the blue Submit button'). Grounds via UIA, OCR or set-of-marks vision, prefers UIA Invoke, and keeps focus safety. |
 | `vision.locate` | LOW | none | screen.read | Find an on-screen element from a description (UIA → OCR → set-of-marks vision). Returns screen coordinates and, for UIA matches, an element id for uia.act. Does not click. |
 | `web.fetch` | LOW | none | web.fetch | Fetch a web page (or PDF/text) and extract its main content. Fetched URLs become citable sources for this task. |
+| `web.research` | LOW | none | web.search, web.fetch | Research a topic in one step: web search, then fetch and extract the top sources. Returns excerpts with their URLs and retrieval times; these URLs become citable. Use for 'research X', 'find information about X', then write the summary with documents.write and list the sources. |
 | `web.search` | LOW | none | web.search | Search the web. Returns titles, URLs and snippets (then use web.fetch to read sources). |
 | `windows.arrange` | MEDIUM | local | windows.control | Move, resize, minimize, maximize, restore or snap a window (virtual-screen pixels). |
 | `windows.close` | MEDIUM | local | windows.control | Close a window gracefully (like clicking X). force=true kills the app if it will not close. |

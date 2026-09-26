@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Any
 
 import psutil
 
-from scar.core.types import Check, SideEffect, TaskState, ToolStatus, VerificationResult
+from scar.core.types import Check, SideEffect, TaskState, ToolStatus, TrustLevel, VerificationResult
 from scar.tools.fs.common import sha256_file
 from scar.tools.web.citations import check_citations, fetched_urls
 
@@ -95,7 +96,11 @@ def verify_finish(task: TaskState, summary: str, evidence: list[dict[str, Any]],
     urls = re.findall(r"https?://\S+", summary)
     if urls:
         allowed = fetched_urls(services.db, task.task_id, _fetch_log(services, task.task_id))
-        _ok, bad = check_citations(summary, allowed)
+        # URLs SCAR itself produced in structured results (e.g. a dev server's address) are facts, not citations
+        for o in task.observations:
+            if o.result.status == ToolStatus.OK and o.result.provenance.trust != TrustLevel.UNTRUSTED_EXTERNAL:
+                allowed |= {u.lower().rstrip("/.,;:") for u in re.findall(r"https?://[^\s\"'<>)]+", json.dumps(o.result.data, default=str))}
+        _ok, bad = check_citations(summary, {a.replace("http://", "https://").replace("://www.", "://") for a in allowed})
         checks.append(Check(name="summary cites only fetched URLs", passed=not bad, detail=", ".join(bad[:3])))
     # automatic evidence: verified side-effecting actions in this task count as deterministic checks
     for o in task.observations:
@@ -103,6 +108,9 @@ def verify_finish(task: TaskState, summary: str, evidence: list[dict[str, Any]],
         if v is not None and v.verified is True and o.result.status == ToolStatus.OK:
             checks.append(Check(name=f"{o.tool}: {o.result.summary[:60]}", passed=True))
     ev["unverified_actions"] = unverified_actions
+    ev["side_effects"] = any(
+        o.result.status == ToolStatus.OK and (t := registry.get(o.tool) if registry is not None else None) is not None
+        and t.side_effects != SideEffect.NONE and not t.internal for o in task.observations)
     ev["failed_postconditions"] = failed_actions
     if failed_actions:
         checks.append(Check(name="no failed postconditions", passed=False, detail=", ".join(failed_actions[:4])))
@@ -114,6 +122,8 @@ def verify_finish(task: TaskState, summary: str, evidence: list[dict[str, Any]],
 
 
 def honest_summary(summary: str, verification: VerificationResult | None) -> str:
+    if verification is not None and verification.verified is None and verification.evidence.get("side_effects") is False:
+        return summary  # read-only task: the answer comes straight from tool results, nothing to confirm
     if verification is None or verification.verified is None:
         if "couldn't confirm" in summary.lower() or "could not confirm" in summary.lower():
             return summary

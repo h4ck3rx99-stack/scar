@@ -103,7 +103,27 @@ with evidence; **IMPLEMENTED-UNVERIFIED** means the code is complete and tested 
 needs the named prerequisite. Evidence is in [docs/ACCEPTANCE_REPORT.md](docs/ACCEPTANCE_REPORT.md).
 
 <!-- status-table -->
-See [docs/ACCEPTANCE_REPORT.md](docs/ACCEPTANCE_REPORT.md).
+| Capability | Status | Evidence / prerequisite |
+|---|---|---|
+| Files: read, write, search, move, trash, backups | VERIFIED | D3.5, D3.6; `test_fs_pipeline.py` |
+| Terminal / PowerShell with AST command guard, Job Objects | VERIFIED | D3.3, D3.9; `test_terminal.py`, `test_command_guard.py` |
+| Apps, windows, UIA, keyboard/mouse (SendInput), clipboard | VERIFIED | D3.1, D3.11; 6 live tests in `tests/e2e/test_live_windows.py` |
+| Screen capture + Windows OCR, local vision (LLaVA) | VERIFIED | D3.4 |
+| Browser automation (Playwright, Chrome), crash restore | VERIFIED | D3.2; `test_lifecycle_browser_dev.py` |
+| Web search (ddgs fallback) + fetch + research with citation checks | VERIFIED | D3.10 |
+| Web search via Brave / Tavily / SearXNG | IMPLEMENTED-UNVERIFIED | `BRAVE_API_KEY` / `TAVILY_API_KEY` / `SCAR_SEARXNG_URL` |
+| Documents: read PDF/DOCX/CSV/…, write MD/TXT/DOCX/PDF | VERIFIED | D3.10; unit tests |
+| Dev: tests, git, code run, repo map, dev servers | VERIFIED | D3.3, D3.9, D3.11 |
+| GitHub API tools | IMPLEMENTED-UNVERIFIED | `GITHUB_TOKEN` ([docs/integrations/github.md](docs/integrations/github.md)) |
+| Process monitors, scheduler, notifications, daemon restart | VERIFIED | D3.12; `daemon_restart_check.py` |
+| Memory (SQLite FTS5 + FAISS, write policy, aliases) | VERIFIED | D3.1 (alias), daemon restart check |
+| Local LLM (managed llama.cpp server, Ollama) | VERIFIED | all model-driven scenarios ran locally |
+| Cloud LLM / vision / STT / TTS providers | IMPLEMENTED-UNVERIFIED | provider API keys ([docs/providers.md](docs/providers.md)); HTTP-mock tests |
+| Voice: wake word, VAD, faster-whisper STT, SAPI/edge TTS, voice approval | VERIFIED | loopback test via Virtual Audio Cable |
+| Email (Gmail, Outlook, IMAP/SMTP) | IMPLEMENTED-UNVERIFIED | `scar auth google` or `scar auth microsoft` or IMAP credentials (D3.7) |
+| Messaging (Telegram bot, Discord bot, WhatsApp desktop) | IMPLEMENTED-UNVERIFIED | bot tokens / WhatsApp desktop sign-in (D3.8) |
+| Calendar (Google, Microsoft) | IMPLEMENTED-UNVERIFIED | `scar auth google` or `scar auth microsoft` |
+| Security model (policy, approvals, taint, injection defense, kill switch, audit) | VERIFIED | D5 security tests (see report) |
 <!-- /status-table -->
 
 ## Documentation
