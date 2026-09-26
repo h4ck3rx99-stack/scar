@@ -1,0 +1,62 @@
+# SCAR default permission policy.
+#
+# Copy this file to %APPDATA%\SCAR\policy.yaml to customise it; the user file
+# is merged over these defaults (user rules are evaluated first; DENY always
+# beats ALLOW). Rule fields:
+#   id, effect (allow | ask | deny), reason
+#   match: tool, capability, min_risk, max_risk (LOW..CRITICAL), path (globs),
+#          command (regexes), app, recipient (globs), domain (globs)
+#   escalate_to: raise the action's risk to this level when matched
+#
+# hard_deny: these can only be switched off by editing this file by hand.
+# Grants, autonomy level and model output can never enable them.
+version: 1
+
+hard_deny:
+  captcha_bypass: true
+  disable_defender: true
+  disable_firewall: true
+  disable_uac: true
+  credential_extraction: true
+  exfiltrate_scar_secrets: true
+  self_elevation: true
+  clear_event_logs: true
+  delete_shadow_copies: true
+  kill_critical_process: true
+  secret_paths: true
+
+rules:
+  - id: finance-is-critical
+    effect: ask
+    reason: Purchases, payments and financial actions always need typed confirmation.
+    match:
+      capability: ["finance.*", "browser.payment"]
+    escalate_to: CRITICAL
+
+  - id: credential-entry-is-critical
+    effect: ask
+    reason: Entering passwords or payment data needs typed confirmation.
+    match:
+      capability: ["browser.credential", "security.credential"]
+    escalate_to: CRITICAL
+
+  - id: autostart-is-high
+    effect: ask
+    reason: Registering programs to run at logon changes persistence.
+    match:
+      capability: ["system.autostart"]
+    escalate_to: HIGH
+
+  - id: downloads-never-auto-execute
+    effect: deny
+    reason: Downloaded files are never executed automatically.
+    match:
+      capability: ["exec.downloaded"]
+
+  - id: trusted-dev-read-commands
+    effect: allow
+    reason: Common read-only developer commands.
+    match:
+      tool: ["terminal.run"]
+      command: ["^git (status|diff|log|show|branch)( |$)", "^(npm|pnpm|yarn) (test|run test|ls)( |$)", "^(uv run )?pytest( |$)"]
+      max_risk: MEDIUM

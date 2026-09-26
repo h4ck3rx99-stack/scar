@@ -1,0 +1,51 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# secrets & local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+client_secret*.json
+credentials*.json
+token*.json
+*.session
+
+# runtime data
+data/
+logs/
+artifacts/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# model weights
+*.gguf
+*.onnx
+*.bin
+*.safetensors
+*.tflite
+models/
+
+# os / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# acceptance sandbox
+.acceptance_sandbox/

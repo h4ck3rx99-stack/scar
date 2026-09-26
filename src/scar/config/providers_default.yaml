@@ -1,0 +1,155 @@
+# SCAR provider catalog and default fallback chains.
+# Evaluated 2026-09-26 (see docs/providers.md for limits, data terms and sources).
+# Override by copying to %APPDATA%\SCAR\providers.yaml (merged: user categories replace defaults).
+# Models are resolved against each provider's live /models list; missing models are skipped.
+
+providers:
+  groq:
+    kind: openai_compat
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: [GROQ_API_KEY]
+    tier: free
+    privacy: cloud
+    data_terms: "Free tier; inputs not used for training per Groq policy; org-level rate limits."
+    setup_doc: docs/providers.md#groq
+  gemini:
+    kind: gemini
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    api_key_env: [GEMINI_API_KEY, GOOGLE_API_KEY]
+    tier: free
+    privacy: cloud
+    data_terms: "UNPAID tier: Google may use prompts and responses to improve its products (human review possible)."
+    setup_doc: docs/providers.md#gemini
+  cerebras:
+    kind: openai_compat
+    base_url: https://api.cerebras.ai/v1
+    api_key_env: [CEREBRAS_API_KEY]
+    tier: free
+    privacy: cloud
+    data_terms: "Free trial credits (verified payment method required)."
+    setup_doc: docs/providers.md#cerebras
+  openrouter:
+    kind: openai_compat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: [OPENROUTER_API_KEY]
+    tier: free
+    privacy: cloud
+    data_terms: "':free' models: 20 RPM, 50 req/day (1000/day after $10 credit). Free endpoints may log prompts."
+    headers: {"HTTP-Referer": "https://github.com/scar-agent", "X-Title": "SCAR"}
+    setup_doc: docs/providers.md#openrouter
+  mistral:
+    kind: openai_compat
+    base_url: https://api.mistral.ai/v1
+    api_key_env: [MISTRAL_API_KEY]
+    tier: free
+    privacy: cloud
+    data_terms: "Experiment (free) plan: low rate limits; data may be used for training unless opted out."
+    setup_doc: docs/providers.md#mistral
+  nvidia:
+    kind: openai_compat
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key_env: [NVIDIA_API_KEY]
+    tier: free
+    privacy: cloud
+    data_terms: "NVIDIA API catalog developer access (trial credits / rate limited)."
+    setup_doc: docs/providers.md#nvidia
+  cloudflare:
+    kind: openai_compat
+    base_url: https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1
+    api_key_env: [CLOUDFLARE_API_TOKEN]
+    requires_env: [CLOUDFLARE_ACCOUNT_ID]
+    tier: free
+    privacy: cloud
+    data_terms: "Workers AI free allocation of daily neurons."
+    setup_doc: docs/providers.md#cloudflare
+    list_models: false
+  huggingface:
+    kind: openai_compat
+    base_url: https://router.huggingface.co/v1
+    api_key_env: [HF_TOKEN]
+    tier: free
+    privacy: cloud
+    data_terms: "Inference Providers: small monthly free credit; routed to third-party providers."
+    setup_doc: docs/providers.md#huggingface
+  ollama:
+    kind: ollama
+    base_url: "{ollama_url}/v1"
+    tier: local
+    privacy: local
+    data_terms: "Runs on this computer; nothing leaves the machine."
+    setup_doc: docs/providers.md#ollama
+  llamacpp:
+    kind: llamacpp
+    base_url: "{local_llm_url}/v1"
+    tier: local
+    privacy: local
+    data_terms: "Runs on this computer; nothing leaves the machine."
+    setup_doc: docs/providers.md#llamacpp
+  lmstudio:
+    kind: openai_compat
+    base_url: http://127.0.0.1:1234/v1
+    tier: local
+    privacy: local
+    data_terms: "Runs on this computer."
+    setup_doc: docs/providers.md#lm-studio
+    optional_local: true
+  anthropic:
+    kind: anthropic
+    base_url: https://api.anthropic.com/v1
+    api_key_env: [ANTHROPIC_API_KEY]
+    tier: paid
+    privacy: cloud
+    data_terms: "Paid API; not used for training by default."
+    setup_doc: docs/providers.md#paid-providers
+  openai:
+    kind: openai_compat
+    base_url: https://api.openai.com/v1
+    api_key_env: [OPENAI_API_KEY]
+    tier: paid
+    privacy: cloud
+    data_terms: "Paid API; not used for training by default."
+    setup_doc: docs/providers.md#paid-providers
+
+categories:
+  reasoning:
+    - {provider: groq, models: [openai/gpt-oss-120b, qwen/qwen3.8-27b]}
+    - {provider: gemini, models: [gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash]}
+    - {provider: cerebras, models: [gpt-oss-120b, qwen-3.8-27b]}
+    - {provider: openrouter, models: ["openai/gpt-oss-120b:free", "qwen/qwen3-235b-a22b:free", "meta-llama/llama-3.3-70b-instruct:free"]}
+    - {provider: mistral, models: [mistral-medium-latest, mistral-small-latest]}
+    - {provider: nvidia, models: [openai/gpt-oss-120b]}
+    - {provider: cloudflare, models: ["@cf/openai/gpt-oss-120b"]}
+    - {provider: huggingface, models: [openai/gpt-oss-120b]}
+    - {provider: anthropic, models: [claude-sonnet-5]}
+    - {provider: openai, models: [gpt-5-mini]}
+    - {provider: ollama, models: [qwen3:8b, llama3.2:latest], local: true, size_mb: 5200}
+    - {provider: llamacpp, models: [local], local: true, size_mb: 5200}
+  fast:
+    - {provider: groq, models: [openai/gpt-oss-20b, openai/gpt-oss-120b]}
+    - {provider: gemini, models: [gemini-3.5-flash-lite, gemini-3.1-flash-lite, gemini-3.5-flash]}
+    - {provider: cerebras, models: [gpt-oss-120b]}
+    - {provider: openrouter, models: ["openai/gpt-oss-20b:free"]}
+    - {provider: ollama, models: [llama3.2:latest, qwen3:8b], local: true, size_mb: 2000}
+    - {provider: llamacpp, models: [local], local: true, size_mb: 5200}
+  vision:
+    - {provider: gemini, models: [gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.5-flash-lite]}
+    - {provider: groq, models: [qwen/qwen3.8-27b]}
+    - {provider: openrouter, models: ["qwen/qwen2.5-vl-72b-instruct:free", "meta-llama/llama-4-maverick:free"]}
+    - {provider: mistral, models: [mistral-medium-latest, pixtral-12b-latest]}
+    - {provider: ollama, models: [llava:latest], local: true, size_mb: 4700}
+    - {provider: llamacpp, models: [local-vlm], local: true, size_mb: 4700, vlm: true}
+  stt:
+    - {provider: groq, models: [whisper-large-v3-turbo, whisper-large-v3]}
+    - {provider: faster-whisper, models: [base], local: true, size_mb: 150}
+  tts:
+    - {provider: azure-speech, models: [en-US-AriaNeural]}
+    - {provider: edge-tts, models: [en-US-AriaNeural]}
+    - {provider: sapi, models: [default], local: true}
+    - {provider: kokoro, models: [af_heart], local: true, size_mb: 350}
+  embeddings:
+    - {provider: fastembed, models: [BAAI/bge-small-en-v1.5], local: true, size_mb: 130}
+  search:
+    - {provider: brave, models: [web]}
+    - {provider: tavily, models: [basic]}
+    - {provider: searxng, models: [web]}
+    - {provider: ddgs, models: [web]}
