@@ -205,6 +205,12 @@ class ToolPipeline:
             ):
                 assessment.raise_to(assessment.level.escalate(1), "destructive arguments derived from external content")
 
+        # memory writes after reading external content need the user's confirmation (not grantable)
+        if any(c.startswith("memory.write") for c in tool.capabilities) and ctx.taint.untrusted_chars > 0:
+            texts = [v for _, v in _string_args(action.args)]
+            if not all(ctx.scope is not None and ctx.scope.mentions(t[:80]) for t in texts if t):
+                tainted.append("memory write in a task that has read external content")
+
         # exfiltration control
         if tool.side_effects == SideEffect.EXTERNAL or any(k in ("url", "domain") for k in tool.sensitive_args.values()):
             outgoing = [v for k, v in _string_args(action.args) if tool.sensitive_args.get(k.split(".", 1)[0]) in
@@ -373,6 +379,9 @@ class ToolPipeline:
             if flags:
                 log.warning("injection_indicators", tool=tool.name, flags=flags, source=result.provenance.source[:120])
             view = wrap_untrusted(view, result.provenance, flags)
+            if tool.data_class in _LOCAL_CLASSES:
+                # local files/emails/screens are both untrusted *and* private: record for exfiltration control
+                ctx.taint.record_local(full_text, tool.data_class)
         elif tool.data_class in _LOCAL_CLASSES and result.status == ToolStatus.OK:
             ctx.taint.record_local(view + " " + " ".join(v for _, v in _string_args(result.data)), tool.data_class)
         result.model_view = view

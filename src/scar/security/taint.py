@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 _WS = re.compile(r"\s+")
+_ENTITY = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+|https?://[^\s\"'<>]+|[A-Za-z]:\\[^\s\"'<>]+")
 _MIN_LEN = 4
 _MAX_TOTAL_CHARS = 4_000_000
 
@@ -132,6 +133,13 @@ class TaintTracker:
                 continue
             if isinstance(value, str):
                 src = self.sources_of(value)
+                if not src:
+                    # free text: check embedded entities (emails, URLs, Windows paths) individually
+                    for ent in _ENTITY.findall(value):
+                        src = self.sources_of(ent)
+                        if src:
+                            value = ent
+                            break
                 if src:
                     hits.append(TaintHit(name, value[:120], src))
         return hits

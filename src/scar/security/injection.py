@@ -17,7 +17,7 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("override_instructions", re.compile(
         r"(?i)\b(ignore|disregard|forget|override|bypass)\b.{0,40}\b(previous|prior|above|earlier|all|your|system|the)\b"
         r".{0,20}\b(instructions?|prompts?|rules?|directives?|guidelines?|context)\b")),
-    ("role_hijack", re.compile(r"(?i)\b(you are now|act as|pretend to be|from now on,? you|your new (role|task|instructions?))\b")),
+    ("role_hijack", re.compile(r"(?i)\b(you are now|act as|pretend to be|from now on,? you|your new (role|task|instructions?)|new instructions)\b")),
     ("fake_system", re.compile(r"(?i)(^|\n)\s*(system|assistant|developer)\s*[:>]|<\|?(im_start|im_end|system|endoftext)\|?>|\[/?INST\]|<<SYS>>")),
     ("secrecy", re.compile(r"(?i)\b(do not|don't|never) (tell|inform|notify|mention|alert) (the )?(user|human|owner)\b")),
     ("exfiltration", re.compile(
@@ -31,7 +31,7 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 _ZERO_WIDTH = re.compile("[​‌‍⁠﻿᠎]")
 _BIDI = re.compile("[‪-‮⁦-⁩]")
 _TAG_CHARS = re.compile("[\U000e0000-\U000e007f]")
-_B64_BLOB = re.compile(r"[A-Za-z0-9+/]{120,}={0,2}")
+_B64_BLOB = re.compile(r"[A-Za-z0-9+/]{60,}={0,2}")
 
 
 def detect(text: str) -> list[str]:
