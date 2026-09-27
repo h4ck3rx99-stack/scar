@@ -65,10 +65,13 @@ def print_status(st: dict[str, Any]) -> None:
         for x in st["running_tasks"]:
             t.add_row(x["task_id"], x["status"], x["objective"])
         console.print(t)
-    t = Table("task", "status", "objective", "result", title="Recent tasks", title_justify="left")
-    for x in st["recent_tasks"]:
-        t.add_row(x["task_id"][-10:], x["status"], (x["objective"] or "")[:40], (x["result_summary"] or "")[:60])
-    console.print(t)
+    if st["recent_tasks"]:
+        t = Table("task", "status", "objective", "result", title="Recent tasks", title_justify="left")
+        for x in st["recent_tasks"]:
+            t.add_row(x["task_id"][-10:], x["status"], (x["objective"] or "")[:40], (x["result_summary"] or "")[:60])
+        console.print(t)
+    else:
+        console.print("[bold]Recent tasks[/bold] none yet")
     if st["monitors"]:
         t = Table("monitor", "kind", "status", title="Monitors", title_justify="left")
         for m in st["monitors"][:10]:

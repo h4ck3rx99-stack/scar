@@ -14,10 +14,40 @@ Legend: WORKING (verified live this audit) · PARTIAL · BROKEN · MISSING · BL
 
 | Area | Status | Evidence / note |
 |---|---|---|
-| CLI entry (`scar`, subcommands) | WORKING after fixes | F-01, F-02 |
-| Desktop UI | MISSING | No desktop app exists; CLI/REPL only. Building one changes product scope → needs owner decision |
-
-(filled in as the audit proceeds)
+| Reasoning / agent loop / planning | WORKING | live CLI: multi-step E2E fix workflow; planner for multi-clause objectives; 19 agent tests |
+| Tool calling, registry (114 tools), tool selection | WORKING | relevance-ranked selection with hints; 110 tools, 97 referenced by tests |
+| Permission engine, approvals, autonomy 0–4 | WORKING | 150 security tests; live approval prompt observed |
+| Verification ("done" only when done) | WORKING after F-07/F-08 | objective checks + postconditions; false-success regression tests |
+| Provider routing / fallback / degraded mode | WORKING | live: invalid Groq key → Ollama (down) → llama.cpp; no model → honest degraded reply |
+| Resource-aware routing | WORKING | live: GPU offload reduced to 21 layers while a game used VRAM; idle unload; eviction of idle VLM |
+| Local inference (llama.cpp managed, Ollama) | WORKING (llama.cpp) / NOT VERIFIED (Ollama: not running here) | every live test ran on local Qwen3-8B |
+| Cloud inference | BLOCKED (credential) | HTTP-mock tests; no keys on this machine |
+| Memory (remember/recall/alias/forget) | WORKING | live CLI; smoke tests |
+| Filesystem | WORKING | live create/find/summarise; smoke tests |
+| Terminal / PowerShell | WORKING | acceptance D3.3/D3.9; command-guard tests |
+| Process management | WORKING | smoke test start/list/inspect/wait/stop |
+| Windows automation (windows, UIA) | WORKING | live VS Code / Notepad open+close; 6 live desktop tests (pre-audit run) |
+| Keyboard / mouse / clipboard | WORKING (pre-audit live run) | not re-run during the audit to avoid disturbing the user's session |
+| Screenshot / OCR / vision | WORKING | live "what is on my screen?" (F-11 fixed) |
+| Browser automation | WORKING | live one-shot handoff (F-12); 13 browser actions headless-tested |
+| Web research | WORKING | D3.10; research test with local-network filtering |
+| Voice input / STT / TTS | PARTIAL | synthetic-speech pipeline + session tests pass; live mic/wake word not re-verified |
+| Voice approval | WORKING (tests) | policy tests: voice cannot confirm CRITICAL |
+| Email / messaging / contacts | BLOCKED (credential) | fixture tests; honest not-connected replies (F-17) |
+| Calendar | WORKING (local/.ics) / BLOCKED (Google, Outlook) | F-15 caveat; create/update/list tests |
+| Reminders / scheduling / notifications | WORKING | smoke tests; daemon run |
+| Git | WORKING | smoke test status/diff/commit/branch/log/stash/clone |
+| GitHub | BLOCKED (credential) | mocked-API tests |
+| Coding workflows | WORKING | live E2E: diagnose → edit → re-run → report |
+| Multi-agent (sub-agents) | NOT VERIFIED live | scripted test only |
+| Long-running tasks / cancellation | WORKING | cancellation tests; daemon background task |
+| Prompt-injection protection | WORKING | 150 security tests; live hidden-instruction page resisted |
+| Logging / observability / diagnostics | WORKING | `scar logs`, `status`, `doctor`; fallbacks visible (F-21) |
+| CLI | WORKING after F-01/F-06/F-14 | all groups exercised |
+| Desktop UI | MISSING | CLI/REPL only — building one changes scope; owner decision |
+| Configuration | WORKING | `config set/show/validate`; SCAR_MODELS_DIR added |
+| Documentation | UPDATED | docs/SETUP.md added; README table from audit evidence |
+| Tests | 340 passed, 6 skipped (live desktop) | ruff clean, pyright strict 0 errors |
 
 ## Findings
 
@@ -44,15 +74,29 @@ Legend: WORKING (verified live this audit) · PARTIAL · BROKEN · MISSING · BL
 | F-19 | Low | Silero VAD failure silently degraded to energy VAD | FIXED: logged |
 | F-20 | Medium (honesty) | When the model became unreachable mid-task, the reply hid the actions already done | FIXED: "I lost the language model partway through… Already done: …". Test added |
 | F-21 | Low (observability) | Candidate-level provider failures (bad key, server down) were not logged and not shown as fallbacks | FIXED: `provider_error` logs + `⇄ groq → llamacpp/local` in `--debug` (verified live with an invalid key) |
+| F-22 | Medium (security) | `web.research` fetched any URL a search engine returned, including local-network addresses (router, NAS, cloud metadata); `web.fetch`'s local-network check missed 172.16/12 and IPv6 | FIXED: research skips local hosts the user did not name; `ipaddress`-based detection. Tests added |
+| F-23 | Low (UX) | Approval reasons were internal jargon ("arguments come from external content: … came from fs-search:C:…") | FIXED: "this uses details you didn't give yourself — the path … came from a file search in …" |
+| F-24 | Low (UX) | Updating an event in SCAR's own local calendar required approval (HIGH) while creating one did not | FIXED: MEDIUM for the local calendar; Google/Outlook updates stay HIGH |
+| F-25 | Low (UX) | REPL gave no hint that no cloud model is set (slow answers with no explanation); `scar status` drew an empty tasks table | FIXED: one-line model note in the banner; empty states |
+| F-26 | Medium (tests) | 62 of 110 tools were never referenced by any test | FIXED: 22 smoke tests; 13 remain (GUI-only or credential-only: apps.open, browser.upload, dev.install, email.draft/reply/search, git.integrate, message.recent, system.media, uia.inspect, vision.ask, windows.wait) |
 
 ## Test evidence
 
-(appended as runs complete)
+* Full suite: 340 passed, 6 skipped (live desktop tests, gated by SCAR_LIVE_TESTS=1); ruff clean; pyright strict 0 errors.
+* Live CLI (one-shot, real local model, sandbox `~/scar-sandbox/audit-ux`): system resources; remember/recall; create a
+  file; find a file by content; summarise a document; open VS Code in a folder; start/close Notepad; open Chrome at a
+  URL (page kept open); what is on my screen; run tests; end-to-end find-and-fix (215 s); calendar question;
+  Telegram/email without credentials; invalid Groq key fallback; no-model degraded mode; hidden prompt-injection page.
+* Daemon: start → background task → status → stop; no processes left behind.
+* Windows opened by tests were closed by the tests. Exception: the calendar question (before F-15) opened Google
+  Calendar in the user's default browser (Opera); it was left open because it may have joined an existing window.
 
-## Next steps
+## Remaining work (owner decisions / external)
 
-1. Realistic user-command pass through the one-shot CLI on the fresh DB.
-2. Provider fallback live test (invalid cloud key → local → degraded).
-3. Failure-path tests (model down mid-task, tool errors, cancellation, malformed model output).
-4. Live injection test (served page with instructions).
-5. Architecture / docs review, setup checklist, final report.
+1. Desktop UI: none exists. Building one is a scope decision for the owner.
+2. Add at least one free cloud key (Groq or Gemini) to verify cloud inference and fallback live; local-only answers
+   take 20–60 s on this laptop.
+3. Connect accounts (Gmail/Outlook, Telegram, Discord, WhatsApp, GitHub) to verify the BLOCKED integrations live.
+4. Re-verify voice live (microphone + wake word) when the machine is free: `uv run scar voice test`.
+5. Re-run the full acceptance suite when the desktop can be used by tests (`SCAR_LIVE_TESTS=1 uv run python
+   scripts/acceptance/run_acceptance.py`); it opens windows, so it was not re-run during the user's session.
