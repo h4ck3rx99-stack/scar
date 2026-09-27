@@ -73,6 +73,13 @@ class _FakeMic:
 
         self.muted = threading.Event()
         self.drained = 0
+        self.alive = True
+
+    def stop(self) -> None:
+        self.alive = False
+
+    def start(self) -> None:
+        self.alive = True
 
     def drain(self) -> None:
         self.drained += 1
@@ -139,3 +146,25 @@ async def test_voice_stop_command_cancels_and_confirms(runtime_parts) -> None:
     vs.mic, vs.player = _FakeMic(), _FakePlayer()  # type: ignore[assignment]
     await vs.handle_utterance("stop")
     assert services.tts.spoken == ["Okay."]
+
+
+async def test_voice_states_and_privacy_mute_are_published(runtime_parts) -> None:
+    """The app's voice indicator follows real session state; mute stops the capture stream, not just processing."""
+    from scar.agent.runner import TaskManager
+    from scar.voice.session import VoiceSession
+
+    services = runtime_parts["services"]
+    services.tasks = TaskManager(services, runtime_parts["registry"], runtime_parts["pipeline"])
+    services.tts = _FakeTts()
+    seen: list = []
+    services.bus.add_listener(lambda e: seen.append(e) if e.kind == "voice_state" else None)
+    vs = VoiceSession(services)
+    vs.active = True
+    vs.mic, vs.player = _FakeMic(), _FakePlayer()  # type: ignore[assignment]
+    await vs.handle_utterance("remember that the voice state test ran")
+    phases = [e.state for e in seen]
+    assert "thinking" in phases and "speaking" in phases and phases[-1] == "idle"
+    vs.set_muted(True)
+    assert vs.mic.alive is False and seen[-1].muted is True and seen[-1].mic_active is False  # type: ignore[union-attr]
+    vs.set_muted(False)
+    assert vs.mic.alive is True and seen[-1].mic_active is True  # type: ignore[union-attr]

@@ -16,7 +16,7 @@ from typing import Any
 
 import structlog
 
-from scar.core.events import ApprovalRequested, Event
+from scar.core.events import ApprovalRequested, Event, MicLevel, VoiceStateEvent
 from scar.providers.errors import AllProvidersFailed
 from scar.security.approval import ApprovalError, ApprovalResponse
 from scar.security.grants import UserAuthority
@@ -57,12 +57,17 @@ class VoiceSession:
         self._speak_lock = asyncio.Lock()
         self.degraded_reason: str | None = None
         self.transcripts: list[str] = []
+        self.phase = "idle"  # idle | listening | thinking | speaking (shown by the app)
+        self.user_muted = False
+        self._level_at = 0.0
+        self._mic_device: int | None = None
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
         mic_dev = resolve_device(self.settings.mic_device, "input")
         spk_dev = resolve_device(self.settings.speaker_device, "output")
         self.player = Player(spk_dev)
+        self._mic_device = mic_dev
         self.mic = Microphone(mic_dev)
         self.mic.start()
         if self.mode == "wake":
@@ -75,6 +80,7 @@ class VoiceSession:
         self.s.approvals.attach_channel("voice")
         self._loop_task = asyncio.create_task(self._loop(), name="scar-voice")
         self._approval_task = asyncio.create_task(self._approvals(), name="scar-voice-approvals")
+        self._set_phase("idle")
 
     async def stop(self) -> None:
         self.active = False
@@ -89,6 +95,65 @@ class VoiceSession:
         self.s.approvals.detach_channel("voice")
         if self.s.voice is self:
             self.s.voice = None
+        self.s.bus.publish(VoiceStateEvent(state="off", mic_active=False, muted=False, mode=self.mode))
+
+    # ------------------------------------------------------------------ state for the app
+    @property
+    def listening(self) -> bool:
+        return self.active and self.phase == "listening"
+
+    @property
+    def speaking(self) -> bool:
+        return self.active and self.phase == "speaking"
+
+    def state_dict(self) -> dict[str, Any]:
+        mic_on = self.mic is not None and self.mic.alive and not self.user_muted
+        return {"state": self.phase if self.active else "off", "mic_active": mic_on, "muted": self.user_muted,
+                "mode": self.mode, "degraded": self.degraded_reason or ""}
+
+    def _set_phase(self, phase: str, transcript: str = "") -> None:
+        self.phase = phase
+        st = self.state_dict()
+        self.s.bus.publish(VoiceStateEvent(state=st["state"], mic_active=st["mic_active"], muted=st["muted"],
+                                           mode=self.mode, transcript=transcript))
+
+    def set_muted(self, muted: bool) -> None:
+        """Privacy mute: stops the capture stream itself (Windows' microphone indicator goes off), not just the
+        processing."""
+        self.user_muted = muted
+        if self.mic is not None:
+            if muted:
+                self.mic.stop()
+            elif not self.mic.alive:
+                self.mic.start()
+        self._set_phase(self.phase)
+
+    def _publish_level(self, frame: Any) -> None:
+        now = time.monotonic()
+        if now - self._level_at < 0.1:
+            return
+        self._level_at = now
+        from scar.voice.audio_io import rms_level
+
+        self.s.bus.publish(MicLevel(level=min(1.0, float(rms_level(frame)) * 8)))
+
+    async def _recover_mic(self) -> bool:
+        """The microphone was unplugged or the default device changed: reopen the configured/default device."""
+        for attempt in range(3):
+            await asyncio.sleep(1.0 + attempt)
+            try:
+                if self.mic is not None:
+                    self.mic.stop()
+                self._mic_device = resolve_device(self.settings.mic_device, "input")
+                self.mic = Microphone(self._mic_device)
+                self.mic.start()
+                self.degraded_reason = None
+                self._show("Microphone reconnected.")
+                self._set_phase("idle")
+                return True
+            except Exception as exc:  # noqa: BLE001 - PortAudio errors vary by device state
+                self.degraded_reason = f"microphone unavailable: {exc}"
+        return False
 
     def push_to_talk(self) -> None:
         """Hotkey callback (from a pynput thread): barge-in + start listening."""
@@ -111,6 +176,7 @@ class VoiceSession:
         if not text or self.player is None:
             return False
         async with self._speak_lock:
+            self._set_phase("speaking")
             try:
                 audio = await self.s.tts.synthesize(text)
             except AllProvidersFailed as exc:
@@ -130,6 +196,7 @@ class VoiceSession:
                 await asyncio.sleep(0.25)  # let the room echo die down
                 self.mic.drain()
                 self.mic.muted.clear()
+                self._set_phase("idle")
             return done
 
     # ------------------------------------------------------------------ listening
@@ -138,21 +205,31 @@ class VoiceSession:
         assert self.mic is not None
         ep = Endpointer(self.vad, max_seconds=max_seconds or self.settings.max_utterance_seconds)
         deadline = time.monotonic() + max_wait
+        self._set_phase("listening")
         while self.active:
+            if self.user_muted:
+                self._set_phase("idle")
+                return None
             frame = await self.mic.read(timeout=0.5)
             if frame is None:
                 if not self.mic.alive:
                     raise RuntimeError("microphone disconnected")
                 if not ep.started and time.monotonic() > deadline:
+                    self._set_phase("idle")
                     return None
                 continue
+            self._publish_level(frame)
             pcm = ep.feed(frame)
             if pcm is not None:
+                self._set_phase("thinking")
                 result = await self.s.stt.transcribe(pcm, 16000)
                 text = result.text.strip()
                 if text:
                     self.transcripts.append(text)
                     del self.transcripts[:-50]
+                    self._set_phase("thinking", transcript=text)
+                else:
+                    self._set_phase("idle")
                 return text or None
             if not ep.started and time.monotonic() > deadline:
                 return None
@@ -170,7 +247,12 @@ class VoiceSession:
             if self._trigger.is_set():
                 self._trigger.clear()
                 return
+            if self.user_muted:
+                await asyncio.sleep(0.3)
+                continue
             frame = await self.mic.read(timeout=0.5)
+            if frame is None and not self.mic.alive:
+                raise RuntimeError("microphone disconnected")
             if frame is not None and self.wake.feed(frame):
                 self.s.local_models.component_used("wake-word")
                 return
@@ -195,8 +277,13 @@ class VoiceSession:
                 await asyncio.sleep(5)
             except RuntimeError as exc:
                 self.degraded_reason = str(exc)
+                if "microphone" in str(exc) and not self.user_muted:
+                    self._show("Microphone disconnected; trying to reconnect…")
+                    if await self._recover_mic():
+                        continue
                 self._show(f"Voice problem: {exc}. Continuing with text.")
                 self.active = False
+                self._set_phase("idle")
                 return
             except Exception as exc:
                 log.exception("voice_loop_error")
@@ -223,9 +310,11 @@ class VoiceSession:
             return
         handle = await tm.submit(text, origin="voice")
         assert handle.future is not None
+        self._set_phase("thinking", transcript=text)
         task = await handle.future
         self._show(task.result_summary)
-        await self.speak(task.result_summary)
+        if not await self.speak(task.result_summary):
+            self._set_phase("idle")
 
     # ------------------------------------------------------------------ approvals by voice
     async def _approvals(self) -> None:

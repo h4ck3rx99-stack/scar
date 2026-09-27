@@ -179,6 +179,12 @@ class NotificationShown(Event):
     urgent: bool = False
 
 
+class OpenAppRequested(Event):
+    """The user clicked a SCAR toast: the desktop app should come to the front (toasts never approve anything)."""
+
+    kind: Literal["open_app"] = "open_app"
+
+
 class ProviderHealthChanged(Event):
     kind: Literal["provider_health"] = "provider_health"
     summary: str = ""  # plain words: "Cloud AI connected", "Using local AI …"

@@ -35,6 +35,14 @@ def _no_real_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _not_in_a_game(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must not depend on what the user is doing (a full-screen game would defer notifications)."""
+    from scar.runtime import gamemode
+
+    monkeypatch.setattr(gamemode, "focus_state", lambda force=False: gamemode.FocusState(False, ""))
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     live = os.environ.get("SCAR_LIVE_TESTS") == "1"
     for item in items:

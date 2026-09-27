@@ -212,6 +212,14 @@ class Settings(BaseSettings):
     test_telegram_chat: str = ""
     test_email_to: str = ""
     test_discord_channel: str = ""
+    # --- desktop app ---
+    quickbar_hotkey: str = "Ctrl+Alt+Space"
+    theme: Literal["system", "light", "dark"] = "system"
+    start_minimized: bool = False
+    keep_running_in_background: bool = False
+    app_onboarding_step: int = Field(default=0, ge=0, le=99)
+    control_indicator: bool = True
+    game_mode: Literal["auto", "off"] = "auto"
     # --- operations ---
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     data_dir: str = ""

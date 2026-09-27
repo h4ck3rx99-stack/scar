@@ -43,7 +43,7 @@ ALLOWING = {
     ApprovalResponse.ALLOW_ALWAYS,
 }
 
-KEYBOARD_CHANNELS = {"cli", "tui", "ipc-client"}
+KEYBOARD_CHANNELS = {"cli", "tui", "ipc-client", "app"}  # app: the confirmation word is typed into the approval card
 
 
 class ApprovalRequest(BaseModel):

@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.15,<3",
     "httpx>=0.28,<0.29",
+    "aiohttp>=3.14,<4",  # app API (HTTP + WebSocket on 127.0.0.1)
     "typer>=0.27,<0.28",
     "rich>=15,<16",
     "prompt-toolkit>=3.0.53,<3.1",

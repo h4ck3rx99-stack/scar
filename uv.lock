@@ -2184,6 +2184,7 @@ name = "scar"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "comtypes", marker = "sys_platform == 'win32'" },
     { name = "dateparser" },
     { name = "ddgs" },
@@ -2252,6 +2253,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.14,<4" },
     { name = "comtypes", marker = "sys_platform == 'win32'", specifier = ">=1.4.17,<2" },
     { name = "dateparser", specifier = ">=1.4,<2" },
     { name = "ddgs", specifier = ">=9.16,<10" },

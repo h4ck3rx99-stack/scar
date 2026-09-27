@@ -241,6 +241,23 @@ class MemoryStore:
         m = re.search(r"= (.+)$", r["text"])
         return m.group(1).strip() if m else None
 
+    def update(self, mid: str, text: str) -> Memory:
+        """Edit a memory's text (user-initiated from the app). The write policy still applies; the vector is rebuilt."""
+        current = self.get(mid)
+        if current is None:
+            raise KeyError(mid)
+        check = check_write(text, current.category)
+        if not check.allowed:
+            raise ValueError(check.reason)
+        vec = self._embed([text.strip()])
+        self.db.execute("UPDATE memories SET text = ?, updated_at = ?, embedding = ?, source = 'user', trust = 'user' "
+                        "WHERE id = ?", (text.strip(), now_iso(), vec[0].astype(np.float32).tobytes() if vec is not None else None,
+                                         mid))
+        self._index_dirty = True
+        updated = self.get(mid)
+        assert updated is not None
+        return updated
+
     # ------------------------------------------------------------------ delete
     def forget(self, mid: str | None = None, query: str | None = None, limit: int = 5) -> list[str]:
         if mid:

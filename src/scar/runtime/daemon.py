@@ -160,12 +160,18 @@ async def serve(settings: Settings) -> int:
     if not lock.acquire():
         print("Another SCAR runtime is already running for this data folder.")
         return 1
+    from scar.api.server import AppApi
+
     rt = Runtime(settings)
     stop = asyncio.Event()
     server = IpcServer(settings.data_path, DaemonHandler(rt, stop))
+    api: AppApi | None = None
     try:
         await rt.start()
         await server.start()
+        rt.request_stop = stop.set  # type: ignore[attr-defined]  # the app's "Quit SCAR" asks the runtime to stop
+        api = AppApi(rt)
+        await api.start()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             with contextlib.suppress(NotImplementedError, RuntimeError):
@@ -174,6 +180,8 @@ async def serve(settings: Settings) -> int:
             await rt.services.notifier.notify("SCAR started", "; ".join(rt.startup_notes)[:240], speak=False)
         await stop.wait()
     finally:
+        if api is not None:
+            await api.stop()
         await server.stop()
         await rt.stop()
         lock.release()
