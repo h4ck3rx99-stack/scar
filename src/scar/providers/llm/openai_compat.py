@@ -16,7 +16,7 @@ import httpx
 from pydantic import SecretStr
 
 from scar.core.ids import new_id
-from scar.providers.base import ChatMessage, ChatRequest, ChatResponse, ToolCall, Usage
+from scar.providers.base import STREAM_SINK, ChatMessage, ChatRequest, ChatResponse, StreamSink, ThinkFilter, ToolCall, Usage
 from scar.providers.errors import ProviderError, ProviderErrorKind, classify_http
 from scar.providers.ratelimit import parse_retry_after
 
@@ -138,6 +138,9 @@ class OpenAICompatClient:
         return resp
 
     async def chat(self, model: str, request: ChatRequest) -> ChatResponse:
+        sink = STREAM_SINK.get()
+        if sink is not None and request.json_schema is None:
+            return await self._chat_stream(model, request, sink)
         t0 = time.perf_counter()
         payload = self._payload(model, request)
         try:
@@ -171,6 +174,86 @@ class OpenAICompatClient:
             provider=self.provider,
             model=str(data.get("model") or model),
             latency_ms=(time.perf_counter() - t0) * 1000.0,
+        )
+
+    async def _chat_stream(self, model: str, request: ChatRequest, sink: StreamSink) -> ChatResponse:
+        """Server-sent-events streaming: visible text goes to the sink as it arrives; tool calls are reassembled."""
+        t0 = time.perf_counter()
+        payload = {**self._payload(model, request), "stream": True}
+        if self.provider in ("openai", "groq", "cerebras", "openrouter", "llamacpp", "mistral"):
+            payload["stream_options"] = {"include_usage": True}
+        text: list[str] = []
+        calls: dict[int, dict[str, Any]] = {}
+        finish = ""
+        usage: dict[str, Any] = {}
+        resolved_model = model
+        think = ThinkFilter()
+        first_token_ms: float | None = None
+        sink.begin()
+        try:
+            async with self._client.stream("POST", "/chat/completions", json=payload) as resp:
+                if resp.status_code >= 400:
+                    body = (await resp.aread()).decode("utf-8", "replace")
+                    raise classify_http(resp.status_code, body, self.provider, model, parse_retry_after(resp.headers, body))
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_s = line[5:].strip()
+                    if data_s == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_s)
+                    except ValueError:
+                        continue
+                    if chunk.get("error"):
+                        raise ProviderError(ProviderErrorKind.TRANSIENT, f"stream error: {str(chunk['error'])[:200]}",
+                                            provider=self.provider, model=model)
+                    resolved_model = str(chunk.get("model") or resolved_model)
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
+                    elif (chunk.get("x_groq") or {}).get("usage"):
+                        usage = chunk["x_groq"]["usage"]
+                    for choice in chunk.get("choices") or []:
+                        delta = choice.get("delta") or {}
+                        piece = delta.get("content")
+                        if isinstance(piece, str) and piece:
+                            text.append(piece)
+                            visible = think.feed(piece)
+                            if visible:
+                                if first_token_ms is None:
+                                    first_token_ms = (time.perf_counter() - t0) * 1000.0
+                                sink.delta(visible)
+                        for tc in delta.get("tool_calls") or []:
+                            slot = calls.setdefault(int(tc.get("index", 0)), {"id": "", "name": "", "arguments": ""})
+                            if tc.get("id"):
+                                slot["id"] = tc["id"]
+                            fn = tc.get("function") or {}
+                            if fn.get("name"):
+                                slot["name"] += fn["name"]
+                            if fn.get("arguments"):
+                                slot["arguments"] += fn["arguments"]
+                        if choice.get("finish_reason"):
+                            finish = str(choice["finish_reason"])
+        except httpx.TimeoutException as exc:
+            raise ProviderError(ProviderErrorKind.TRANSIENT, f"timeout: {exc}", provider=self.provider, model=model) from exc
+        except httpx.ConnectError as exc:
+            local = any(h in self.base_url for h in ("127.0.0.1", "localhost"))
+            kind = ProviderErrorKind.UNAVAILABLE if local else ProviderErrorKind.TRANSIENT
+            raise ProviderError(kind, f"cannot connect: {exc}", provider=self.provider, model=model) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(ProviderErrorKind.TRANSIENT, f"network error: {exc}", provider=self.provider, model=model) from exc
+        raw_calls = [{"id": c["id"] or None, "function": {"name": c["name"], "arguments": c["arguments"]}}
+                     for _, c in sorted(calls.items())]
+        return ChatResponse(
+            content=strip_think("".join(text)),
+            tool_calls=parse_tool_calls(raw_calls),
+            finish_reason=finish,
+            usage=Usage(prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                        completion_tokens=int(usage.get("completion_tokens") or 0)),
+            provider=self.provider,
+            model=resolved_model,
+            latency_ms=(time.perf_counter() - t0) * 1000.0,
+            first_token_ms=first_token_ms,
         )
 
     async def list_models(self) -> list[str] | None:

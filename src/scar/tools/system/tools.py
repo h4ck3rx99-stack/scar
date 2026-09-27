@@ -23,19 +23,22 @@ class InfoInput(ToolInput):
 
 
 def _top_processes(n: int, sort_by: str) -> list[dict[str, Any]]:
-    procs = list(psutil.process_iter(["pid", "name", "memory_info", "username"]))
-    for p in procs:
-        try:
-            p.cpu_percent(None)
-        except psutil.Error:
-            continue
-    import time
+    # no per-process username (a slow SID lookup each) and no CPU sampling unless sorting by CPU: ~4.5 s -> ~0.3 s
+    procs = list(psutil.process_iter(["pid", "name", "memory_info"]))
+    by_cpu = sort_by != "memory"
+    if by_cpu:
+        for p in procs:
+            try:
+                p.cpu_percent(None)
+            except psutil.Error:
+                continue
+        import time
 
-    time.sleep(0.5)
+        time.sleep(0.5)
     rows: list[dict[str, Any]] = []
     for p in procs:
         try:
-            cpu = p.cpu_percent(None) / psutil.cpu_count()
+            cpu = p.cpu_percent(None) / psutil.cpu_count() if by_cpu else 0.0
             mem = p.info["memory_info"].rss / 2**20 if p.info.get("memory_info") else 0.0
         except psutil.Error:
             continue
@@ -64,7 +67,7 @@ class SystemInfo(Tool):
         return await asyncio.to_thread(self._collect, args)
 
     def _collect(self, args: InfoInput) -> ToolResult:
-        snap = sample(cpu_interval=0.3)
+        snap = sample(cpu_interval=0.3 if "cpu" in args.sections else None)  # skip a 0.3 s CPU sample when unused
         data: dict[str, Any] = {}
         lines: list[str] = []
         s = set(args.sections)

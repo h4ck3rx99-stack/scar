@@ -19,6 +19,22 @@ ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("SCAR_TESTING", "1")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never read or write the user's Windows Credential Manager, and never see real provider keys from the
+    environment. Tests that need a secret set it explicitly (monkeypatch.setenv)."""
+    import keyring
+
+    from scar.config.settings import SECRET_KEYS
+    from scar.security import secrets as secrets_mod
+
+    monkeypatch.setattr(secrets_mod, "_keyring_get", lambda name: None)
+    monkeypatch.setattr(keyring, "set_password", lambda *a, **k: None)
+    monkeypatch.setattr(keyring, "delete_password", lambda *a, **k: None)
+    for name in SECRET_KEYS:
+        monkeypatch.delenv(name, raising=False)
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     live = os.environ.get("SCAR_LIVE_TESTS") == "1"
     for item in items:

@@ -340,3 +340,16 @@ def test_winrt_before_onnxruntime_does_not_crash() -> None:
     code = "import scar\nimport winrt.windows.media.ocr\nimport onnxruntime\nprint('alive')\n"
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0 and "alive" in proc.stdout, proc.stderr[-800:]
+
+
+@pytest.mark.parametrize("question,expected", [
+    ("In one sentence, what is RAM?", False), ("what is a GPU", False), ("what are files", False),
+    ("what's on my calendar today?", True), ("how much RAM is in use", True), ("any new emails?", True),
+    ("what's using my RAM", True), ("which apps are running", True), ("what is on my screen", True),
+    ("do i have meetings tomorrow", True), ("list my downloads", True),
+])
+def test_state_question_needs_a_possessive_or_now_cue(question: str, expected: bool) -> None:
+    """Definitions ("what is RAM?") are answered directly; questions about the user's current state are checked."""
+    from scar.agent.executor import STATE_QUESTION
+
+    assert bool(STATE_QUESTION.search(question)) is expected

@@ -105,14 +105,37 @@ class ToolRegistry:
         """OpenAI-style function tool definitions."""
         out: list[dict[str, Any]] = []
         for t in tools:
-            schema = t.schema()
-            schema.pop("title", None)
+            schema = compact_schema(t.schema())
             out.append({"type": "function", "function": {"name": _wire_name(t.name), "description": t.description,
                                                           "parameters": schema}})
         return out
 
     def by_wire_name(self, wire: str) -> Tool | None:
         return self._tools.get(wire.replace("__", "."))
+
+
+def compact_schema(node: Any) -> Any:
+    """Shrink a Pydantic JSON schema for the model without changing its meaning: drop titles and
+    ``additionalProperties`` (the pipeline validates arguments strictly anyway) and turn ``anyOf: [T, null]`` into T
+    (optional fields are simply not required). Tool schemas are most of the prompt, so this matters for latency and for
+    free-tier token-per-minute limits."""
+    if isinstance(node, list):
+        return [compact_schema(x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    out: dict[str, Any] = {}
+    for k, v in node.items():
+        if k in ("title", "additionalProperties"):
+            continue
+        if k == "anyOf" and isinstance(v, list):
+            branches = [b for b in v if not (isinstance(b, dict) and b.get("type") == "null")]
+            if len(branches) == 1 and isinstance(branches[0], dict):
+                out.update(compact_schema(branches[0]))
+                continue
+        if k == "default" and v is None:
+            continue
+        out[k] = compact_schema(v) if k != "properties" else {pk: compact_schema(pv) for pk, pv in v.items()}
+    return out
 
 
 def _wire_name(name: str) -> str:

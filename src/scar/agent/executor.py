@@ -11,6 +11,7 @@ import structlog
 
 from scar.agent.context import LOCAL_BUDGET_TOKENS, ContextBuilder
 from scar.agent.planner import Planner
+from scar.agent.streaming import streaming
 from scar.agent.verifier import honest_summary, verify_finish
 from scar.core.budgets import BudgetTracker
 from scar.core.errors import BudgetExceeded, Cancelled
@@ -65,11 +66,14 @@ TOOL_HINTS: list[tuple[str, list[str]]] = [
 ]
 
 
-# questions whose answer depends on the machine's or the user's accounts' current state
+# questions whose answer depends on the machine's or the user's accounts' current state: a state noun plus a cue
+# that it is *theirs / now* ("what's on my calendar", "how much RAM is in use"), not a definition ("what is RAM?")
 STATE_QUESTION = re.compile(
-    r"\b(what'?s|what is|what are|do i have|are there|is there|any|how much|how many|which|show me|list|check)\b.*"
-    r"\b(calendar|agenda|meetings?|appointments?|inbox|e-?mails?|mail|messages?|screen|files?|folders?|downloads?|"
-    r"disk|storage|cpu|ram|memory usage|battery|processes|running|open windows?|clipboard)\b", re.I)
+    r"^(?=.*\b(my|mine|our|this (pc|computer|laptop|machine)|currently|right now|now|today|tomorrow|this week|in use|"
+    r"using|used|free|left|unread|new|open|running)\b)"
+    r"(?=.*\b(what'?s|what is|what are|do i have|are there|is there|any|how much|how many|which|show me|list|check)\b)"
+    r"(?=.*\b(calendar|agenda|meetings?|appointments?|inbox|e-?mails?|mail|messages?|screen|files?|folders?|downloads?|"
+    r"disk|storage|cpu|ram|memory|battery|processes|apps?|open windows?|clipboard)\b)", re.I | re.S)
 
 
 def boosted_tools(objective: str) -> list[str]:
@@ -109,7 +113,8 @@ class Executor:
     async def run(self, task: TaskState, ctx: ToolContext, ctxb: ContextBuilder, budget: BudgetTracker, *,
                   plan_first: bool, role: str = "executor") -> ExecOutcome:
         cats = categories_for(task.objective)
-        limit = 60 if self.s.router.cloud_available("reasoning") else 24
+        # a small, relevance-ranked tool set: schemas dominate the prompt (latency, free-tier token limits)
+        limit = 20 if self.s.router.cloud_available("reasoning") else 16
         tools = self.registry.select(cats, role=role, limit=limit, boost=boosted_tools(task.objective))
         schemas = self.registry.function_schemas(tools)
         names = {t.name for t in tools}
@@ -134,8 +139,9 @@ class Executor:
                 ctxb.budget_tokens = LOCAL_BUDGET_TOKENS
             req = ctxb.request(schemas, max_tokens=2048)
             try:
-                resp = await self.s.router.chat("reasoning", req, task=task, compactor=ctxb.compact_for_overflow,
-                                                data_classes=self._data_classes(task))
+                with streaming(self.s.bus, task.task_id):
+                    resp = await self.s.router.chat("reasoning", req, task=task, compactor=ctxb.compact_for_overflow,
+                                                    data_classes=self._data_classes(task))
             except AllProvidersFailed as exc:
                 if len(schemas) <= 14 or not any(a.kind == ProviderErrorKind.CONTEXT_OVERFLOW for a in exc.attempts):
                     raise
@@ -146,7 +152,8 @@ class Executor:
                 wire = {wire_name(t.name) for t in tools} | names
                 ctxb.budget_tokens = max(3000, ctxb.budget_tokens // 2)
                 req = ctxb.request(schemas, max_tokens=1536)
-                resp = await self.s.router.chat("reasoning", req, task=task, data_classes=self._data_classes(task))
+                with streaming(self.s.bus, task.task_id):
+                    resp = await self.s.router.chat("reasoning", req, task=task, data_classes=self._data_classes(task))
             budget.add_tokens(resp.usage.prompt_tokens + resp.usage.completion_tokens)
             calls = resp.tool_calls
             if not calls and resp.content:

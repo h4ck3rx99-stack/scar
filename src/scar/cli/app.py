@@ -273,40 +273,13 @@ def config_validate() -> None:
 @config_app.command("set")
 def config_set(key: str, value: str) -> None:
     """Set a non-secret setting in config.toml (e.g. `scar config set autonomy_level 2`)."""
-    import tomllib
+    from scar.config.writer import SettingError, set_setting
 
-    import tomli_w
-
-    field = key.lower().removeprefix("scar_")
-    if field.upper() in SECRET_KEYS or any(m in field for m in ("password", "token", "api_key", "secret")):
-        console.print("[red]That is a secret; use `scar config set-secret NAME` (stored in Windows Credential Manager).[/red]")
-        raise typer.Exit(2)
-    if field not in Settings.model_fields:
-        console.print(f"[red]Unknown setting {key!r}.[/red]")
-        raise typer.Exit(2)
-    path = cfg_paths.config_file()
-    data: dict[str, Any] = tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    parsed: Any = value
-    ann = str(Settings.model_fields[field].annotation)
-    if "bool" in ann:
-        parsed = value.lower() in ("1", "true", "yes", "on")
-    elif "int" in ann and value.lstrip("-").isdigit():
-        parsed = int(value)
-    elif "float" in ann:
-        try:
-            parsed = float(value)
-        except ValueError:
-            parsed = value
-    elif "list" in ann:
-        parsed = [v.strip() for v in value.replace(";", ",").split(",") if v.strip()]
-    data[field] = parsed
     try:
-        Settings.model_validate({**Settings().model_dump(), field: parsed})
-    except Exception as exc:
-        console.print(f"[red]Invalid value: {exc}[/red]")
+        field, parsed, path = set_setting(key, value)
+    except SettingError as exc:
+        console.print(f"[red]{str(exc)[:1].upper() + str(exc)[1:]}.[/red]")
         raise typer.Exit(2) from exc
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomli_w.dumps(data), encoding="utf-8")
     console.print(f"[green]✓[/green] {field} = {parsed!r} saved to {path}")
 
 

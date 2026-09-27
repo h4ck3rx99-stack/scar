@@ -127,6 +127,64 @@ class AssistantMessage(Event):
     final: bool = True
 
 
+class AssistantDelta(Event):
+    """Streamed reply text as it is generated. ``reset`` = discard the partial text (the model is retrying)."""
+
+    kind: Literal["assistant_delta"] = "assistant_delta"
+    text: str = ""
+    reset: bool = False
+
+
+class AssistantState(Event):
+    """What SCAR is doing, in one word, for status indicators."""
+
+    kind: Literal["assistant_state"] = "assistant_state"
+    state: Literal["ready", "working", "listening", "waiting", "speaking", "offline"] = "ready"
+
+
+class ResourceSnapshotEvent(Event):
+    kind: Literal["resource_snapshot"] = "resource_snapshot"
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class VoiceStateEvent(Event):
+    kind: Literal["voice_state"] = "voice_state"
+    state: Literal["off", "idle", "listening", "thinking", "speaking"] = "off"
+    mic_active: bool = False
+    muted: bool = False
+    mode: str = ""
+    transcript: str = ""
+
+
+class MicLevel(Event):
+    kind: Literal["mic_level"] = "mic_level"
+    level: float = 0.0  # 0..1 RMS
+
+
+class ControlActive(Event):
+    """SCAR is (or stopped) moving the mouse, typing or controlling windows; the UI shows an indicator."""
+
+    kind: Literal["control_active"] = "control_active"
+    active: bool = False
+    what: str = ""
+
+
+class ScreenCaptured(Event):
+    kind: Literal["screen_captured"] = "screen_captured"
+
+
+class NotificationShown(Event):
+    kind: Literal["notification"] = "notification"
+    title: str = ""
+    urgent: bool = False
+
+
+class ProviderHealthChanged(Event):
+    kind: Literal["provider_health"] = "provider_health"
+    summary: str = ""  # plain words: "Cloud AI connected", "Using local AI …"
+    level: Literal["cloud", "local", "degraded", "none"] = "none"
+
+
 Listener = Callable[[Event], None]
 
 

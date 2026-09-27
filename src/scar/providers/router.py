@@ -332,7 +332,8 @@ class ProviderRouter:
                 err.model = err.model or model
                 attempts.append(err)
                 tried.append(Attempt(spec.id, model, err.kind.value, (time.perf_counter() - t0) * 1000))
-                log.info("provider_error", provider=spec.id, model=model, kind=err.kind.value, retry_after=err.retry_after)
+                log.info("provider_error", provider=spec.id, model=model, kind=err.kind.value, retry_after=err.retry_after,
+                         detail=str(err)[:300])
                 if err.kind == ProviderErrorKind.TRANSIENT and attempt == 0:
                     self.health.failure(err)
                     await asyncio.sleep(0.5 + random.random())

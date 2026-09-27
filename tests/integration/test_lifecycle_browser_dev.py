@@ -47,7 +47,16 @@ def fake_llama(tmp_path: Path) -> Path:
     return launcher
 
 
+def _admit_everything(services) -> None:  # type: ignore[no-untyped-def]
+    """Lifecycle tests use a fake server; the machine's live GPU/RAM load must not decide whether it may start."""
+    from scar.resources.admission import AdmissionDecision
+
+    services.admission.local_inference = lambda size, purpose="llm", fallback=True: AdmissionDecision(
+        True, "test: admitted", True, 99)
+
+
 async def test_start_on_demand_and_idle_unload(services, fake_llama: Path, tmp_path: Path) -> None:
+    _admit_everything(services)
     s = services.settings
     model = tmp_path / "model.gguf"
     model.write_bytes(b"\0" * 1024)
@@ -169,6 +178,7 @@ async def test_browser_navigate_extract_type_click(runtime_parts, ctx_factory, s
 
 
 async def test_starting_one_model_evicts_scars_other_idle_model(services, fake_llama: Path, tmp_path: Path) -> None:
+    _admit_everything(services)
     s = services.settings
     for name in ("llm.gguf", "vlm.gguf"):
         (tmp_path / name).write_bytes(bytes(1024))

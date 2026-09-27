@@ -344,14 +344,36 @@ class TaskManager:
 
         if re.match(_SMALLTALK, task.objective.strip()):
             return await self._chat_only(task, ctxb)
+        from scar.agent.intent import is_knowledge_question
+
+        if is_knowledge_question(task.objective) and task.role == "executor":
+            return await self._answer_directly(task, history)
         if task.autonomy_level <= 1:
             return await self._suggest_only(task, ctxb)
         return await self.executor.run(task, ctx, ctxb, budget, plan_first=needs_plan(task.objective), role=task.role)
 
-    async def _chat_only(self, task: TaskState, ctxb: ContextBuilder) -> ExecOutcome:
+    async def _answer_directly(self, task: TaskState, history: list[ChatMessage]) -> ExecOutcome:
+        """General-knowledge and writing requests: no tools, a short prompt, streamed. Much faster than the agent loop
+        and well inside free-tier token limits."""
+        from scar.agent.streaming import streaming
         from scar.providers.base import ChatRequest
 
-        resp = await self.s.router.chat("fast", ChatRequest(messages=ctxb.messages(), max_tokens=300, temperature=0.5), task=task)
+        system = ("You are SCAR, a helpful assistant on the user's Windows computer. Answer directly and concisely in "
+                  "plain language (Markdown allowed). This reply is from general knowledge: do not claim to have looked "
+                  "at the user's computer, files, accounts or the internet.")
+        msgs = [ChatMessage(role="system", content=system), *history[-4:], ChatMessage(role="user", content=task.objective)]
+        category = "fast" if len(task.objective) < 160 else "reasoning"
+        with streaming(self.s.bus, task.task_id):
+            resp = await self.s.router.chat(category, ChatRequest(messages=msgs, max_tokens=900, temperature=0.4), task=task)
+        return ExecOutcome(TaskStatus.SUCCEEDED, resp.content.strip() or "I don't have an answer for that.", None)
+
+    async def _chat_only(self, task: TaskState, ctxb: ContextBuilder) -> ExecOutcome:
+        from scar.agent.streaming import streaming
+        from scar.providers.base import ChatRequest
+
+        with streaming(self.s.bus, task.task_id):
+            resp = await self.s.router.chat("fast", ChatRequest(messages=ctxb.messages(), max_tokens=300, temperature=0.5),
+                                            task=task)
         return ExecOutcome(TaskStatus.SUCCEEDED, resp.content.strip() or "Hi.", None)
 
     async def _suggest_only(self, task: TaskState, ctxb: ContextBuilder) -> ExecOutcome:
