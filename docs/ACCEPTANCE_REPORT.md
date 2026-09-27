@@ -78,6 +78,14 @@ Status: **VERIFIED**
 }
 ```
 
+## Audit notes (2026-09-27)
+
+The production-readiness audit ([AUDIT_LEDGER.md](../AUDIT_LEDGER.md)) found gaps these scenarios did not catch. All are fixed, with regression tests:
+
+* D3.2 ran inside a long-lived harness. From the real one-shot CLI, the page closed when the command exited (F-12).
+* D3.4 only checked that a phrase appeared in the reply. The reply was a raw OCR dump (F-11).
+* D3.9 passed with a scripted-looking path. The real-user wording "inspect the failing tests, fix it, run the tests again" stopped after the diagnosis and was still reported as verified success (F-07, F-08).
+
 ## D5 security acceptance
 
 Verified by automated tests (see [testing.md](testing.md)); all pass on this machine:

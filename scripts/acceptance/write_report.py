@@ -76,7 +76,15 @@ def main() -> None:
                   f"Status: **{dmn.get('status')}**", "", "```json", json.dumps({k: dmn.get(k) for k in (
                       "alias_persisted", "schedule", "monitor", "tasks", "missed_notifications")}, indent=2, default=str),
                   "```", ""]
-    lines += ["## D5 security acceptance", "",
+    lines += ["## Audit notes (2026-09-27)", "",
+              "The production-readiness audit ([AUDIT_LEDGER.md](../AUDIT_LEDGER.md)) found gaps these scenarios did not "
+              "catch. All are fixed, with regression tests:", "",
+              "* D3.2 ran inside a long-lived harness. From the real one-shot CLI, the page closed when the command "
+              "exited (F-12).",
+              "* D3.4 only checked that a phrase appeared in the reply. The reply was a raw OCR dump (F-11).",
+              "* D3.9 passed with a scripted-looking path. The real-user wording \"inspect the failing tests, fix it, run "
+              "the tests again\" stopped after the diagnosis and was still reported as verified success (F-07, F-08).", "",
+              "## D5 security acceptance", "",
               "Verified by automated tests (see [testing.md](testing.md)); all pass on this machine:", "",
               "| Requirement | Tests |", "|---|---|",
               "| Model cannot bypass permissions | `tests/security/test_injection.py` (adversarial scripted model through every relevant tool, with session grants in place), `test_policy.py` |",

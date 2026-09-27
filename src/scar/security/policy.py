@@ -255,7 +255,7 @@ class PolicyEngine:
         # 6. taint and scope: ASK even when a grant exists
         if inp.tainted:
             return PolicyOutcome(
-                PolicyDecision.ASK, "arguments come from external content: " + "; ".join(inp.tainted[:3]), risk,
+                PolicyDecision.ASK, "this uses details you didn't give yourself — " + "; ".join(inp.tainted[:3]), risk,
                 grantable=False, matched_rules=ids,
             )
         if inp.out_of_scope:

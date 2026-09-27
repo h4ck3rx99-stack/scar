@@ -205,7 +205,7 @@ class ToolPipeline:
                     # Anything read stays tracked, and exfiltration control guards where it can go next.
                     log.debug("taint_read_only", tool=tool.name, arg=h.arg, sources=h.sources[:2])
                     continue
-                tainted.append(f"{kind} {h.value!r} came from {', '.join(h.sources[:2])}")
+                tainted.append(f"the {kind} {h.value!r} came from {' and '.join(describe_source(s) for s in h.sources[:2])}")
             if hits and tool.side_effects in (SideEffect.LOCAL, SideEffect.IRREVERSIBLE) and any(
                 tool.sensitive_args.get(h.arg.split(".", 1)[0], "") in ("path", "command") for h in hits
             ):
@@ -444,6 +444,24 @@ class ToolPipeline:
                 del ctx.task.action_history[: len(ctx.task.action_history) - 120]
             ctx.task.touch()
         return obs
+
+
+_SOURCE_WORDS = {
+    "web": "the web page", "browser": "the web page", "research": "web research", "search": "web search results",
+    "file": "the file", "fs-search": "a file search in", "email": "an email", "screen": "the screen", "ocr": "text read "
+    "from the screen", "uia": "the window", "terminal": "command output", "exec": "program output", "tests": "test output",
+    "git": "git output", "repo": "the repository", "telegram": "a Telegram message", "discord": "a Discord message",
+    "whatsapp": "a WhatsApp message", "memory": "something remembered from external content",
+}
+
+
+def describe_source(source: str) -> str:
+    """'fs-search:C:\\proj' -> 'a file search in C:\\proj' — provenance in words for approval prompts."""
+    kind, _, where = source.partition(":")
+    words = _SOURCE_WORDS.get(kind)
+    if words is None:
+        return source
+    return f"{words} {where}".strip() if where and not words.endswith(("output", "results", "screen", "content")) else words
 
 
 def _string_args(obj: Any, prefix: str = "") -> list[tuple[str, str]]:

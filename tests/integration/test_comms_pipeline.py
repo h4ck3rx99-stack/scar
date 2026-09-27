@@ -123,13 +123,13 @@ async def test_recipient_from_untrusted_content_is_tainted_and_not_grantable(pip
         req = await _pending(services)
         assert req.grantable is False
         assert ApprovalResponse.ALLOW_SESSION not in req.allowed_responses()
-        assert "external content" in req.reason and "payroll-update@evil.example" in req.reason
+        assert "you didn't give yourself" in req.reason and "came from the web page" in req.reason and "payroll-update@evil.example" in req.reason
         services.approvals.resolve(req.request_id, ApprovalResponse.DENY, "cli")
         obs = await task
     assert obs.result.status == ToolStatus.DENIED and not send.called
     action = ctx.task.action_history[-1]
     assert action.decision == PolicyDecision.ASK
-    assert action.tainted_args and "web:https://evil.example/page" in action.tainted_args[0]
+    assert action.tainted_args and "the web page https://evil.example/page" in action.tainted_args[0]
     assert any("was not named or confirmed" in r for r in action.out_of_scope)
 
 

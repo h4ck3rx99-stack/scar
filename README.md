@@ -37,8 +37,12 @@ Give SCAR a model (any one of these):
 
 * **Free cloud (recommended)**: get a key at console.groq.com and run `uv run scar config set-secret GROQ_API_KEY`.
   Gemini (`GEMINI_API_KEY`), OpenRouter, Cerebras and others also work; see [docs/providers.md](docs/providers.md).
-* **Local**: have Ollama running, or point SCAR at a GGUF and it runs llama.cpp itself:
+* **Local**: have Ollama running (`ollama pull qwen3:8b`), or install llama.cpp (`winget install ggml.llamacpp`)
+  and point SCAR at a GGUF, and it runs `llama-server` itself:
   `uv run scar config set local_llm_model_path C:\models\qwen3-8b-q4_k_m.gguf`
+
+The complete checklist is in [docs/SETUP.md](docs/SETUP.md). It covers required and optional steps, voice, email,
+messaging, calendars and GitHub, what each needs, where to get it, and how to check it works.
 
 Then:
 
@@ -98,32 +102,36 @@ Flags: `--verbose` (tools and timings), `--debug` (providers, fallbacks), `--aut
 
 ## Capability status
 
-Statuses as defined in the build contract: **VERIFIED** means it was exercised end to end on the reference machine
-with evidence; **IMPLEMENTED-UNVERIFIED** means the code is complete and tested with doubles, but live verification
-needs the named prerequisite. Evidence is in [docs/ACCEPTANCE_REPORT.md](docs/ACCEPTANCE_REPORT.md).
+From the production-readiness audit ([AUDIT_LEDGER.md](AUDIT_LEDGER.md)); acceptance evidence is in
+[docs/ACCEPTANCE_REPORT.md](docs/ACCEPTANCE_REPORT.md). **BLOCKED (credential)** means the code is complete and tested
+against doubles, and needs your account or key to run for real.
 
 <!-- status-table -->
-| Capability | Status | Evidence / prerequisite |
+| Capability | Status | Evidence / what it needs |
 |---|---|---|
-| Files: read, write, search, move, trash, backups | VERIFIED | D3.5, D3.6; `test_fs_pipeline.py` |
-| Terminal / PowerShell with AST command guard, Job Objects | VERIFIED | D3.3, D3.9; `test_terminal.py`, `test_command_guard.py` |
-| Apps, windows, UIA, keyboard/mouse (SendInput), clipboard | VERIFIED | D3.1, D3.11; 6 live tests in `tests/e2e/test_live_windows.py` |
-| Screen capture + Windows OCR, local vision (LLaVA) | VERIFIED | D3.4 |
-| Browser automation (Playwright, Chrome), crash restore | VERIFIED | D3.2; `test_lifecycle_browser_dev.py` |
-| Web search (ddgs fallback) + fetch + research with citation checks | VERIFIED | D3.10 |
-| Web search via Brave / Tavily / SearXNG | IMPLEMENTED-UNVERIFIED | `BRAVE_API_KEY` / `TAVILY_API_KEY` / `SCAR_SEARXNG_URL` |
-| Documents: read PDF/DOCX/CSV/…, write MD/TXT/DOCX/PDF | VERIFIED | D3.10; unit tests |
-| Dev: tests, git, code run, repo map, dev servers | VERIFIED | D3.3, D3.9, D3.11 |
-| GitHub API tools | IMPLEMENTED-UNVERIFIED | `GITHUB_TOKEN` ([docs/integrations/github.md](docs/integrations/github.md)) |
-| Process monitors, scheduler, notifications, daemon restart | VERIFIED | D3.12; `daemon_restart_check.py` |
-| Memory (SQLite FTS5 + FAISS, write policy, aliases) | VERIFIED | D3.1 (alias), daemon restart check |
-| Local LLM (managed llama.cpp server, Ollama) | VERIFIED | all model-driven scenarios ran locally |
-| Cloud LLM / vision / STT / TTS providers | IMPLEMENTED-UNVERIFIED | provider API keys ([docs/providers.md](docs/providers.md)); HTTP-mock tests |
-| Voice: wake word, VAD, faster-whisper STT, SAPI/edge TTS, voice approval | VERIFIED | loopback test via Virtual Audio Cable |
-| Email (Gmail, Outlook, IMAP/SMTP) | IMPLEMENTED-UNVERIFIED | `scar auth google` or `scar auth microsoft` or IMAP credentials (D3.7) |
-| Messaging (Telegram bot, Discord bot, WhatsApp desktop) | IMPLEMENTED-UNVERIFIED | bot tokens / WhatsApp desktop sign-in (D3.8) |
-| Calendar (Google, Microsoft) | IMPLEMENTED-UNVERIFIED | `scar auth google` or `scar auth microsoft` |
-| Security model (policy, approvals, taint, injection defense, kill switch, audit) | VERIFIED | D5 security tests (see report) |
+| Files: read, write, search, copy, move, trash, diff, backups | WORKING | live CLI (audit 2026-09-27); `test_fs_pipeline.py`, `test_tool_smoke.py` |
+| Terminal / PowerShell (AST command guard, Job Objects, timeouts) | WORKING | D3.3, D3.9; `test_terminal.py`, `test_command_guard.py` |
+| Apps and windows: launch, focus, close; UIA; keyboard/mouse; clipboard | WORKING | live CLI (VS Code, Notepad); 6 live desktop tests |
+| Screen: capture, Windows OCR, answers about the screen, local vision model | WORKING | live CLI "what is on my screen?"; D3.4 |
+| Browser automation (your Chrome/Edge via Playwright) | WORKING | D3.2; one-shot pages kept open in your browser; headless tests of 13 browser actions |
+| Web search (free `ddgs`) + fetch + research with citation checks | WORKING | D3.10; research test |
+| Web search via Brave / Tavily / SearXNG | NOT VERIFIED | needs `BRAVE_API_KEY` / `TAVILY_API_KEY` / `searxng_url` |
+| Documents: read PDF/DOCX/CSV/…, write MD/TXT/DOCX/PDF | WORKING | D3.10; round-trip tests |
+| Coding: run tests, find and fix a failing test, git, dev servers | WORKING | live end-to-end "inspect the failing tests, fix it, run the tests again" (audit); D3.9, D3.11 |
+| GitHub issues / CI | BLOCKED (credential) | code tested against a mocked API; needs `GITHUB_TOKEN` |
+| Reminders, schedules, process monitors, notifications, daemon | WORKING | D3.12; daemon lifecycle (audit); restart check |
+| Memory (remember, recall, aliases, forget) | WORKING | live CLI (audit); daemon restart check |
+| Local models (SCAR-managed llama.cpp, Ollama) with resource-aware GPU offload | WORKING | every live test ran locally; offload shrank to 21 layers while a game used the GPU |
+| Provider fallback (cloud → local → degraded) | WORKING | live: invalid Groq key → local model; no model → honest degraded reply |
+| Cloud models (Groq, Gemini, Cerebras, OpenRouter, …), cloud speech | BLOCKED (credential) | HTTP-mock tests only; needs a key (docs/SETUP.md §2) |
+| Voice: speech detection + transcription + spoken replies | PARTIAL | synthetic speech → Silero VAD → faster-whisper passes; spoken-task tests pass. Live microphone and wake word not re-verified in the audit |
+| Email (Gmail, Outlook, IMAP/SMTP) | BLOCKED (credential) | 65 fixture tests; honest "not connected" reply; needs an account (docs/SETUP.md §5) |
+| Messaging (Telegram, Discord bot, WhatsApp) | BLOCKED (credential) | fixture tests; needs tokens / desktop sign-in |
+| Calendar: SCAR local calendar, .ics import | WORKING | create/update/list tests; replies say when Google/Outlook isn't connected |
+| Calendar: Google / Outlook | BLOCKED (credential) | `scar auth google` / `scar auth microsoft` |
+| Sub-agents (delegated sub-tasks) | NOT VERIFIED live | scripted-model test only |
+| Security (permissions, approvals, taint, injection defence, exfiltration control, kill switch, audit log) | WORKING | 150 security tests; live prompt-injection page resisted (audit) |
+| Desktop UI | NOT IMPLEMENTED | SCAR is a terminal app (REPL, one-shot, voice, daemon) |
 <!-- /status-table -->
 
 ## Documentation

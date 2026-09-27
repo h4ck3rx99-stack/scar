@@ -61,6 +61,9 @@ class Repl:
         self._install_sigint()
         mode = "daemon" if isinstance(self.session, DaemonSession) else "local runtime"
         console.print(f"[bold]SCAR[/bold] ready ({mode}). Type /help for examples.")
+        note = model_note(self.session)
+        if note:
+            console.print(f"[yellow]•[/yellow] {note}")
         while True:
             try:
                 if self.prompt is not None:
@@ -147,3 +150,22 @@ class Repl:
         else:
             console.print(f"Unknown command /{cmd}. Try /help.")
         return True
+
+
+def model_note(session: Any) -> str | None:
+    """One line on what the user can expect from the models available right now (no provider jargon)."""
+    rt = getattr(session, "rt", None)
+    s = getattr(rt, "services", None)
+    if s is None or s.router is None:
+        return None
+    if s.router.cloud_available("reasoning"):
+        return None
+    st = s.settings
+    if st.local_inference_policy != "never" and st.local_llm_model_path:
+        return ("No cloud model key is set, so answers come from your local model and take longer. "
+                "A free key makes SCAR much faster (docs/SETUP.md).")
+    if st.local_inference_policy != "never":
+        return ("No cloud model key and no local model file are set; SCAR will use Ollama if it is running. "
+                "Otherwise only quick commands work (docs/SETUP.md).")
+    return ("No language model is available (local inference is disabled and no cloud key is set): only quick "
+            "commands work. See docs/SETUP.md.")
