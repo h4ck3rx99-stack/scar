@@ -83,13 +83,25 @@ def print_status(st: dict[str, Any]) -> None:
     if st["managed_processes"]:
         console.print("[bold]Managed processes[/bold] " + ", ".join(f"{p['name']}#{p['pid']} ({p['kind']})" for p in st["managed_processes"]))
     if st["provider_health"]:
-        t = Table("provider/model", "state", "cooldown", "latency", "last error", title="Provider health", title_justify="left")
+        t = Table("provider", "state", "retry in", "latency", "last error", title="Provider health", title_justify="left")
         for h in st["provider_health"]:
-            t.add_row(f"{h['provider']}/{h['model']}", h["state"], f"{h['cooldown_s']}s" if h["cooldown_s"] else "",
-                      f"{h['latency_ms']} ms" if h["latency_ms"] else "", h["error"])
+            t.add_row(h["provider"] + (f"/{h['model']}" if h["model"] else ""), _STATE_WORDS.get(h["state"], h["state"]),
+                      _retry_in(h["cooldown_s"]), f"{h['latency_ms']} ms" if h["latency_ms"] else "", h["error"])
         console.print(t)
     egress = st["data_sent_this_session"]
     console.print("[bold]Cloud providers that received data this session[/bold] " +
                   (", ".join(f"{p} ({', '.join(sorted(set(c)))})" for p, c in egress.items()) or "none"))
     console.print("[bold]Active permissions[/bold] " + (", ".join(f"{g['id']} {g['effect']} {g['tool'] or ''} {g['scope']}"
                                                               for g in st["grants"]) or "none"))
+
+
+_STATE_WORDS = {"closed": "ok", "open": "paused after errors", "half_open": "retrying", "unavailable": "unavailable",
+                "removed": "model withdrawn"}
+
+
+def _retry_in(seconds: int) -> str:
+    if not seconds:
+        return ""
+    if seconds > 86400:
+        return "after the key is fixed"
+    return f"{seconds // 60}m {seconds % 60}s" if seconds >= 60 else f"{seconds}s"

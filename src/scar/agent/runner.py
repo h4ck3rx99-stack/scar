@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -177,7 +178,7 @@ class TaskManager:
                     self.s.monitor.acquire()
                     outcome = await asyncio.wait_for(self._llm(task, ctx, budget), timeout=wall)
             task.status = outcome.status
-            task.result_summary = outcome.summary
+            task.result_summary = with_caveats(outcome.summary, task)
             task.verification = outcome.verification
         except Cancelled as exc:
             task.status = TaskStatus.CANCELLED
@@ -223,7 +224,11 @@ class TaskManager:
         if task.parent_task_id is None:
             self._remember_turn(task.objective, task.result_summary)
             mem = self.s.memory
-            if mem is not None and task.observations and task.status in (TaskStatus.SUCCEEDED, TaskStatus.FAILED):
+            # only tasks that changed something are history worth recalling; answers to questions ("what's on my
+            # calendar") go stale and, recalled later, would be repeated instead of checked
+            changed = any(o.result.status == ToolStatus.OK and self._side_effecting([o]) for o in task.observations
+                          if o.tool not in ("memory.remember", "memory.forget"))
+            if mem is not None and changed and task.status in (TaskStatus.SUCCEEDED, TaskStatus.FAILED):
                 text = f"Task '{task.objective[:120]}' → {task.status.value}: {task.result_summary[:200]}"
 
                 def _store_history() -> None:  # embedding is CPU work: keep it off the event loop
@@ -385,6 +390,24 @@ class TaskManager:
         pending = [h.future for h in self.running.values() if h.future is not None]
         if pending:
             await asyncio.wait(pending, timeout=10)
+
+
+def with_caveats(summary: str, task: TaskState) -> str:
+    """Facts a tool marked as must-tell (e.g. "this is SCAR's local calendar, not your Google calendar") are added to
+    the final reply when the model left them out, so a partial answer cannot pass as a complete one."""
+    notes: list[str] = []
+    for o in task.observations:
+        caveat = (o.result.data or {}).get("user_caveat") if o.result.status == ToolStatus.OK else None
+        if isinstance(caveat, str) and caveat and caveat not in notes:
+            notes.append(caveat)
+    low = summary.lower()
+
+    def covered(note: str) -> bool:  # the reply already carries it (its first sentence or the command it names)
+        commands = re.findall(r"`([^`]+)`", note)
+        return note.split(".")[0].lower() in low or (bool(commands) and any(c.lower() in low for c in commands))
+
+    missing = [n for n in notes if not covered(n)]
+    return (summary.rstrip() + "\n\n" + " ".join(missing)).strip() if missing else summary
 
 
 def render_reply(tool: str, result: Any) -> str:

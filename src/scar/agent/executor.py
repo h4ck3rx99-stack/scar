@@ -61,7 +61,15 @@ TOOL_HINTS: list[tuple[str, list[str]]] = [
     (r"\b(screen|click|button|window)\b", ["screen.describe", "vision.click", "uia.inspect", "windows.list"]),
     (r"\b(email|mail)\b", ["contacts.resolve", "email.send", "email.search", "email.read"]),
     (r"\b(message|telegram|discord|whatsapp)\b", ["contacts.resolve", "message.send"]),
+    (r"\b(calendar|agenda|meetings?|appointments?|events?)\b", ["calendar.list", "calendar.create"]),
 ]
+
+
+# questions whose answer depends on the machine's or the user's accounts' current state
+STATE_QUESTION = re.compile(
+    r"\b(what'?s|what is|what are|do i have|are there|is there|any|how much|how many|which|show me|list|check)\b.*"
+    r"\b(calendar|agenda|meetings?|appointments?|inbox|e-?mails?|mail|messages?|screen|files?|folders?|downloads?|"
+    r"disk|storage|cpu|ram|memory usage|battery|processes|running|open windows?|clipboard)\b", re.I)
 
 
 def boosted_tools(objective: str) -> list[str]:
@@ -112,6 +120,7 @@ class Executor:
             task.status = TaskStatus.RUNNING
         malformed_streak = 0
         nudges = 0
+        checked_state = False
         replans = 0
         warned_repeat: set[str] = set()
         actions_taken = 0
@@ -161,6 +170,12 @@ class Executor:
                     continue
                 # plain answer: conversational reply, or a final summary without calling finish
                 ctxb.add_assistant_text(text)
+                if actions_taken == 0 and not checked_state and STATE_QUESTION.search(task.objective):
+                    # a question about the current state answered without looking (e.g. repeating an earlier answer)
+                    checked_state = True
+                    ctxb.add_note("That question is about the current state. Check it with a tool now and answer from "
+                                  "the result; earlier answers may be out of date.")
+                    continue
                 if actions_taken == 0:
                     return ExecOutcome(TaskStatus.SUCCEEDED, text, None)
                 v = verify_finish(task, text, [], self.s, self.registry)

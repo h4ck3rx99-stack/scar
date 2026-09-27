@@ -37,6 +37,9 @@ MARGIN = 0.15
 REMOTE_FACTOR = 0.9
 RECENT_FACTOR = 0.85
 CHANNEL_HANDLE_KEYS = {"telegram": "telegram", "telegram_user": "telegram", "discord": "discord", "whatsapp": "whatsapp"}
+_DETAIL_FOR = {"email": "email address", "telegram": "Telegram username or chat ID",
+               "telegram_user": "Telegram username or phone number", "discord": "Discord channel or user ID",
+               "whatsapp": "WhatsApp phone number (with country code)"}
 
 
 def _norm(text: str) -> str:
@@ -390,7 +393,7 @@ class ContactResolver:
             return Resolution(
                 q,
                 "not_found",
-                question=f"I don't know who {q!r} is. What is their email address (or other contact detail)?",
+                question=f"I don't know who {q!r} is. What is their {_DETAIL_FOR.get(channel or '', 'email address (or other contact detail)')}?",
                 notes=notes,
             )
         top = cands[0]

@@ -77,7 +77,8 @@ class ContextBuilder:
         msgs.extend(self.history[-8:])
         user = f"Objective: {self.task.objective}"
         if self.memory_notes:
-            user += "\n\nRelevant things you know (from memory):\n" + "\n".join(f"- {n}" for n in self.memory_notes[:8])
+            user += ("\n\nRelevant things you know (from memory; results of earlier tasks may be out of date — check "
+                     "anything about the current state with a tool):\n" + "\n".join(f"- {n}" for n in self.memory_notes[:8]))
         if self.task.plan and self.task.plan.steps:
             plan = "\n".join(f"{s.index}. {'[done] ' if s.done else ''}{s.intent} — success: {s.success_criteria}"
                              for s in self.task.plan.steps)

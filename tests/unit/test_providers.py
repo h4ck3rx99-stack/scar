@@ -10,7 +10,7 @@ from pydantic import BaseModel, SecretStr
 
 from scar.core.events import EventBus
 from scar.providers.base import ChatMessage, ChatRequest
-from scar.providers.errors import AllProvidersFailed, ProviderErrorKind, classify_http
+from scar.providers.errors import AllProvidersFailed, ProviderError, ProviderErrorKind, classify_http
 from scar.providers.health import HealthTracker
 from scar.providers.llm.gemini import GeminiClient
 from scar.providers.llm.openai_compat import OpenAICompatClient, strip_think
@@ -254,3 +254,22 @@ def test_eventbus_bounded() -> None:
             return q.qsize()
 
     assert asyncio.run(go()) == 5
+
+
+def test_unavailable_server_is_reprobed_and_new_key_clears_auth_lockout() -> None:
+    """A local server that was down must be retried later (daemons run for days); an auth failure holds until the key
+    changes, then clears at once."""
+    import time as _time
+
+    from scar.providers.health import UNAVAILABLE_RETRY, HealthTracker
+
+    ht = HealthTracker()
+    h = ht.failure(ProviderError(ProviderErrorKind.UNAVAILABLE, "Ollama is not running", provider="ollama", model="m"))
+    assert not h.usable()
+    assert h.usable(_time.time() + UNAVAILABLE_RETRY + 1), "re-probed after the short cooldown"
+    a = ht.failure(ProviderError(ProviderErrorKind.AUTH, "bad key", provider="groq", model="m"), "fp-old")
+    assert not a.usable(_time.time() + 86400 * 30)
+    ht.forget_if_credential_changed("groq", "fp-old")
+    assert not ht.get("groq", "m").usable()
+    ht.forget_if_credential_changed("groq", "fp-new")
+    assert ht.get("groq", "m").usable()

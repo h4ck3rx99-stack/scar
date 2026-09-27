@@ -101,7 +101,7 @@ Generated from the registry by `scripts/gen_docs.py`.
 | `calendar.export_ics` | MEDIUM | local | calendar.read, fs.write | Export events in a time range to an .ics file (RFC 5545). |
 | `calendar.import_ics` | MEDIUM | local | calendar.write | Import events from an .ics file into the calendar (duplicates by UID are skipped locally). |
 | `calendar.list` | LOW | none | calendar.read | List calendar events in a time range (Google, Outlook or the local calendar). |
-| `calendar.update` | HIGH | local | calendar.write | Change an existing event (moving it keeps its duration unless `end` is given). |
+| `calendar.update` | MEDIUM | local | calendar.write | Change an existing event (moving it keeps its duration unless `end` is given). |
 | `clipboard.read` | LOW | none | clipboard.read | Read text from the clipboard (privacy-classified data). |
 | `clipboard.write` | LOW | local | clipboard.write | Put text (or an image file) on the clipboard. |
 | `code.repo_map` | LOW | none | fs.read | Map a codebase: source files with their top-level classes/functions (bounded). Good first step for code tasks. |

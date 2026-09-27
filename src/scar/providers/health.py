@@ -13,7 +13,8 @@ from scar.storage.db import Database, now_iso
 FAILURE_THRESHOLD = 3
 OPEN_SECONDS = 60.0
 QUOTA_COOLDOWN = 3600.0
-AUTH_COOLDOWN = 10 * 365 * 86400.0  # until config changes
+AUTH_COOLDOWN = 10 * 365 * 86400.0  # until the credential changes (see forget_if_credential_changed)
+UNAVAILABLE_RETRY = 60.0  # a server that is down (Ollama not started yet, local model crashed) is re-probed
 EWMA_ALPHA = 0.3
 
 
@@ -32,10 +33,10 @@ class Health:
         now = now or time.time()
         if self.state == "removed":
             return False
-        if self.state == "unavailable":
-            return False
         if now < self.cooldown_until:
             return False
+        if self.state == "unavailable":
+            self.state = "half_open"  # cooldown over: probe again
         if self.state == "open":
             self.state = "half_open"
         return True
@@ -87,15 +88,19 @@ class HealthTracker:
                 EWMA_ALPHA * latency_ms + (1 - EWMA_ALPHA) * h.latency_ewma_ms)
         self._persist(h)
 
-    def failure(self, err: ProviderError) -> Health:
+    def failure(self, err: ProviderError, credential_fingerprint: str = "") -> Health:
         h = self.get(err.provider, err.model)
         now = time.time()
         with self._lock:
             h.last_error = str(err)[:300]
             k = err.kind
-            if k in (ProviderErrorKind.AUTH, ProviderErrorKind.UNAVAILABLE):
+            if k == ProviderErrorKind.AUTH:
                 h.state = "unavailable"
                 h.cooldown_until = now + AUTH_COOLDOWN
+                h.config_fingerprint = credential_fingerprint
+            elif k == ProviderErrorKind.UNAVAILABLE:
+                h.state = "unavailable"
+                h.cooldown_until = now + UNAVAILABLE_RETRY
             elif k == ProviderErrorKind.RATE_LIMIT:
                 h.cooldown_until = now + (err.retry_after if err.retry_after is not None else 20.0)
             elif k == ProviderErrorKind.QUOTA:
@@ -111,6 +116,17 @@ class HealthTracker:
                 h.failures += 1
         self._persist(h)
         return h
+
+    def forget_if_credential_changed(self, provider: str, fingerprint: str) -> None:
+        """An auth failure holds until the key changes: a new key (e.g. `scar config set-secret` while the daemon
+        runs) clears it immediately."""
+        with self._lock:
+            stale = [k for k, h in self._h.items() if k[0] == provider and h.state in ("unavailable", "half_open")
+                     and h.config_fingerprint and h.config_fingerprint != fingerprint]
+            for k in stale:
+                del self._h[k]
+        if stale and self.db is not None:
+            self.db.execute("DELETE FROM provider_health WHERE provider = ?", (provider,))
 
     def mark_unavailable(self, provider: str, model: str, reason: str) -> None:
         h = self.get(provider, model)

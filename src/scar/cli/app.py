@@ -565,7 +565,10 @@ def daemon_start() -> None:
     for _ in range(60):
         time.sleep(0.5)
         if asyncio.run(daemon_alive(settings.data_path)):
-            console.print(f"[green]✓[/green] daemon started (PID {pid})")
+            from scar.runtime.ipc import read_endpoint
+
+            # the spawned PID can be the venv launcher; the daemon records its own PID in the endpoint file
+            console.print(f"[green]✓[/green] daemon started (PID {(read_endpoint(settings.data_path) or {}).get('pid', pid)})")
             return
     console.print("[red]The daemon did not come up; see `scar logs`.[/red]")
     raise typer.Exit(1)

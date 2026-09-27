@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import random
 import time
 from collections.abc import Awaitable, Callable
@@ -97,6 +98,13 @@ class ProviderRouter:
                 return True, env
         return False, f"missing {' or '.join(spec.api_key_env)}"
 
+    def credential_fingerprint(self, spec: ProviderSpec) -> str:
+        """Short hash of the credentials in use, so a changed key is noticed (never logged or stored in clear)."""
+        if spec.local:
+            return ""
+        values = [self.secrets.get_plain(e) or "" for e in (*spec.api_key_env, *spec.requires_env)]
+        return hashlib.sha256("\x1f".join(values).encode()).hexdigest()[:12] if any(values) else ""
+
     def _base_url(self, spec: ProviderSpec) -> str:
         url = spec.base_url.replace("{ollama_url}", self.settings.ollama_url.rstrip("/"))
         url = url.replace("{local_llm_url}", self.settings.local_llm_url.rstrip("/"))
@@ -105,7 +113,7 @@ class ProviderRouter:
         return url
 
     def client(self, spec: ProviderSpec, base_url: str | None = None) -> ChatClient:
-        key = f"{spec.id}|{base_url or ''}"
+        key = f"{spec.id}|{base_url or ''}|{self.credential_fingerprint(spec)}"  # a new key gets a new client
         if key in self._clients:
             return self._clients[key]
         url = base_url or self._base_url(spec)
@@ -210,6 +218,8 @@ class ProviderRouter:
             if not ok:
                 attempts.append(ProviderError(ProviderErrorKind.UNAVAILABLE, why, provider=spec.id))
                 continue
+            fp = self.credential_fingerprint(spec)
+            self.health.forget_if_credential_changed(spec.id, fp)
             if routing == Routing.LOCAL_ONLY and not spec.local:
                 attempts.append(ProviderError(ProviderErrorKind.PRIVACY, f"{', '.join(classes)} must stay local", provider=spec.id))
                 continue
@@ -228,7 +238,7 @@ class ProviderRouter:
             try:
                 live = await self.available_models(spec, client)
             except ProviderError as err:
-                self.health.failure(err)
+                self.health.failure(err, fp)
                 attempts.append(err)
                 log.info("provider_error", provider=spec.id, kind=err.kind.value, stage="models")
                 previous = previous or spec.id  # the next candidate that answers is reported as a fallback
@@ -333,7 +343,7 @@ class ProviderRouter:
                     return None
                 if err.kind == ProviderErrorKind.BAD_REQUEST and request.has_images:
                     return None  # this model rejects images: next candidate
-                self.health.failure(err)
+                self.health.failure(err, self.credential_fingerprint(spec))
                 return None
         return None
 

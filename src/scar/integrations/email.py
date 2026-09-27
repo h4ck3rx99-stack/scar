@@ -57,6 +57,9 @@ class EmailService:
 
     def provider_name(self, override: str | None = None) -> str:
         choice = override or str(getattr(self.settings, "email_provider", "auto") or "auto")
+        if override and not self.configured_providers():
+            # the model guessed a provider but no account is connected at all: show every way to connect one
+            raise CapabilityUnavailable(NONE_CONFIGURED, GMAIL_DOC)
         if choice != "auto":
             if choice not in ("gmail", "outlook", "imap"):
                 raise ToolError(f"unknown email provider {choice!r}", "InvalidInput")

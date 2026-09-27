@@ -38,7 +38,8 @@ class ContactsResolve(Tool):
 
     async def run(self, args: ResolveInput, ctx: ToolContext) -> ToolResult:
         resolver = get_resolver(ctx.services)
-        res = await resolver.resolve(args.query, include_remote=args.include_remote, channel=args.channel)
+        channel = args.channel or _channel_in(ctx.task.objective if ctx.task else "")
+        res = await resolver.resolve(args.query, include_remote=args.include_remote, channel=channel)
         data = res.to_dict()
         if res.status == "resolved" and res.best is not None:
             best = res.best
@@ -144,3 +145,13 @@ class ContactsAlias(Tool):
 
 
 TOOLS: list[type[Tool]] = [ContactsResolve, ContactsAdd, ContactsAlias]
+
+
+def _channel_in(objective: str) -> str | None:
+    """The channel the user named ("send a Telegram message to …"), when the model did not pass one."""
+    low = objective.lower()
+    for word, channel in (("telegram", "telegram"), ("discord", "discord"), ("whatsapp", "whatsapp"), ("email", "email"),
+                          ("e-mail", "email"), ("mail", "email")):
+        if word in low:
+            return channel
+    return None

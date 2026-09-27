@@ -65,6 +65,20 @@ async def _pace(domain: str, min_interval: float = 1.0) -> None:
         await asyncio.sleep(wait)
 
 
+def _is_local_host(host: str) -> bool:
+    """Loopback, private (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (incl. cloud metadata) or a local name."""
+    import ipaddress
+
+    host = host.strip("[]").lower()
+    if host in ("localhost", "") or host.endswith((".local", ".localhost", ".internal", ".lan", ".home.arpa")):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified
+
+
 async def fetch_url(url: str, *, respect_robots: bool = True, transport: httpx.AsyncBaseTransport | None = None) -> dict[str, Any]:
     cached = _STATE.cache.get(url)
     if cached and time.time() - cached[0] < CACHE_TTL:
@@ -169,7 +183,7 @@ class WebFetch(Tool):
             a.deny(f"only http(s) URLs can be fetched (got {p.scheme or 'none'})")
         host = (p.hostname or "").lower()
         a.facts.domains.append(host)
-        if host in ("localhost", "127.0.0.1", "::1") or host.startswith(("10.", "192.168.", "169.254.")):
+        if _is_local_host(host):
             a.raise_to(RiskLevel.MEDIUM, "fetches from the local network")
         return a
 
@@ -221,6 +235,11 @@ class WebResearch(Tool):
             if len(sources) >= args.max_sources:
                 break
             if not hit.url.startswith(("http://", "https://")):
+                continue
+            host = (urlparse(hit.url).hostname or "").lower()
+            if _is_local_host(host) and not (ctx.scope is not None and ctx.scope.mentions(host)):
+                # a search result pointing into the local network (router, NAS, metadata service) is not research
+                failures.append(f"{hit.url}: local-network address skipped")
                 continue
             try:
                 page = await fetch_url(hit.url)

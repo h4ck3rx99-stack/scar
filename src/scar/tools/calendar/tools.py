@@ -107,9 +107,18 @@ class CalendarList(Tool):
         end = svc.aware(args.end) if args.end else start + timedelta(days=7)
         events = await svc.list_events(start, end, provider=args.provider, limit=args.limit)
         view = "\n".join(_event_line(e) for e in events) or "No events in that range."
+        provider = svc.provider_name(args.provider)
+        summary = f"{len(events)} events between {start:%Y-%m-%d %H:%M} and {end:%Y-%m-%d %H:%M}"
+        if provider == "local":
+            # not the user's Google/Outlook calendar: say so, or "no events" reads as "your calendar is empty"
+            summary += (" in SCAR's own local calendar. No Google or Outlook calendar is connected, so events there are "
+                        "not included (connect one with `scar auth google` or `scar auth microsoft`)")
+            view = f"[source: SCAR's local calendar only; the user's Google/Outlook calendar is NOT connected]\n{view}"
+        caveat = ("Note: this is SCAR's own local calendar. Your Google or Outlook calendar is not connected, so its events "
+                  "are not included — connect it with `scar auth google` or `scar auth microsoft`.") if provider == "local" else ""
         return self.ok(
-            f"{len(events)} events between {start:%Y-%m-%d %H:%M} and {end:%Y-%m-%d %H:%M}",
-            {"events": [e.to_dict() for e in events], "count": len(events), "provider": svc.provider_name(args.provider)},
+            summary,
+            {"events": [e.to_dict() for e in events], "count": len(events), "provider": provider, "user_caveat": caveat},
             model_view=view,
             source="calendar",
         )
@@ -216,14 +225,20 @@ class CalendarUpdate(Tool):
     description = "Change an existing event (moving it keeps its duration unless `end` is given)."
     input_model = UpdateInput
     capabilities = ("calendar.write",)
-    base_risk = RiskLevel.HIGH
+    base_risk = RiskLevel.MEDIUM  # raised to HIGH in assess() unless the event is in SCAR's local calendar
     side_effects = SideEffect.LOCAL
     sensitive_args = {"attendees": "recipient"}
     data_class = "calendar"
     categories = ("calendar",)
 
     def assess(self, args: UpdateInput, ctx: ToolContext) -> RiskAssessment:
-        a = RiskAssessment(RiskLevel.HIGH, ["changes an existing event (attendees may be notified)"])
+        try:
+            local = calendar_service(ctx.services).provider_name(args.provider) == "local"
+        except ToolError:
+            local = False
+        # SCAR's local calendar notifies nobody; a Google/Outlook event may have attendees who get an update
+        a = (RiskAssessment(RiskLevel.MEDIUM) if local and not args.attendees
+             else RiskAssessment(RiskLevel.HIGH, ["changes an existing event (attendees may be notified)"]))
         _assess_attendees(a, ctx, args.attendees or [], args.provider)
         return a
 

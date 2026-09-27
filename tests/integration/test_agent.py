@@ -220,3 +220,14 @@ async def test_model_lost_mid_task_reports_partial_work_honestly(tm, sandbox: Pa
     assert "done" not in task.result_summary.lower().split()
     assert f.exists()  # what already happened is real; the summary must not pretend the rest happened
     assert "partway through" in task.result_summary and "half.txt" in task.result_summary
+
+
+async def test_state_question_answered_from_memory_is_sent_back_to_check(tm, sandbox: Path) -> None:
+    """Asked about the current state, a model repeating an earlier answer without looking is made to check."""
+    c = script(tm.s, [reply(content="You have no events today."),
+                      reply(call("calendar.list")),
+                      reply(content="No events today in the local calendar.")])
+    task = await tm.run("what's on my calendar today?")
+    assert [o.tool for o in task.observations] == ["calendar.list"]
+    assert "not connected" in task.result_summary  # the local-calendar caveat reaches the user
+    assert any("current state" in (m.content or "") for _, req in c.requests for m in req.messages)
