@@ -24,8 +24,41 @@ def _fetch_log(services: Any, task_id: str) -> list[str]:
     return list(logs.get(task_id) or [])
 
 
-def verify_finish(task: TaskState, summary: str, evidence: list[dict[str, Any]], services: Any, registry: Any) -> VerificationResult:
+_MODIFY = re.compile(r"\b(fix|fixes|fixing|repair|correct|patch|edit|modify|refactor|rename)\b", re.I)
+_CODE_OBJECT = re.compile(r"\b(tests?|bugs?|code|files?|functions?|scripts?|modules?|project|repo(sitory)?|class|method)\b|\.\w{1,5}\b",
+                          re.I)
+_TESTS = re.compile(r"\btests?\b", re.I)
+_RERUN = re.compile(r"\b(re-?run|again|make (them|it|the tests?) pass|until (they|it|the tests?) pass)\b", re.I)
+_NEGATED = re.compile(r"\b(don'?t|do not|without|no need to|never)\s+(\w+\s+){0,2}(fix|edit|modify|change|touch)", re.I)
+FILE_CHANGE_TOOLS = frozenset({"fs.write", "fs.edit", "fs.move", "fs.copy", "documents.write", "terminal.run", "terminal.exec",
+                               "code.run"})
+
+
+def objective_checks(task: TaskState) -> list[Check]:
+    """What the user's words require, checked against what actually happened (not what the model claims).
+
+    "fix the failing test and run the tests again" needs a change to files and a passing test run after it; a
+    diagnosis alone is not success."""
+    objective = task.objective
+    ok = [o for o in task.observations if o.result.status == ToolStatus.OK]
     checks: list[Check] = []
+    if _MODIFY.search(objective) and _CODE_OBJECT.search(objective) and not _NEGATED.search(objective):
+        changed = [i for i, o in enumerate(ok) if o.tool in FILE_CHANGE_TOOLS]
+        checks.append(Check(name="requested change was made", passed=bool(changed),
+                            detail="" if changed else "no file was modified"))
+        if _TESTS.search(objective):
+            last_change = changed[-1] if changed else -1
+            runs = [o for i, o in enumerate(ok) if o.tool == "dev.run_tests" and i > last_change]
+            if runs or _RERUN.search(objective):
+                report = (runs[-1].result.data or {}).get("report") or {} if runs else {}
+                failing = int(report.get("failed", 0) or 0) + int(report.get("errors", 0) or 0)
+                checks.append(Check(name="tests pass after the change", passed=bool(runs) and failing == 0,
+                                    detail="tests were not re-run after the change" if not runs else f"{failing} still failing"))
+    return checks
+
+
+def verify_finish(task: TaskState, summary: str, evidence: list[dict[str, Any]], services: Any, registry: Any) -> VerificationResult:
+    checks: list[Check] = objective_checks(task)
     ev: dict[str, Any] = {}
     for item in evidence:
         kind = item.get("kind")

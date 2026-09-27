@@ -10,6 +10,7 @@ import time
 from typing import Annotated, Any
 
 import typer
+from rich.markup import escape
 
 from scar.cli.render import Renderer, console
 from scar.config import paths as cfg_paths
@@ -86,16 +87,19 @@ def run_objective(objective: Annotated[list[str], typer.Argument(help="What SCAR
 
 
 async def _one_shot(settings: Settings, renderer: Renderer, text: str, background: bool, prefer_daemon: bool) -> int:
-    from scar.cli.session import DaemonSession, open_session
+    from scar.cli.session import DaemonSession, EmbeddedSession, open_session
 
     session = await open_session(settings, renderer, prefer_daemon=prefer_daemon or background, with_hotkeys=True)
     if background and not isinstance(session, DaemonSession):
         console.print("[yellow]No daemon running; running in the foreground. Start one with `scar daemon start`.[/yellow]")
     try:
         result = await session.run(text, background=background and isinstance(session, DaemonSession))
+        handed_off = session.handoff_browser() if isinstance(session, EmbeddedSession) else None
     finally:
         await session.stop()
     renderer.result(result["status"], result["summary"], result.get("verified"))
+    if handed_off:
+        console.print(f"[dim]{handed_off}[/dim]")
     return 0 if result["status"] in ("succeeded", "running") else 1
 
 
@@ -342,9 +346,13 @@ def tasks_list(limit: int = 20) -> None:
     settings = _settings()
     db = _db(settings)
     try:
-        for r in db.query("SELECT task_id, status, objective, result_summary, created_at FROM tasks WHERE parent_task_id IS NULL "
-                          "ORDER BY created_at DESC LIMIT ?", (limit,)):
-            console.print(f"{r['task_id']}  [{r['status']}]  {r['objective'][:60]}  [dim]{(r['result_summary'] or '')[:60]}[/dim]")
+        rows = db.query("SELECT task_id, status, objective, result_summary, created_at FROM tasks WHERE parent_task_id IS NULL "
+                        "ORDER BY created_at DESC LIMIT ?", (limit,))
+        if not rows:
+            console.print("No tasks yet. Run [bold]scar[/bold] and ask for something.")
+        for r in rows:
+            console.print(f"{r['task_id']}  {escape('[' + r['status'] + ']')}  {escape(r['objective'][:60])}  "
+                          f"[dim]{escape((r['result_summary'] or '')[:60])}[/dim]")
     finally:
         db.close()
 
@@ -453,8 +461,11 @@ def _memory(settings: Settings) -> Any:
 def memory_list(category: str | None = None, limit: int = 50) -> None:
     mem = _memory(_settings())
     try:
-        for m in mem.list(category, limit):
-            console.print(f"{m.id}  [{m.category}] {m.text}")
+        items = mem.list(category, limit)
+        if not items:
+            console.print("Nothing remembered yet. Tell SCAR [bold]remember that …[/bold] to add a memory.")
+        for m in items:
+            console.print(f"{m.id}  {escape('[' + m.category + ']')} {escape(m.text)}")
     finally:
         mem.db.close()
 
@@ -463,8 +474,11 @@ def memory_list(category: str | None = None, limit: int = 50) -> None:
 def memory_search(query: str, k: int = 8) -> None:
     mem = _memory(_settings())
     try:
-        for m in mem.search(query, k=k):
-            console.print(f"{m.score:.2f}  {m.id}  [{m.category}] {m.text}")
+        hits = mem.search(query, k=k)
+        if not hits:
+            console.print("No matching memories.")
+        for m in hits:
+            console.print(f"{m.score:.2f}  {m.id}  {escape('[' + m.category + ']')} {escape(m.text)}")
     finally:
         mem.db.close()
 
@@ -676,6 +690,27 @@ def _auth(name: str) -> None:
             svc.db.close()
 
     _run(go())
+
+
+def _group_default(group: typer.Typer, default: str | None) -> None:
+    """`scar config` alone shows the configuration (and likewise for the other groups) instead of a usage error."""
+
+    @group.callback(invoke_without_command=True)
+    def _default(ctx: typer.Context) -> None:
+        if ctx.invoked_subcommand is not None:
+            return
+        get = getattr(ctx.command, "get_command", None)
+        cmd = get(ctx, default) if default and get is not None else None
+        if cmd is None:
+            console.print(ctx.get_help())
+            return
+        with cmd.make_context(default, [], parent=ctx) as sub:
+            cmd.invoke(sub)
+
+
+for _group, _cmd in ((config_app, "show"), (tasks_app, "list"), (perm_app, "list"), (memory_app, "list"),
+                     (providers_app, "list"), (daemon_app, "status"), (voice_app, "devices"), (auth_app, None)):
+    _group_default(_group, _cmd)
 
 
 SUBCOMMANDS = {"run", "doctor", "status", "logs", "config", "tasks", "permissions", "memory", "providers", "daemon", "voice",

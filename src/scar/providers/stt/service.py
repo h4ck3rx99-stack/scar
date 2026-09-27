@@ -90,7 +90,7 @@ class SttService:
         self.privacy = privacy
         self.egress = egress
         self.catalog = catalog or Catalog.load()
-        self.local_whisper = LocalWhisper(settings.local_stt_model, str(settings.data_path / "models" / "whisper"), local)
+        self.local_whisper = LocalWhisper(settings.local_stt_model, str(settings.models_path / "whisper"), local)
         self._groq: OpenAICompatClient | None = None
         self.last_provider = ""
 

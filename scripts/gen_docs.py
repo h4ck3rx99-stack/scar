@@ -62,7 +62,9 @@ DESCRIPTIONS: dict[str, str] = {
     "whatsapp_phone_number_id": "WhatsApp Cloud API phone number id.",
     "test_telegram_chat": "Only chat live tests may send to.", "test_email_to": "Only address live tests may email.",
     "test_discord_channel": "Only channel live tests may post to.", "log_level": "DEBUG/INFO/WARNING/ERROR.",
-    "data_dir": "Data folder (default %LOCALAPPDATA%\\SCAR).", "live_tests": "Enable live desktop tests (tests only).",
+    "data_dir": "Data folder (default %LOCALAPPDATA%\\SCAR).",
+    "models_dir": "Downloaded speech, embedding and wake-word models (default <data folder>\\models); can live on another drive.",
+    "live_tests": "Enable live desktop tests (tests only).",
     "debug": "Show internals.", "verbose": "Show tools and timings.", "timezone": "IANA zone for reminders (default: system).",
 }
 

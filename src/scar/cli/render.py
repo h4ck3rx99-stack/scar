@@ -132,7 +132,7 @@ class Renderer:
     async def ask_question(self, text: str, options: list[str]) -> str:
         console.print(Text(f"? {text}", style="bold cyan"))
         for i, opt in enumerate(options, 1):
-            console.print(f"  [{i}] {opt}")
+            console.print(Text(f"  [{i}] {opt}"))
         if not self.interactive:
             return ""
         answer = (await ainput("> ")).strip()

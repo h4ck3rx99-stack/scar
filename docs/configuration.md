@@ -119,6 +119,7 @@ The full list with comments is in [`.env.example`](../.env.example).
 | `SCAR_TEST_DISCORD_CHANNEL` | `''` | Only channel live tests may post to. |
 | `SCAR_LOG_LEVEL` | `'INFO'` | DEBUG/INFO/WARNING/ERROR. |
 | `SCAR_DATA_DIR` | `''` | Data folder (default %LOCALAPPDATA%\SCAR). |
+| `SCAR_MODELS_DIR` | `''` | Downloaded speech, embedding and wake-word models (default <data folder>\models); can live on another drive. |
 | `SCAR_LIVE_TESTS` | `False` | Enable live desktop tests (tests only). |
 | `SCAR_DEBUG` | `False` | Show internals. |
 | `SCAR_VERBOSE` | `False` | Show tools and timings. |

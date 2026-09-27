@@ -66,7 +66,7 @@ class VoiceSession:
         self.mic = Microphone(mic_dev)
         self.mic.start()
         if self.mode == "wake":
-            self.wake = WakeWord(self.settings.wake_word, self.settings.data_path / "models" / "openwakeword",
+            self.wake = WakeWord(self.settings.wake_word, self.settings.models_path / "openwakeword",
                                  self.settings.wake_word_threshold)
             await asyncio.to_thread(self.wake.load)
             self.s.local_models.register_component("wake-word", self.wake.unload, 20.0)

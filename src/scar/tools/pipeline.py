@@ -199,6 +199,12 @@ class ToolPipeline:
             hits = ctx.taint.check_args(action.args, tool.sensitive_args.keys())
             for h in hits:
                 kind = tool.sensitive_args.get(h.arg.split(".", 1)[0].split("[", 1)[0], "value")
+                if tool.side_effects == SideEffect.NONE and kind in ("path", "url", "domain"):
+                    # reading a file or page that a search/listing/page pointed to is normal agent work, not one of the
+                    # tainted-action cases (C4.9: communication, commands, deletion/overwrite, form navigation).
+                    # Anything read stays tracked, and exfiltration control guards where it can go next.
+                    log.debug("taint_read_only", tool=tool.name, arg=h.arg, sources=h.sources[:2])
+                    continue
                 tainted.append(f"{kind} {h.value!r} came from {', '.join(h.sources[:2])}")
             if hits and tool.side_effects in (SideEffect.LOCAL, SideEffect.IRREVERSIBLE) and any(
                 tool.sensitive_args.get(h.arg.split(".", 1)[0], "") in ("path", "command") for h in hits

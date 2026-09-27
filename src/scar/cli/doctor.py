@@ -59,7 +59,10 @@ class Doctor:
         import platform
 
         win = sys.platform == "win32"
-        self.add("system", win or None, f"{platform.system()} {platform.release()} ({platform.version()})",
+        release = platform.release()
+        if win and release == "10" and int([*platform.version().split("."), "0", "0", "0"][2] or 0) >= 22000:
+            release = "11"  # Windows 11 still reports release 10; build 22000+ is Windows 11
+        self.add("system", win or None, f"{platform.system()} {release} ({platform.version()})",
                  "" if win else "Windows automation features are unavailable on this OS")
         from scar.tools.windows.win32 import self_elevated
 

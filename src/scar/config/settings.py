@@ -215,6 +215,7 @@ class Settings(BaseSettings):
     # --- operations ---
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     data_dir: str = ""
+    models_dir: str = ""  # downloaded speech/embedding/wake-word models; default <data dir>\models
     live_tests: bool = False
     debug: bool = False
     verbose: bool = False
@@ -272,6 +273,10 @@ class Settings(BaseSettings):
     @property
     def log_path(self) -> Path:
         return self.data_path / "logs" if self.data_dir else paths.default_log_dir()
+
+    @property
+    def models_path(self) -> Path:
+        return Path(self.models_dir).expanduser() if self.models_dir else self.data_path / "models"
 
     @property
     def db_path(self) -> Path:

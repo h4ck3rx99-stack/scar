@@ -21,7 +21,7 @@ class EmbeddingService:
         self._model: Any = None
         self._lock = threading.Lock()
         self._dim: int | None = None
-        self.cache_dir = settings.data_path / "models" / "fastembed"
+        self.cache_dir = settings.models_path / "fastembed"
 
     @property
     def enabled(self) -> bool:

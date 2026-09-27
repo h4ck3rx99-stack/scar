@@ -15,7 +15,7 @@ from collections import deque
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote_plus, urlparse
 
 _WS = re.compile(r"\s+")
 _ENTITY = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+|https?://[^\s\"'<>]+|[A-Za-z]:\\[^\s\"'<>]+")
@@ -72,15 +72,22 @@ class TaintTracker:
                 self._local.append((data_class, _norm(text)[:200_000]))
 
     def local_sources_of(self, value: str) -> list[str]:
-        """Data classes of private local content that ``value`` carries (min 24 chars overlap)."""
-        norm = _norm(value)
-        if len(norm) < 24:
+        """Data classes of private local content that ``value`` carries: any 24-character stretch of the value (after
+        URL decoding) that appears in private local content. Checks containment in both directions, so a URL or
+        message that wraps leaked text is caught, not only a value that is itself a fragment of the file."""
+        window, step = 24, 8
+        probes: list[str] = []
+        for norm in {_norm(value), _norm(unquote_plus(value))}:
+            if len(norm) < window:
+                continue
+            probes += [norm[i : i + window] for i in range(0, len(norm) - window + 1, step)][:600]
+            probes.append(norm[-window:])
+        if not probes:
             return []
         hits: set[str] = set()
         with self._lock:
-            probes = [norm] if len(norm) <= 200 else [norm[i : i + 60] for i in range(0, min(len(norm), 3000), 60)]
             for dc, text in self._local:
-                if any(len(p) >= 24 and p in text for p in probes):
+                if any(p in text for p in probes):
                     hits.add(dc)
         return sorted(hits)
 

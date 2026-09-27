@@ -330,7 +330,12 @@ class BrowserType(Tool):
         try:
             input_type = (await loc.get_attribute("type", timeout=3000) or "").lower()
             autocomplete = (await loc.get_attribute("autocomplete", timeout=3000) or "").lower()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:
+            if not args.sensitive_field:
+                # fail closed: a field that cannot be inspected might be a password or card field
+                raise ToolError("could not inspect the field to check whether it is a password or payment field; "
+                                "describe it more precisely, or retry with sensitive_field=true (requires the user's "
+                                "typed confirmation)", "FieldUninspectable") from exc
             input_type, autocomplete = "", ""
         sensitive = input_type == "password" or autocomplete.startswith("cc-") or autocomplete in (
             "current-password", "new-password", "one-time-code")

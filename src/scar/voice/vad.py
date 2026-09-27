@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass
 
 import numpy as np
+import structlog
 
 from scar.voice.audio_io import FRAME_SAMPLES, SAMPLE_RATE, rms_level
 
@@ -55,7 +56,9 @@ class EnergyVad:
 def make_vad() -> SileroVad | EnergyVad:
     try:
         return SileroVad()
-    except Exception:  # noqa: BLE001 - onnxruntime/model missing: degrade to energy detection
+    except Exception as exc:  # noqa: BLE001 - onnxruntime/model missing: degrade to energy detection
+        structlog.get_logger("scar.voice").warning("silero_vad_unavailable", error=repr(exc)[:200],
+                                                   fallback="energy threshold (less robust to background noise)")
         return EnergyVad()
 
 

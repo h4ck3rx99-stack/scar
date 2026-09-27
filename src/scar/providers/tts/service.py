@@ -144,7 +144,7 @@ class TtsService:
         self.egress = egress
         self.catalog = catalog or Catalog.load()
         self.sapi = SapiTts()
-        self.kokoro = KokoroTts(settings.data_path / "models" / "kokoro", local)
+        self.kokoro = KokoroTts(settings.models_path / "kokoro", local)
         self.last_provider = ""
 
     def _chain(self) -> list[tuple[str, list[str]]]:

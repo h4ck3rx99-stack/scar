@@ -14,9 +14,12 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from typing import Any, Literal
 
+import structlog
 from pydantic import BaseModel, Field
 
 from scar.core.types import utcnow
+
+log = structlog.get_logger("scar.events")
 
 
 class Event(BaseModel):
@@ -154,6 +157,7 @@ class EventBus:
         self._queue_size = queue_size
         self._subs: list[_Subscription] = []
         self._listeners: list[Listener] = []
+        self._failed_listeners: set[int] = set()
         self._lock = threading.Lock()
 
     def add_listener(self, listener: Listener) -> None:
@@ -173,7 +177,11 @@ class EventBus:
         for listener in listeners:
             try:
                 listener(event)
-            except Exception:  # noqa: BLE001 - a broken listener must not break publishing
+            except Exception as exc:  # noqa: BLE001 - a broken listener must not break publishing
+                if id(listener) not in self._failed_listeners:  # report once per listener, not on every event
+                    self._failed_listeners.add(id(listener))
+                    log.warning("event_listener_failed", listener=getattr(listener, "__qualname__", repr(listener)),
+                                event_kind=event.kind, error=repr(exc)[:300])
                 continue
         for sub in subs:
             if sub.loop.is_closed():

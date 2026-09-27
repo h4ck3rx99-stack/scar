@@ -151,9 +151,9 @@ class Executor:
                     ctxb.add_note("Your last reply was empty. Continue: call a tool or finish.")
                     continue
                 # the model announced an action instead of taking it ("I'll fix it now"): nudge it to act (bounded)
-                last_sentence = re.split(r"(?<=[.!?])\s+", text.strip())[-1].lower()
+                last_sentence = re.split(r"(?<=[.!?])\s+", text.strip().replace("’", "'"))[-1].lower()
                 if actions_taken and nudges < 2 and re.search(
-                        r"(i'll|i will|let me|let's|i am going to|i'm going to|next,? i|now i|i can now)", last_sentence):
+                        r"\b(i'll|i will|let me|let's|i am going to|i'm going to|next,? i|now i|i can now)\b", last_sentence):
                     nudges += 1
                     ctxb.add_assistant_text(text)
                     ctxb.add_note("You described a next step but did not do it. Perform it now with a tool call, "
@@ -164,6 +164,14 @@ class Executor:
                 if actions_taken == 0:
                     return ExecOutcome(TaskStatus.SUCCEEDED, text, None)
                 v = verify_finish(task, text, [], self.s, self.registry)
+                unmet = [c for c in v.checks if not c.passed and c.name in ("requested change was made", "tests pass after the change")]
+                if unmet and replans < 2 and budget.steps < budget.budget.max_steps - 3:
+                    # the objective is not done (e.g. diagnosed but not fixed): send the model back to work, bounded
+                    replans += 1
+                    ctxb.add_note("The objective is not complete: " + "; ".join(f"{c.name} — {c.detail}" for c in unmet)
+                                  + ". Continue with tool calls until it is done, or call finish with status 'failed' "
+                                    "and explain what blocked you.")
+                    continue
                 last = next((o for o in reversed(task.observations) if o.tool not in ("ask_user", "read_artifact")), None)
                 last_failed = last is not None and last.result.status != ToolStatus.OK
                 ok = v.verified is not False and not last_failed

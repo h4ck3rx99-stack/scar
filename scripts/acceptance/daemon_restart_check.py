@@ -23,6 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from isolation import isolate  # noqa: E402
+
 from scar.config.settings import load_settings  # noqa: E402
 from scar.runtime.ipc import IpcClient, daemon_alive  # noqa: E402
 from scar.storage.db import Database  # noqa: E402
@@ -51,9 +53,10 @@ async def main() -> int:
     if os.environ.get("SCAR_LIVE_TESTS") != "1":
         print("set SCAR_LIVE_TESTS=1")
         return 2
-    settings = load_settings()
     sandbox = Path.home() / "scar-sandbox" / f"daemon-{time.strftime('%Y%m%d-%H%M%S')}"
     sandbox.mkdir(parents=True)
+    isolate(sandbox)
+    settings = load_settings()
     out: dict = {"sandbox": str(sandbox)}
     if await daemon_alive(settings.data_path):
         scar("daemon", "stop")

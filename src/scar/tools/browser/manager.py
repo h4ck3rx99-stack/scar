@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,22 @@ def detect_channel(preferred: str) -> str:
     if any(os.path.exists(p) for p in EDGE_PATHS):
         return "msedge"
     return "chromium"
+
+
+def open_in_user_browser(url: str, channel: str) -> str:
+    """Open ``url`` in the user's own browser (their normal profile), detached from SCAR so it outlives this process.
+    Returns the browser name used."""
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("only web pages are handed off")
+    paths = CHROME_PATHS if channel == "chrome" else EDGE_PATHS if channel == "msedge" else []
+    exe = next((p for p in paths if os.path.exists(p)), None)
+    if exe is None:
+        os.startfile(url)  # type: ignore[attr-defined]  # Windows: the default browser
+        return "your default browser"
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen([exe, url], creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return "Chrome" if channel == "chrome" else "Edge"
 
 
 @dataclass

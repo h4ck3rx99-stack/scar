@@ -43,6 +43,17 @@ def test_no_stub_markers_in_runtime() -> None:
     assert not bad, bad
 
 
+def test_no_control_characters_in_source() -> None:
+    """A stray backspace byte where `\\b` was meant silently disabled a regex (the executor's narration nudge)."""
+    root = SRC.parents[1]
+    bad = []
+    for path in [*SRC.rglob("*.py"), *(root / "tests").rglob("*.py"), *(root / "scripts").rglob("*.py")]:
+        data = path.read_bytes()
+        if any(b < 32 and b not in (9, 10, 13) for b in data):
+            bad.append(str(path.relative_to(root)))
+    assert not bad, bad
+
+
 def test_redactor_patterns() -> None:
     r = Redactor()
     r.add_secret("MY_TOKEN", "abcdefghij-secret-123")

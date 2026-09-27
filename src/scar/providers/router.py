@@ -221,6 +221,8 @@ class ProviderRouter:
                 attempts.append(err)
                 if err.kind != ProviderErrorKind.RESOURCE:
                     self.health.failure(err)
+                log.info("provider_error", provider=spec.id, kind=err.kind.value, stage="start")
+                previous = previous or spec.id
                 continue
             client = self.client(spec, base_url)
             try:
@@ -228,6 +230,8 @@ class ProviderRouter:
             except ProviderError as err:
                 self.health.failure(err)
                 attempts.append(err)
+                log.info("provider_error", provider=spec.id, kind=err.kind.value, stage="models")
+                previous = previous or spec.id  # the next candidate that answers is reported as a fallback
                 continue
             models = self.resolve_from_list(cand.models, live)
             if not models:

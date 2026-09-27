@@ -152,3 +152,71 @@ async def test_subagent_delegation(tm, sandbox: Path) -> None:
     assert task.status == TaskStatus.SUCCEEDED
     child = tm.s.db.query_one("SELECT role, status FROM tasks WHERE parent_task_id = ?", (task.task_id,))
     assert child["role"] == "tester" and child["status"] == "succeeded"
+
+
+_PLAN = reply(content=json.dumps({"steps": [{"intent": "run the tests", "candidate_tools": ["dev.run_tests"]},
+                                            {"intent": "fix the code", "candidate_tools": ["fs.edit"]},
+                                            {"intent": "run the tests again", "candidate_tools": ["dev.run_tests"]}],
+                                  "completion_criteria": "tests pass"}))
+
+
+def _buggy_project(root: Path) -> Path:
+    proj = root / "calcproj"
+    (proj / "tests").mkdir(parents=True)
+    (proj / "calc.py").write_text("def add(a, b):\n    return a - b\n")
+    (proj / "tests" / "__init__.py").write_text("")
+    (proj / "tests" / "test_calc.py").write_text("from calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n")
+    (proj / "pytest.ini").write_text("[pytest]\npythonpath = .\n")
+    return proj
+
+
+async def test_diagnosis_without_the_fix_is_not_success(tm, sandbox: Path) -> None:
+    """Asked to fix a failing test, a model that only explains the bug must not produce 'succeeded'."""
+    proj = _buggy_project(sandbox)
+    explain = "The add function subtracts instead of adding, so test_add gets -1 instead of 5."
+    script(tm.s, [reply(call("dev.run_tests", path=str(proj))),
+                  reply(content="The bug is in add(). I’ll fix it now."),
+                  reply(content=explain), reply(content=explain), reply(content=explain), reply(content=explain)])
+    task = await tm.run(f"fix the failing test in {proj}")
+    assert task.status == TaskStatus.FAILED, task.result_summary
+    assert "requested change was made" in task.result_summary
+    assert (proj / "calc.py").read_text() == "def add(a, b):\n    return a - b\n"
+
+
+async def test_narrated_step_is_nudged_until_the_fix_is_done(tm, sandbox: Path) -> None:
+    proj = _buggy_project(sandbox)
+    c = script(tm.s, [_PLAN, reply(call("dev.run_tests", path=str(proj))),
+                      reply(content="add() subtracts. I'll change it to return a + b."),
+                      reply(call("fs.edit", path=str(proj / "calc.py"), old="return a - b", new="return a + b")),
+                      reply(call("dev.run_tests", path=str(proj))),
+                      reply(call("finish", summary="Fixed add() in calc.py; all tests pass."))])
+    task = await tm.run(f"fix the failing test in {proj} and run the tests again")
+    assert task.status == TaskStatus.SUCCEEDED and task.verification.verified is True, task.result_summary
+    assert "return a + b" in (proj / "calc.py").read_text()
+    notes = [m.content for _, req in c.requests for m in req.messages if "did not do it" in (m.content or "")]
+    assert notes, "the narrated step was nudged"
+
+
+async def test_fix_without_rerunning_tests_is_not_verified(tm, sandbox: Path) -> None:
+    proj = _buggy_project(sandbox)
+    script(tm.s, [_PLAN, reply(call("dev.run_tests", path=str(proj))),
+                  reply(call("fs.edit", path=str(proj / "calc.py"), old="return a - b", new="return a * b")),
+                  reply(call("finish", summary="Fixed it.")),
+                  reply(call("finish", summary="Fixed it.")),
+                  reply(call("finish", summary="Fixed it."))])
+    task = await tm.run(f"fix the failing test in {proj} and run the tests again")
+    assert task.status == TaskStatus.FAILED
+    assert "tests pass after the change" in task.result_summary
+
+
+async def test_model_lost_mid_task_reports_partial_work_honestly(tm, sandbox: Path) -> None:
+    """The model disappears after an action ran: the task fails, and says so, instead of claiming success."""
+    f = sandbox / "half.txt"
+    script(tm.s, [_PLAN, reply(call("fs.write", path=str(f), content="part one")),
+                  perr(ProviderErrorKind.TRANSIENT), perr(ProviderErrorKind.TRANSIENT), perr(ProviderErrorKind.TRANSIENT),
+                  perr(ProviderErrorKind.TRANSIENT), perr(ProviderErrorKind.TRANSIENT), perr(ProviderErrorKind.TRANSIENT)])
+    task = await tm.run(f"write half.txt in {sandbox} with part one, then summarise my week")
+    assert task.status == TaskStatus.FAILED, task.result_summary
+    assert "done" not in task.result_summary.lower().split()
+    assert f.exists()  # what already happened is real; the summary must not pretend the rest happened
+    assert "partway through" in task.result_summary and "half.txt" in task.result_summary

@@ -30,6 +30,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from isolation import isolate  # noqa: E402
+
 from scar.config.settings import load_settings  # noqa: E402
 from scar.core.types import TaskState  # noqa: E402
 from scar.runtime.runtime import Runtime  # noqa: E402
@@ -410,6 +412,7 @@ async def main(only: set[int] | None) -> int:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     sandbox = Path.home() / "scar-sandbox" / f"acceptance-{stamp}"
     sandbox.mkdir(parents=True)
+    isolate(sandbox)
     h = Harness(sandbox)
     await h.start()
     out_path = ROOT / "docs" / "acceptance_results.json"

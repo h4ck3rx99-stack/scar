@@ -19,6 +19,8 @@ import psutil
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from isolation import isolate  # noqa: E402
+
 from scar.config.settings import load_settings  # noqa: E402
 from scar.core.events import EventBus, TaskProgress  # noqa: E402
 from scar.providers.base import ChatMessage, ChatRequest  # noqa: E402
@@ -57,6 +59,7 @@ def vram_used_mb() -> float | None:
 
 async def main(idle_seconds: int) -> int:
     results: dict[str, Any] = {"at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    isolate(Path.home() / "scar-sandbox" / f"resources-{time.strftime('%Y%m%d-%H%M%S')}")
     settings = load_settings(model_idle_timeout=20.0)
     rt = Runtime(settings)
     await rt.start(with_hotkeys=True)

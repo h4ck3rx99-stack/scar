@@ -24,6 +24,7 @@ class EmbeddedSession:
         self._pump: asyncio.Task[None] | None = None
         self._queue: Any = None
         self._sub: Any = None
+        self._last_task: Any = None
 
     async def start(self, **kwargs: Any) -> bool:
         if not self.lock.acquire():
@@ -64,9 +65,31 @@ class EmbeddedSession:
     async def run(self, objective: str, **kwargs: Any) -> dict[str, Any]:
         assert self.rt.tasks is not None
         task = await self.rt.tasks.run(objective, **kwargs)
+        self._last_task = task
         await asyncio.sleep(0.05)
         return {"task_id": task.task_id, "status": task.status.value, "summary": task.result_summary,
                 "verified": task.verification.verified if task.verification else None}
+
+    def handoff_browser(self) -> str | None:
+        """A one-shot run ends this process, which closes SCAR's automated browser. When the task's final result is a
+        page the user asked to see ("open chrome and go to …"), reopen it in their own browser so it stays on screen."""
+        task = self._last_task
+        s = self.rt.services
+        if task is None or task.status.value != "succeeded" or s is None or not s.browser.running:
+            return None
+        done = [o for o in task.observations if o.result.ok]
+        if not done or done[-1].tool not in ("browser.open", "browser.navigate"):
+            return None
+        url = str(done[-1].result.data.get("url") or "")
+        if not url.startswith(("http://", "https://")):
+            return None
+        from scar.tools.browser.manager import open_in_user_browser
+
+        try:
+            where = open_in_user_browser(url, s.browser.state.channel)
+        except (OSError, ValueError):
+            return None
+        return f"Kept {url} open in {where}."
 
     def cancel_running(self) -> list[str]:
         return self.rt.tasks.cancel_all("cancelled by user") if self.rt.tasks else []
