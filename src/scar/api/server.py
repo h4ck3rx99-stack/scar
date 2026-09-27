@@ -33,7 +33,7 @@ from pydantic import BaseModel, ValidationError
 from scar import __version__
 from scar.api import models as m
 from scar.api.humanize import CAPTURE_TOOLS, CONTROL_TOOLS, provider_summary, tool_title
-from scar.core.events import AssistantState, ControlActive, Event, ScreenCaptured
+from scar.core.events import AssistantState, ControlActive, Event, GameModeChanged, ScreenCaptured
 from scar.runtime.ipc import restrict_to_user
 
 log = structlog.get_logger("scar.api")
@@ -63,6 +63,7 @@ class StateTracker:
     def __init__(self, services: Any) -> None:
         self.s = services
         self.state = "ready"
+        self.game = False
         self._control_task: dict[str, str] = {}
 
     def compute(self) -> str:
@@ -80,7 +81,7 @@ class StateTracker:
         return "ready"
 
     def on_event(self, ev: Event) -> None:
-        if ev.kind in ("assistant_state", "resource_snapshot", "mic_level", "assistant_delta"):
+        if ev.kind in ("assistant_state", "resource_snapshot", "mic_level", "assistant_delta", "game_mode"):
             return
         if ev.kind == "tool_called":
             tool = getattr(ev, "tool", "")
@@ -95,6 +96,12 @@ class StateTracker:
         elif ev.kind in ("task_completed", "task_failed") and self._control_task:
             self._control_task.clear()
             self.s.bus.publish(ControlActive(task_id=ev.task_id, active=False))
+        from scar.runtime.gamemode import game_mode_active
+
+        game = game_mode_active(self.s.settings)  # cached for 2 s by the detector; no extra polling
+        if game != self.game:
+            self.game = game
+            self.s.bus.publish(GameModeChanged(active=game))
         new = self.compute()
         if new != self.state:
             self.state = new
@@ -267,8 +274,11 @@ class AppApi:
         r.add_get(f"{v}/schedules", self.schedules)
         r.add_post(f"{v}/schedules/{{sid}}/cancel", self.schedule_cancel)
         r.add_post(f"{v}/voice", self.voice)
+        r.add_get(f"{v}/voice/devices", self.voice_devices)
+        r.add_post(f"{v}/voice/test", self.voice_test)
         r.add_post(f"{v}/diagnostics/bundle", self.diagnostics_bundle)
         r.add_post(f"{v}/shutdown", self.shutdown)
+        r.add_post(f"{v}/notify-approval", self.notify_approval)
 
     # ------------------------------------------------------------------ basics
     async def health(self, _r: web.Request) -> web.Response:
@@ -558,6 +568,30 @@ class AppApi:
         body = m.VoiceCommand.model_validate(await _body(request))
         return web.json_response(await voice_command(self.s, body.action, body.mode), dumps=_dumps)
 
+    async def voice_devices(self, _r: web.Request) -> web.Response:
+        from scar.api.voice_control import voice_devices
+
+        return web.json_response(await asyncio.to_thread(voice_devices))
+
+    async def voice_test(self, request: web.Request) -> web.Response:
+        from scar.api.voice_control import voice_test
+
+        body = await _body(request) if request.can_read_body else {}
+        seconds = min(8.0, max(1.0, float((body or {}).get("seconds", 4))))
+        return web.json_response(await voice_test(self.s, seconds, bool((body or {}).get("speak", True))), dumps=_dumps)
+
+    async def notify_approval(self, _r: web.Request) -> web.Response:
+        """The app's window is hidden and an approval is waiting: a toast that only brings SCAR forward. Nothing can
+        be approved from a toast (HIGH and CRITICAL decisions happen on the approval card)."""
+        pending = self.s.approvals.pending()
+        if not pending or self.s.notifier is None:
+            return web.json_response({"shown": False})
+        req = pending[0]
+        extra = f" (+{len(pending) - 1} more)" if len(pending) > 1 else ""
+        await self.s.notifier.notify("SCAR needs your approval", f"{req.summary[:180]}{extra}. Open SCAR to decide.",
+                                     task_id=req.task_id, speak=False, urgent=True)
+        return web.json_response({"shown": True})
+
     async def shutdown(self, _r: web.Request) -> web.Response:
         stop = getattr(self.rt, "request_stop", None)
         if stop is None:
@@ -636,7 +670,6 @@ class AppApi:
 
     async def _resource_loop(self) -> None:
         from scar.api.diagnostics import resource_snapshot
-
         from scar.core.events import ResourceSnapshotEvent
 
         while True:

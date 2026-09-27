@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay-windows",
+  "description": "Quick Bar and control indicator: events and opening validated web links only.",
+  "windows": ["quickbar", "indicator"],
+  "permissions": [
+    "core:event:default",
+    "core:app:allow-version",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://*" }, { "url": "http://*" }]
+    }
+  ]
+}

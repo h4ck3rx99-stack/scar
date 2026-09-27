@@ -53,7 +53,7 @@ class UserAuthority:
     __slots__ = ("channel", "detail")
 
     def __init__(self, channel: str, detail: str = "") -> None:
-        if channel not in {"cli", "tui", "voice", "ipc-client", "approval"}:
+        if channel not in {"cli", "tui", "voice", "ipc-client", "approval", "app"}:
             raise ValueError(f"not a user channel: {channel}")
         self.channel = channel
         self.detail = detail

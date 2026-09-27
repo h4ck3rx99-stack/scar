@@ -1,0 +1,1889 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "ApprovalAnswer": {
+      "additionalProperties": false,
+      "description": "A user's decision on one pending approval. ``args_hash`` must match the pending request (the UI echoes what it\ndisplayed), and ``user_gesture`` records that it came from a trusted click/keypress on the approval card.",
+      "properties": {
+        "args_hash": {
+          "maxLength": 128,
+          "minLength": 8,
+          "type": "string"
+        },
+        "response": {
+          "enum": [
+            "allow_once",
+            "allow_task",
+            "allow_session",
+            "allow_timed",
+            "allow_always",
+            "deny",
+            "deny_always"
+          ],
+          "type": "string"
+        },
+        "typed_confirmation": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "user_gesture": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "response",
+        "args_hash"
+      ],
+      "title": "ApprovalAnswer",
+      "type": "object"
+    },
+    "ApprovalRequested": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "approval_requested",
+          "default": "approval_requested",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "request_id": {
+          "default": "",
+          "type": "string"
+        },
+        "risk": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ApprovalRequested",
+      "type": "object"
+    },
+    "ApprovalResolved": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "decision": {
+          "default": "",
+          "type": "string"
+        },
+        "kind": {
+          "const": "approval_resolved",
+          "default": "approval_resolved",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "request_id": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ApprovalResolved",
+      "type": "object"
+    },
+    "ApprovalView": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_responses": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "args_hash": {
+          "type": "string"
+        },
+        "confirmation_code": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "critical": {
+          "type": "boolean"
+        },
+        "details": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "grantable": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CRITICAL"
+          ],
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "task_id",
+        "tool",
+        "args_hash",
+        "risk",
+        "summary",
+        "reason",
+        "details",
+        "critical",
+        "grantable",
+        "confirmation_code",
+        "allowed_responses",
+        "created_at",
+        "expires_at"
+      ],
+      "title": "ApprovalView",
+      "type": "object"
+    },
+    "AssistantDelta": {
+      "description": "Streamed reply text as it is generated. ``reset`` = discard the partial text (the model is retrying).",
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "assistant_delta",
+          "default": "assistant_delta",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "reset": {
+          "default": false,
+          "type": "boolean"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "text": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "title": "AssistantDelta",
+      "type": "object"
+    },
+    "AssistantMessage": {
+      "description": "A user-facing reply chunk (conversation text, final answers).",
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "final": {
+          "default": true,
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "assistant_message",
+          "default": "assistant_message",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AssistantMessage",
+      "type": "object"
+    },
+    "AssistantState": {
+      "description": "What SCAR is doing, in one word, for status indicators.",
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "assistant_state",
+          "default": "assistant_state",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "state": {
+          "default": "ready",
+          "enum": [
+            "ready",
+            "working",
+            "listening",
+            "waiting",
+            "speaking",
+            "offline"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AssistantState",
+      "type": "object"
+    },
+    "ControlActive": {
+      "description": "SCAR is (or stopped) moving the mouse, typing or controlling windows; the UI shows an indicator.",
+      "properties": {
+        "active": {
+          "default": false,
+          "type": "boolean"
+        },
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "control_active",
+          "default": "control_active",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "what": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "title": "ControlActive",
+      "type": "object"
+    },
+    "EventEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Snapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "type": {
+          "enum": [
+            "snapshot",
+            "event",
+            "error"
+          ],
+          "type": "string"
+        },
+        "v": {
+          "const": 1,
+          "default": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "type"
+      ],
+      "title": "EventEnvelope",
+      "type": "object"
+    },
+    "GameModeChanged": {
+      "properties": {
+        "active": {
+          "default": false,
+          "type": "boolean"
+        },
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "game_mode",
+          "default": "game_mode",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "GameModeChanged",
+      "type": "object"
+    },
+    "Hello": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "type": "string"
+        },
+        "app_version": {
+          "type": "string"
+        },
+        "data_dir": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "api_version",
+        "app_version",
+        "pid",
+        "data_dir"
+      ],
+      "title": "Hello",
+      "type": "object"
+    },
+    "MemoryEdit": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "MemoryEdit",
+      "type": "object"
+    },
+    "MicLevel": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "mic_level",
+          "default": "mic_level",
+          "type": "string"
+        },
+        "level": {
+          "default": 0.0,
+          "type": "number"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "MicLevel",
+      "type": "object"
+    },
+    "MonitorFired": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "detail": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "kind": {
+          "const": "monitor_fired",
+          "default": "monitor_fired",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "monitor_id": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "MonitorFired",
+      "type": "object"
+    },
+    "NotificationShown": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "notification",
+          "default": "notification",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "title": {
+          "default": "",
+          "type": "string"
+        },
+        "urgent": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "title": "NotificationShown",
+      "type": "object"
+    },
+    "OpenAppRequested": {
+      "description": "The user clicked a SCAR toast: the desktop app should come to the front (toasts never approve anything).",
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "open_app",
+          "default": "open_app",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "OpenAppRequested",
+      "type": "object"
+    },
+    "PlanCreated": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "plan_created",
+          "default": "plan_created",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "PlanCreated",
+      "type": "object"
+    },
+    "ProviderFallback": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "category": {
+          "default": "",
+          "type": "string"
+        },
+        "from_provider": {
+          "default": "",
+          "type": "string"
+        },
+        "kind": {
+          "const": "provider_fallback",
+          "default": "provider_fallback",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "to_provider": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "title": "ProviderFallback",
+      "type": "object"
+    },
+    "ProviderHealthChanged": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "provider_health",
+          "default": "provider_health",
+          "type": "string"
+        },
+        "level": {
+          "default": "none",
+          "enum": [
+            "cloud",
+            "local",
+            "degraded",
+            "none"
+          ],
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ProviderHealthChanged",
+      "type": "object"
+    },
+    "ProviderSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": [
+            "cloud",
+            "local",
+            "degraded",
+            "none"
+          ],
+          "type": "string"
+        },
+        "retry_in_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "summary"
+      ],
+      "title": "ProviderSummary",
+      "type": "object"
+    },
+    "QuestionAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 4000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "QuestionAnswer",
+      "type": "object"
+    },
+    "ReminderDue": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "reminder_due",
+          "default": "reminder_due",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "schedule_id": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ReminderDue",
+      "type": "object"
+    },
+    "ResourceSnapshotEvent": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "resource_snapshot",
+          "default": "resource_snapshot",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "snapshot": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ResourceSnapshotEvent",
+      "type": "object"
+    },
+    "ResourceWarning": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "resource_warning",
+          "default": "resource_warning",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "resource": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ResourceWarning",
+      "type": "object"
+    },
+    "ScreenCaptured": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "screen_captured",
+          "default": "screen_captured",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ScreenCaptured",
+      "type": "object"
+    },
+    "SecretValue": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "SecretValue",
+      "type": "object"
+    },
+    "SettingsPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "values": {
+          "additionalProperties": true,
+          "maxProperties": 40,
+          "minProperties": 1,
+          "type": "object"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "SettingsPatch",
+      "type": "object"
+    },
+    "Snapshot": {
+      "additionalProperties": false,
+      "description": "Everything a freshly connected client needs to render the current state (sent first on the event stream).",
+      "properties": {
+        "game_mode": {
+          "type": "boolean"
+        },
+        "killswitch_hotkey": {
+          "type": "string"
+        },
+        "pending_approvals": {
+          "items": {
+            "$ref": "#/definitions/ApprovalView"
+          },
+          "type": "array"
+        },
+        "provider": {
+          "$ref": "#/definitions/ProviderSummary"
+        },
+        "running_tasks": {
+          "items": {
+            "$ref": "#/definitions/TaskView"
+          },
+          "type": "array"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "working",
+            "listening",
+            "waiting",
+            "speaking",
+            "offline"
+          ],
+          "type": "string"
+        },
+        "voice": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "state",
+        "provider",
+        "pending_approvals",
+        "running_tasks",
+        "voice",
+        "game_mode",
+        "killswitch_hotkey"
+      ],
+      "title": "Snapshot",
+      "type": "object"
+    },
+    "StepStarted": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "intent": {
+          "default": "",
+          "type": "string"
+        },
+        "kind": {
+          "const": "step_started",
+          "default": "step_started",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "step": {
+          "default": 0,
+          "type": "integer"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "StepStarted",
+      "type": "object"
+    },
+    "StepView": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "default": "",
+          "type": "string"
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "risk": {
+          "default": "",
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "tool",
+        "title",
+        "status",
+        "summary"
+      ],
+      "title": "StepView",
+      "type": "object"
+    },
+    "SubmitTask": {
+      "additionalProperties": false,
+      "properties": {
+        "autonomy": {
+          "anyOf": [
+            {
+              "maximum": 4,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "background": {
+          "default": false,
+          "type": "boolean"
+        },
+        "dry_run": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "objective": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "origin": {
+          "default": "text",
+          "enum": [
+            "text",
+            "voice"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "objective"
+      ],
+      "title": "SubmitTask",
+      "type": "object"
+    },
+    "Subscribe": {
+      "additionalProperties": false,
+      "description": "Sent on the event stream to opt into high-rate topics (only while a screen that shows them is open).",
+      "properties": {
+        "op": {
+          "enum": [
+            "subscribe",
+            "unsubscribe"
+          ],
+          "type": "string"
+        },
+        "topics": {
+          "items": {
+            "enum": [
+              "resources",
+              "mic_level"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "topics"
+      ],
+      "title": "Subscribe",
+      "type": "object"
+    },
+    "TaskCompleted": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "background": {
+          "default": false,
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "task_completed",
+          "default": "task_completed",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "TaskCompleted",
+      "type": "object"
+    },
+    "TaskDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "background": {
+          "default": false,
+          "type": "boolean"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "failed_checks": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "objective": {
+          "type": "string"
+        },
+        "origin": {
+          "default": "text",
+          "type": "string"
+        },
+        "result_summary": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/definitions/StepView"
+          },
+          "type": "array"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "verification_note": {
+          "default": "",
+          "type": "string"
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "task_id",
+        "objective",
+        "status",
+        "result_summary",
+        "verified"
+      ],
+      "title": "TaskDetail",
+      "type": "object"
+    },
+    "TaskFailed": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "background": {
+          "default": false,
+          "type": "boolean"
+        },
+        "error": {
+          "default": "",
+          "type": "string"
+        },
+        "kind": {
+          "const": "task_failed",
+          "default": "task_failed",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "TaskFailed",
+      "type": "object"
+    },
+    "TaskProgress": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "task_progress",
+          "default": "task_progress",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "milestone": {
+          "default": true,
+          "type": "boolean"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "TaskProgress",
+      "type": "object"
+    },
+    "TaskStarted": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "background": {
+          "default": false,
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "task_started",
+          "default": "task_started",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "objective": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "TaskStarted",
+      "type": "object"
+    },
+    "TaskView": {
+      "additionalProperties": false,
+      "properties": {
+        "background": {
+          "default": false,
+          "type": "boolean"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "failed_checks": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "objective": {
+          "type": "string"
+        },
+        "origin": {
+          "default": "text",
+          "type": "string"
+        },
+        "result_summary": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "verification_note": {
+          "default": "",
+          "type": "string"
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "task_id",
+        "objective",
+        "status",
+        "result_summary",
+        "verified"
+      ],
+      "title": "TaskView",
+      "type": "object"
+    },
+    "ToolCalled": {
+      "properties": {
+        "action_id": {
+          "default": "",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "tool_called",
+          "default": "tool_called",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "risk": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tool": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "title": "ToolCalled",
+      "type": "object"
+    },
+    "ToolCompleted": {
+      "properties": {
+        "action_id": {
+          "default": "",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "duration_ms": {
+          "default": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "tool_completed",
+          "default": "tool_completed",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "status": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tool": {
+          "default": "",
+          "type": "string"
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ToolCompleted",
+      "type": "object"
+    },
+    "VerificationResultEvent": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "verification_result",
+          "default": "verification_result",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "VerificationResultEvent",
+      "type": "object"
+    },
+    "VoiceCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "start",
+            "stop",
+            "push_to_talk",
+            "mute",
+            "unmute",
+            "stop_speaking"
+          ],
+          "type": "string"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "ptt",
+                "wake"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "VoiceCommand",
+      "type": "object"
+    },
+    "VoiceStateEvent": {
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kind": {
+          "const": "voice_state",
+          "default": "voice_state",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "mic_active": {
+          "default": false,
+          "type": "boolean"
+        },
+        "mode": {
+          "default": "",
+          "type": "string"
+        },
+        "muted": {
+          "default": false,
+          "type": "boolean"
+        },
+        "state": {
+          "default": "off",
+          "enum": [
+            "off",
+            "idle",
+            "listening",
+            "thinking",
+            "speaking"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "transcript": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "title": "VoiceStateEvent",
+      "type": "object"
+    },
+    "WipeMemory": {
+      "additionalProperties": false,
+      "properties": {
+        "confirm": {
+          "const": "FORGET EVERYTHING",
+          "type": "string"
+        }
+      },
+      "required": [
+        "confirm"
+      ],
+      "title": "WipeMemory",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "ApprovalAnswer": {
+      "$ref": "#/definitions/ApprovalAnswer"
+    },
+    "ApprovalRequested": {
+      "$ref": "#/definitions/ApprovalRequested"
+    },
+    "ApprovalResolved": {
+      "$ref": "#/definitions/ApprovalResolved"
+    },
+    "ApprovalView": {
+      "$ref": "#/definitions/ApprovalView"
+    },
+    "AssistantDelta": {
+      "$ref": "#/definitions/AssistantDelta"
+    },
+    "AssistantMessage": {
+      "$ref": "#/definitions/AssistantMessage"
+    },
+    "AssistantState": {
+      "$ref": "#/definitions/AssistantState"
+    },
+    "ControlActive": {
+      "$ref": "#/definitions/ControlActive"
+    },
+    "EventEnvelope": {
+      "$ref": "#/definitions/EventEnvelope"
+    },
+    "GameModeChanged": {
+      "$ref": "#/definitions/GameModeChanged"
+    },
+    "Hello": {
+      "$ref": "#/definitions/Hello"
+    },
+    "MemoryEdit": {
+      "$ref": "#/definitions/MemoryEdit"
+    },
+    "MicLevel": {
+      "$ref": "#/definitions/MicLevel"
+    },
+    "MonitorFired": {
+      "$ref": "#/definitions/MonitorFired"
+    },
+    "NotificationShown": {
+      "$ref": "#/definitions/NotificationShown"
+    },
+    "OpenAppRequested": {
+      "$ref": "#/definitions/OpenAppRequested"
+    },
+    "PlanCreated": {
+      "$ref": "#/definitions/PlanCreated"
+    },
+    "ProviderFallback": {
+      "$ref": "#/definitions/ProviderFallback"
+    },
+    "ProviderHealthChanged": {
+      "$ref": "#/definitions/ProviderHealthChanged"
+    },
+    "ProviderSummary": {
+      "$ref": "#/definitions/ProviderSummary"
+    },
+    "QuestionAnswer": {
+      "$ref": "#/definitions/QuestionAnswer"
+    },
+    "ReminderDue": {
+      "$ref": "#/definitions/ReminderDue"
+    },
+    "ResourceSnapshotEvent": {
+      "$ref": "#/definitions/ResourceSnapshotEvent"
+    },
+    "ResourceWarning": {
+      "$ref": "#/definitions/ResourceWarning"
+    },
+    "ScreenCaptured": {
+      "$ref": "#/definitions/ScreenCaptured"
+    },
+    "SecretValue": {
+      "$ref": "#/definitions/SecretValue"
+    },
+    "SettingsPatch": {
+      "$ref": "#/definitions/SettingsPatch"
+    },
+    "Snapshot": {
+      "$ref": "#/definitions/Snapshot"
+    },
+    "StepStarted": {
+      "$ref": "#/definitions/StepStarted"
+    },
+    "StepView": {
+      "$ref": "#/definitions/StepView"
+    },
+    "SubmitTask": {
+      "$ref": "#/definitions/SubmitTask"
+    },
+    "Subscribe": {
+      "$ref": "#/definitions/Subscribe"
+    },
+    "TaskCompleted": {
+      "$ref": "#/definitions/TaskCompleted"
+    },
+    "TaskDetail": {
+      "$ref": "#/definitions/TaskDetail"
+    },
+    "TaskFailed": {
+      "$ref": "#/definitions/TaskFailed"
+    },
+    "TaskProgress": {
+      "$ref": "#/definitions/TaskProgress"
+    },
+    "TaskStarted": {
+      "$ref": "#/definitions/TaskStarted"
+    },
+    "TaskView": {
+      "$ref": "#/definitions/TaskView"
+    },
+    "ToolCalled": {
+      "$ref": "#/definitions/ToolCalled"
+    },
+    "ToolCompleted": {
+      "$ref": "#/definitions/ToolCompleted"
+    },
+    "VerificationResultEvent": {
+      "$ref": "#/definitions/VerificationResultEvent"
+    },
+    "VoiceCommand": {
+      "$ref": "#/definitions/VoiceCommand"
+    },
+    "VoiceStateEvent": {
+      "$ref": "#/definitions/VoiceStateEvent"
+    },
+    "WipeMemory": {
+      "$ref": "#/definitions/WipeMemory"
+    }
+  },
+  "title": "ScarApi",
+  "type": "object"
+}

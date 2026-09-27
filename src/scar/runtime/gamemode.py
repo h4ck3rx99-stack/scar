@@ -51,6 +51,11 @@ def _fullscreen_foreground() -> tuple[bool, str]:
     user32.GetClassNameW(hwnd, cls, 256)
     if cls.value in _SHELL_CLASSES:
         return False, ""
+    # an ordinary maximized window (title bar, or WS_MAXIMIZE) is not full screen; borderless games/players have neither
+    ws_caption, ws_maximize = 0x00C00000, 0x01000000
+    style = user32.GetWindowLongW(hwnd, -16)  # GWL_STYLE
+    if user32.IsZoomed(hwnd) or (style & ws_caption) == ws_caption or style & ws_maximize:
+        return False, ""
     rect = wintypes.RECT()
     if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
         return False, ""

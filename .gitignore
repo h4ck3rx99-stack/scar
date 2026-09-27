@@ -49,3 +49,13 @@ Thumbs.db
 
 # acceptance sandbox
 .acceptance_sandbox/
+
+# desktop app build output
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+app/test-results/
+app/playwright-report/
+app/.vite/
+.claude/

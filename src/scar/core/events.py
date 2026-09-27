@@ -179,6 +179,11 @@ class NotificationShown(Event):
     urgent: bool = False
 
 
+class GameModeChanged(Event):
+    kind: Literal["game_mode"] = "game_mode"
+    active: bool = False
+
+
 class OpenAppRequested(Event):
     """The user clicked a SCAR toast: the desktop app should come to the front (toasts never approve anything)."""
 

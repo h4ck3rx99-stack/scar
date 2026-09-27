@@ -17,6 +17,13 @@ class QuestionAsked(Event):
     options: list[str] = Field(default_factory=list)
 
 
+class QuestionAnswered(Event):
+    """The question is closed (answered, timed out or its task ended): clients remove it."""
+
+    kind: str = "question_answered"
+    question_id: str = ""
+
+
 class Question(BaseModel):
     question_id: str = Field(default_factory=lambda: new_id("q"))
     task_id: str | None = None
@@ -59,6 +66,7 @@ class QuestionBroker:
             return None
         finally:
             self._pending.pop(question.question_id, None)
+            self.bus.publish(QuestionAnswered(task_id=question.task_id, question_id=question.question_id))
 
     def answer(self, question_id: str, text: str) -> bool:
         item = self._pending.get(question_id)

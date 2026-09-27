@@ -1,0 +1,142 @@
+/* SCAR design tokens. Every colour, size, radius, shadow and duration in the app comes from here.
+   Theme: <html data-theme="light|dark">; without it the system preference applies. */
+
+:root {
+  /* type */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --text-xs: 11.5px;
+  --text-sm: 12.5px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --leading: 1.5;
+
+  /* spacing (4 px grid) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* radius */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-full: 999px;
+
+  /* motion */
+  --dur-fast: 120ms;
+  --dur-med: 200ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* brand */
+  --accent: #0f9a89;
+  --accent-strong: #0b7e70;
+  --accent-soft: #e2f5f2;
+  --accent-contrast: #ffffff;
+
+  /* light neutrals */
+  --bg: #f4f5f7;
+  --bg-sidebar: #eceef1;
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --surface-hover: #f0f2f5;
+  --border: #e1e4e9;
+  --border-strong: #cdd2da;
+  --text: #1a1d22;
+  --text-muted: #5a616c;
+  --text-faint: #7d8591;
+  --focus: #0f9a89;
+
+  /* status */
+  --ok: #17864c;
+  --ok-soft: #e3f4ea;
+  --warn: #9a6100;
+  --warn-soft: #fbf0db;
+  --danger: #c43a3a;
+  --danger-soft: #fbe6e6;
+  --info: #2f6fc9;
+  --info-soft: #e5eefb;
+
+  /* elevation */
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 1px rgba(16, 24, 40, 0.04);
+  --shadow-2: 0 4px 12px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-3: 0 16px 40px rgba(16, 24, 40, 0.16), 0 4px 12px rgba(16, 24, 40, 0.08);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --accent: #3cc9b5;
+    --accent-strong: #5fd8c6;
+    --accent-soft: #123a36;
+    --accent-contrast: #06201d;
+    --bg: #15171b;
+    --bg-sidebar: #111316;
+    --surface: #1d2025;
+    --surface-2: #22262c;
+    --surface-hover: #292d34;
+    --border: #2d3139;
+    --border-strong: #3b414b;
+    --text: #e9ebee;
+    --text-muted: #a3aab5;
+    --text-faint: #8a919c;
+    --focus: #3cc9b5;
+    --ok: #4cc584;
+    --ok-soft: #173325;
+    --warn: #e0a84a;
+    --warn-soft: #3a2c12;
+    --danger: #f07474;
+    --danger-soft: #3d1c1c;
+    --info: #7aa9f0;
+    --info-soft: #1a2940;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+    --shadow-3: 0 18px 44px rgba(0, 0, 0, 0.55);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --accent: #3cc9b5;
+  --accent-strong: #5fd8c6;
+  --accent-soft: #123a36;
+  --accent-contrast: #06201d;
+  --bg: #15171b;
+  --bg-sidebar: #111316;
+  --surface: #1d2025;
+  --surface-2: #22262c;
+  --surface-hover: #292d34;
+  --border: #2d3139;
+  --border-strong: #3b414b;
+  --text: #e9ebee;
+  --text-muted: #a3aab5;
+  --text-faint: #8a919c;
+  --focus: #3cc9b5;
+  --ok: #4cc584;
+  --ok-soft: #173325;
+  --warn: #e0a84a;
+  --warn-soft: #3a2c12;
+  --danger: #f07474;
+  --danger-soft: #3d1c1c;
+  --info: #7aa9f0;
+  --info-soft: #1a2940;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 18px 44px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur-med: 0.01ms;
+  }
+}

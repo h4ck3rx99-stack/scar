@@ -221,3 +221,16 @@ async def test_shutdown_asks_the_runtime_to_stop(api: AppApi) -> None:
         assert (await c.post("/api/v1/shutdown")).status_code == 200
     await asyncio.sleep(0.4)
     assert api.rt.stopped is True
+
+
+async def test_permissions_list_and_revoke(api: AppApi) -> None:
+    from scar.security.grants import Grant, GrantKind, GrantScope, UserAuthority
+
+    g = api.s.grants.create(Grant(kind=GrantKind.TOOL, tool="fs.move", scope=GrantScope.PERSISTENT), UserAuthority("cli"))
+    async with _client(api) as c:
+        listed = (await c.get("/api/v1/grants")).json()
+        assert any(x["grant_id"] == g.grant_id for x in listed)
+        assert (await c.delete(f"/api/v1/grants/{g.grant_id}")).status_code == 200
+        assert (await c.delete(f"/api/v1/grants/{g.grant_id}")).status_code == 404
+        assert not any(x["grant_id"] == g.grant_id for x in (await c.get("/api/v1/grants")).json())
+        assert (await c.get("/api/v1/audit")).status_code == 200
