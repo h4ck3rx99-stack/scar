@@ -211,3 +211,24 @@ action executed.
 
   Both are now blocked and covered by tests.
 * **Dependency audit**: see the results recorded in `BUILD_LEDGER.md` (`uv run pip-audit`).
+
+## Desktop app and app API
+
+The app API can approve actions, change settings and store keys, so it is treated as a privileged surface.
+
+| Threat | Control (code) |
+|---|---|
+| Another local process calls the API | 256-bit token per runtime start in `app-api.json`, ACL'd to the user; constant-time compare; every route except `health` requires it (`src/scar/api/server.py`) |
+| A web page in the user's browser calls `http://127.0.0.1:<port>` (CSRF) | Only the app's own origins are accepted (`tauri.localhost`; the Vite dev origin only in dev/test); any other `Origin` is refused; no wildcard CORS |
+| DNS rebinding | The `Host` header must be `127.0.0.1:<port>` |
+| Token guessing | Authentication failures are rate-limited per peer (10 per minute) |
+| Replayed or swapped approval | An answer must name a pending request ID and its exact args hash; the runtime re-hashes before running. Allow answers must carry `user_gesture`; CRITICAL answers also need the typed confirmation code |
+| Content trying to approve or change settings | Model, tool, web, email and OCR text is rendered by `SafeMarkdown` (react-markdown without raw HTML, links validated, no images). Nothing rendered from content has handlers that call the API. Approval buttons act only on trusted click/keypress events (`isTrusted`) on the card |
+| Script injection into the webview | Strict CSP (`app/src-tauri/tauri.conf.json`): `default-src 'self'`, no remote scripts, fonts or frames, `object-src 'none'`; everything bundled; prototype freezing |
+| Navigation away from the app | External links open in the default browser only after validation (`http`/`https`, `app/src/lib/shell.ts`); every other webview navigation outside the app's own pages is refused by the shell (`app/src-tauri/src/navguard.rs`, with unit tests) |
+| Secrets reaching the UI | Keys go from the input straight to `PUT /secrets/{name}` → Credential Manager; the API only reports set/unset |
+| Approving from a notification | The approval toast only brings the app forward; nothing is approvable from a toast |
+| Over-broad shell permissions | Tauri capabilities (`app/src-tauri/capabilities/`) grant only events, opening validated URLs, revealing files, notifications and autostart |
+
+Tests: `tests/integration/test_app_api.py` (auth, origin, host, rate limit, approval ID/hash/gesture checks, secrets
+write-only), `app/src/lib/SafeMarkdown.test.tsx` (XSS payload fixtures), and the e2e suite in `app/e2e/`.

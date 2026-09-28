@@ -24,6 +24,20 @@ Start with `scar doctor`. Every ⚠/✗ line has a hint. `scar doctor --deep` al
 | config error on start | invalid value | the message names the variable; `scar config validate` |
 | email/messages "unavailable" | integration not set up | the message names the missing credential and the setup page in `docs/integrations/` |
 
+## Desktop app
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| "Windows protected your PC" when running the installer | the installer is not code-signed | *More info* → *Run anyway* |
+| window is blank or the app won't open | WebView2 runtime missing or broken | install the Evergreen WebView2 runtime from Microsoft, then start SCAR again |
+| "Quick Bar shortcut unavailable" | another app owns Ctrl+Alt+Space | Settings → App → Quick Bar: choose another combination |
+| Ctrl+Alt+Space opens the Quick Bar *and* starts listening | the terminal voice mode (`scar --voice`) is running with the same push-to-talk key | `uv run scar config set ptt_hotkey "<ctrl>+<alt>+v"` (or change the Quick Bar key) |
+| "SCAR is starting…" never ends on first run | the first-run setup could not download Python packages | connect to the internet and restart SCAR; details in `%LOCALAPPDATA%\SCAR\logs` |
+| banner "SCAR's engine stopped" after restarts | the runtime keeps crashing | Diagnostics → logs; `uv run scar doctor` from source, or export a diagnostic bundle |
+| microphone doesn't work in the app | Windows microphone privacy setting, or the wrong device | Windows Settings → Privacy & security → Microphone → allow desktop apps; Settings → Voice → device and *Test* |
+| Health check shows "native library failed to load" | a dependency's DLL (e.g. PortAudio) could not load | reinstall (`uv sync --reinstall` from source, or reinstall the app) |
+| closing the window doesn't quit | by design: SCAR stays in the tray | tray → *Quit SCAR* |
+
 Logs: `scar logs [-f] [--level warning] [--task <id>]` (JSON lines in `%LOCALAPPDATA%\SCAR\logs`, secrets redacted).
 Per-task traces: `scar logs --task <task_id>`, or `scar tasks show <task_id>` for every tool call with its risk,
 decision, status and verification.

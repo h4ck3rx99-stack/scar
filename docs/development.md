@@ -38,3 +38,38 @@ See [architecture.md](architecture.md). Rules of the codebase:
 ## Build ledger
 
 `BUILD_LEDGER.md` tracks the Definition of Done, evidence and blockers.
+
+## Desktop app
+
+The frontend is in `app/` (React + TypeScript + Vite), the shell in `app/src-tauri/` (Tauri 2, Rust).
+Prerequisites: Node.js and pnpm; for the shell, Rust (MSVC toolchain), Visual Studio C++ build tools and WebView2.
+
+```
+cd app
+pnpm install
+pnpm typecheck                 # tsc
+pnpm test                      # Vitest unit/component tests
+pnpm build                     # production frontend → app/dist
+pnpm tauri dev                 # the shell in dev mode (Vite dev server on :1420, debug build uses the repo .venv)
+pnpm e2e                       # Playwright end-to-end tests (see testing.md)
+cd src-tauri && cargo test     # shell unit tests (navigation guard); Windows
+```
+
+API types: after changing `src/scar/api/models.py` or the event classes, regenerate and commit both files:
+
+```
+uv run python scripts/gen_api_types.py
+cd app && pnpm gen:types
+```
+
+Icons: `uv run python scripts/make_icons.py`. Third-party notices: `uv run python scripts/gen_notices.py`.
+
+Installer (Windows):
+
+```
+uv run python scripts/build_installer.py
+```
+
+It builds SCAR's wheel, exports hash-locked runtime requirements, bundles `uv.exe`, regenerates the notices and runs
+`pnpm tauri build`. Output: `app/src-tauri/target/release/bundle/nsis/SCAR_<version>_x64-setup.exe`. The installer
+is unsigned. There is no auto-updater: to update, run the new installer over the old one (data is kept).

@@ -55,6 +55,27 @@ uv run scar daemon start                  # keep reminders and monitors running 
 
 Emergency stop: **Ctrl+Alt+Shift+K** halts input, cancels tasks, kills child processes and stops speech.
 
+## Desktop app
+
+SCAR also has a desktop app: a Quick Bar (**Ctrl+Alt+Space**), a main window with the conversation and live task
+activity, approval cards, status, voice, tasks and monitors, permissions, memory, settings, onboarding and
+diagnostics. It is a client of the same runtime as the CLI, and both can run at once. See [docs/UI.md](docs/UI.md).
+
+![Conversation with an approval card](docs/screenshots/02-conversation-approval-light.png)
+
+**Install from the installer:** run `SCAR_1.0.0_x64-setup.exe`. The build is unsigned, so Windows SmartScreen may say
+"Windows protected your PC": choose *More info* → *Run anyway*. On first start the app sets up its private Python
+environment (needs internet once).
+
+**Build the installer** (needs Node.js + pnpm, Rust with the MSVC toolchain, and WebView2):
+
+```
+cd app && pnpm install && cd ..
+uv run python scripts/build_installer.py   # → app/src-tauri/target/release/bundle/nsis/SCAR_1.0.0_x64-setup.exe
+```
+
+**Run from source** (development): see [docs/development.md](docs/development.md#desktop-app).
+
 ## Examples
 
 * "Open VS Code in C:\Projects\site, start the dev server, and tell me when it's ready"
@@ -131,12 +152,12 @@ against doubles, and needs your account or key to run for real.
 | Calendar: Google / Outlook | BLOCKED (credential) | `scar auth google` / `scar auth microsoft` |
 | Sub-agents (delegated sub-tasks) | NOT VERIFIED live | scripted-model test only |
 | Security (permissions, approvals, taint, injection defence, exfiltration control, kill switch, audit log) | WORKING | 150 security tests; live prompt-injection page resisted (audit) |
-| Desktop UI | NOT IMPLEMENTED | SCAR is a terminal app (REPL, one-shot, voice, daemon) |
+| Desktop app (Quick Bar, conversation, approvals, status, voice, tasks, permissions, memory, settings, onboarding, diagnostics) | PARTIALLY WORKING | 12 UI end-to-end tests with accessibility checks pass against a real sandboxed runtime; the installed Tauri shell (tray, hotkey, indicator, installer) is not yet verified in a recorded live session |
 <!-- /status-table -->
 
 ## Documentation
 
-[architecture](docs/architecture.md) · [configuration](docs/configuration.md) · [security](docs/security.md) ·
+[desktop app](docs/UI.md) · [architecture](docs/architecture.md) · [configuration](docs/configuration.md) · [security](docs/security.md) ·
 [providers](docs/providers.md) · [tools](docs/tools.md) · [memory](docs/memory.md) · [voice](docs/voice.md) ·
 [browser](docs/browser.md) · [integrations](docs/integrations/) · [development](docs/development.md) ·
 [testing](docs/testing.md) · [troubleshooting](docs/troubleshooting.md) · [environment](docs/ENVIRONMENT.md) ·

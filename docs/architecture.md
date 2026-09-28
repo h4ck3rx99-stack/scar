@@ -129,3 +129,48 @@ rate-limited per minute. Queues are bounded (the event bus drops the oldest even
 models and components (llama-server, Ollama models SCAR used, faster-whisper, embeddings, wake word) unload after
 `SCAR_MODEL_IDLE_TIMEOUT`. Monitors use OS events (process handles, `ReadDirectoryChangesW` via watchdog, stream
 reads) instead of polling.
+
+## Desktop app and app API
+
+One runtime, many clients. The runtime (agent, permissions, providers, tools, memory, voice, resources) is the only
+place decisions are made. The CLI/REPL, the daemon IPC client and the desktop app are all clients.
+
+```mermaid
+flowchart LR
+  subgraph Shell["Desktop app (Tauri 2 + WebView2)"]
+    Main[Main window] --- QB[Quick Bar] --- Ind[Control indicator]
+    Rust[Rust shell: tray, global shortcut, single instance, window state, sidecar lifecycle]
+  end
+  Main -->|HTTP + Bearer token| API
+  QB --> API
+  Ind --> API
+  Main <-->|WebSocket event stream| API
+  subgraph Runtime
+    API[App API v1 on 127.0.0.1\nsrc/scar/api/server.py] --> TM[TaskManager / approvals / grants / memory / settings / voice]
+  end
+  Rust -->|reads data dir app-api.json, starts or attaches| API
+  CLI[CLI / REPL] --> TM
+```
+
+* **Transport:** aiohttp on `127.0.0.1` with an ephemeral port. On start the runtime writes
+  `<data>/app-api.json` (`url`, `port`, `token`), ACL'd to the current user. Requests use
+  `Authorization: Bearer <token>`; the event stream `GET /api/v1/events` passes the token as a WebSocket
+  sub-protocol next to `scar.v1`.
+* **Endpoints** (`/api/v1/…`): `health`, `hello`, `status`, `snapshot`, `events`; `tasks` (submit, list, detail,
+  cancel), `stop-all`; `approvals` (list, answer), `questions`; `grants` (list, revoke, revoke all), `audit`;
+  `memory` (list/search, edit, forget, wipe); `settings` (read, patch); `secrets` (list set/unset, put, delete —
+  values are write-only); `providers` (list, live test); `accounts` (list, connect, disconnect); `doctor`, `logs`,
+  `diagnostics/bundle`; `monitors`, `schedules` (list, cancel); `voice` (control), `voice/devices`, `voice/test`;
+  `notify-approval`, `shutdown`.
+* **Push, not polling:** the event stream carries task progress, streamed tokens, approvals, provider health,
+  resource snapshots, voice state, mic level, control/capture indicators, game mode and notifications. The UI
+  applies them in a reducer (`app/src/store/reducer.ts`).
+* **Typed contract:** request/response and event models live in `src/scar/api/models.py` and `src/scar/core/events.py`.
+  `scripts/gen_api_types.py` writes `app/src/api/schema.json`; `pnpm gen:types` turns it into
+  `app/src/api/types.ts`. `tests/integration/test_app_api_contract.py` fails if the committed schema is stale.
+* **Lifecycle:** the shell (`app/src-tauri/src/runtime.rs`) attaches to a running runtime if `app-api.json` points at a
+  healthy one, otherwise starts the installed runtime (`%LOCALAPPDATA%\SCAR\runtime\venv`) or, in debug builds, the
+  repository's `.venv`. It restarts a crashed runtime at most 3 times in 10 minutes. Quit asks the runtime to stop
+  unless `keep_running_in_background` is on.
+* **Packaging:** the NSIS installer carries SCAR's wheel, a hash-locked `requirements.txt` and `uv.exe`; the first
+  start creates a managed Python 3.11 environment. See [development.md](development.md#desktop-app).

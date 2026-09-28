@@ -1,6 +1,7 @@
 //! SCAR desktop shell: windows, tray, Quick Bar hotkey, control indicator and runtime lifecycle.
 //! No agent, permission or routing logic lives here: everything goes through the runtime's authenticated API.
 mod http;
+mod navguard;
 mod paths;
 mod runtime;
 
@@ -247,6 +248,7 @@ fn tray_hint_once(app: &AppHandle) {
 pub fn run() {
     let start_hidden = std::env::args().any(|a| a == "--minimized") || paths::config_bool("start_minimized");
     tauri::Builder::default()
+        .plugin(navguard::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)))
         .plugin(tauri_plugin_window_state::Builder::default().with_denylist(&["quickbar", "indicator"]).build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
