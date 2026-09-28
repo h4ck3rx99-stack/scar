@@ -256,7 +256,8 @@ class Doctor:
             import keyring
 
             backend = keyring.get_keyring()
-            ok = "Windows" in type(backend).__name__ or "WinVault" in type(backend).__module__
+            kind = f"{type(backend).__module__}.{type(backend).__name__}"
+            ok = "Windows" in kind or "WinVault" in kind  # keyring.backends.Windows.WinVaultKeyring = Credential Manager
             self.add("security", ok or None, f"secret store: {type(backend).__name__}",
                      "" if ok else "Windows Credential Manager backend expected")
         except Exception as exc:  # noqa: BLE001

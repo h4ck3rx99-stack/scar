@@ -47,8 +47,9 @@ export const useRuntime = create<Store>((set, get) => ({
       return;
     }
     if (!info.endpoint) {
-      set({ conn: info.state === "starting" ? "starting" : info.state === "crashed" ? "crashed" : "missing", connMessage: info.message });
-      if (info.state === "starting") retryTimer = setTimeout(() => void get().connect(), 700);
+      const pending = info.state === "starting" || info.state === "installing";
+      set({ conn: pending ? "starting" : info.state === "crashed" ? "crashed" : "missing", connMessage: info.message });
+      if (pending) retryTimer = setTimeout(() => void get().connect(), 700);
       return;
     }
     get().stream?.stop();

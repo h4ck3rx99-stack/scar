@@ -18,7 +18,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 
 export interface RuntimeInfo {
   endpoint: Endpoint | null;
-  state: "starting" | "ready" | "crashed" | "missing";
+  state: "starting" | "installing" | "ready" | "crashed" | "missing";
   message: string;
 }
 

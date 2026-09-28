@@ -95,7 +95,81 @@ fn runtime_command() -> Option<(PathBuf, Vec<String>)> {
     None
 }
 
+/// Installed app: the runtime bundle shipped in the installer (uv, the SCAR wheel, hash-locked requirements).
+fn bundle_dir(app: &AppHandle) -> Option<PathBuf> {
+    use tauri::Manager as _;
+    let dir = app.path().resource_dir().ok()?.join("runtime");
+    (dir.join("uv.exe").exists() && dir.join("requirements.txt").exists()).then_some(dir)
+}
+
+fn run_step(uv: &PathBuf, args: &[&str], log: &PathBuf, env: &[(&str, PathBuf)]) -> Result<(), String> {
+    let out = std::fs::OpenOptions::new().create(true).append(true).open(log).map_err(|e| e.to_string())?;
+    let err = out.try_clone().map_err(|e| e.to_string())?;
+    let mut cmd = Command::new(uv);
+    cmd.args(args).stdin(Stdio::null()).stdout(out).stderr(err);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let status = cmd.status().map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("exit code {:?}", status.code()))
+    }
+}
+
 impl Manager {
+    /// First run of the installed app: build SCAR's private Python environment from the bundled, hash-locked set.
+    fn bootstrap(&self, app: &AppHandle, bundle: PathBuf) {
+        let me = self.clone();
+        let app2 = app.clone();
+        thread::spawn(move || {
+            let root = paths::data_dir().join("runtime");
+            let _ = std::fs::create_dir_all(&root);
+            let log = root.join("setup.log");
+            let venv = root.join("venv");
+            let uv = bundle.join("uv.exe");
+            let env = [("UV_PYTHON_INSTALL_DIR", root.join("python")), ("UV_CACHE_DIR", root.join("cache"))];
+            let py = venv.join("Scripts").join("python.exe");
+            let wheel = std::fs::read_dir(&bundle)
+                .ok()
+                .and_then(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "whl")));
+            let steps: Vec<(&str, Vec<String>)> = vec![
+                ("Getting Python ready (step 1 of 3)…", vec!["venv".into(), venv.to_string_lossy().into(), "--python".into(), "3.11".into(), "--python-preference".into(), "only-managed".into()]),
+                (
+                    "Installing SCAR's components (step 2 of 3, about 500 MB the first time)…",
+                    vec!["pip".into(), "install".into(), "--python".into(), py.to_string_lossy().into(), "--require-hashes".into(), "-r".into(),
+                         bundle.join("requirements.txt").to_string_lossy().into()],
+                ),
+                (
+                    "Finishing setup (step 3 of 3)…",
+                    vec!["pip".into(), "install".into(), "--python".into(), py.to_string_lossy().into(), "--no-deps".into(),
+                         wheel.as_ref().map(|w| w.to_string_lossy().to_string()).unwrap_or_default()],
+                ),
+            ];
+            for (message, args) in steps {
+                me.set("installing", message);
+                let _ = app2.emit("runtime-setup", message);
+                let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+                if let Err(e) = run_step(&uv, &refs, &log, &env) {
+                    let mut g = me.inner.lock().unwrap();
+                    g.starting = false;
+                    g.state = "missing".into();
+                    g.message = format!(
+                        "Setting up SCAR needs an internet connection the first time. Connect, then choose Restart runtime. \
+                         (Details: {}, {e})",
+                        log.display()
+                    );
+                    return;
+                }
+            }
+            me.inner.lock().unwrap().starting = false;
+            me.ensure_started(&app2);
+        });
+    }
+
     pub fn new() -> Self {
         Manager {
             inner: Arc::new(Mutex::new(Inner {
@@ -137,6 +211,10 @@ impl Manager {
             g.starting = true;
         }
         let Some((exe, args)) = runtime_command() else {
+            if let Some(bundle) = bundle_dir(app) {
+                self.bootstrap(app, bundle);
+                return;
+            }
             let mut g = self.inner.lock().unwrap();
             g.starting = false;
             g.state = "missing".into();
