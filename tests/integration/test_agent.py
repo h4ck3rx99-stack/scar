@@ -51,6 +51,7 @@ async def test_false_claim_is_caught(tm, sandbox: Path) -> None:
     assert "verification failed" in task.result_summary.lower()
 
 
+@pytest.mark.windows
 async def test_unverifiable_is_reported_honestly(tm, sandbox: Path) -> None:
     script(tm.s, [reply(call("terminal.exec", argv=["cmd", "/c", "echo", "hi"])),
                   reply(call("finish", summary="Ran it."))])
@@ -183,6 +184,7 @@ async def test_diagnosis_without_the_fix_is_not_success(tm, sandbox: Path) -> No
     assert (proj / "calc.py").read_text() == "def add(a, b):\n    return a - b\n"
 
 
+@pytest.mark.windows
 async def test_narrated_step_is_nudged_until_the_fix_is_done(tm, sandbox: Path) -> None:
     proj = _buggy_project(sandbox)
     c = script(tm.s, [_PLAN, reply(call("dev.run_tests", path=str(proj))),

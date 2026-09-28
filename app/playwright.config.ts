@@ -12,7 +12,10 @@ export default defineConfig({
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
     baseURL: "http://localhost:1420",
-    channel: "msedge",
+    // Edge on Windows (preinstalled). Elsewhere (CI/Linux) set SCAR_E2E_CHROMIUM to a Chromium executable.
+    ...(process.env.SCAR_E2E_CHROMIUM
+      ? { launchOptions: { executablePath: process.env.SCAR_E2E_CHROMIUM } }
+      : { channel: "msedge" }),
     headless: true,
     viewport: { width: 1280, height: 820 },
   },

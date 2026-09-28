@@ -77,14 +77,19 @@ class Doctor:
                 "sounddevice": "audio", "faster_whisper": "local STT", "openwakeword": "wake word", "edge_tts": "cloud TTS",
                 "uiautomation": "UI Automation", "mss": "screen capture", "pynput": "hotkeys", "watchdog": "folder monitors",
                 "winrt.windows.media.ocr": "OCR", "windows_toasts": "notifications", "keyring": "secrets", "ddgs": "search fallback"}
-        missing = []
+        missing, broken = [], []
         for mod, purpose in mods.items():
             try:
                 importlib.import_module(mod)
             except ImportError:
                 missing.append(f"{mod} ({purpose})")
+            except OSError as exc:  # installed, but its native library failed to load (e.g. PortAudio for sounddevice)
+                broken.append(f"{mod} ({purpose}: {exc})")
         self.add("system", not missing, "Python dependencies installed" if not missing else f"missing: {', '.join(missing)}",
                  "" if not missing else "run `uv sync`")
+        if broken:
+            self.add("system", False, f"native library failed to load: {', '.join(broken)}",
+                     "reinstall with `uv sync --reinstall`; see docs/troubleshooting.md")
 
     def gpu(self) -> None:
         from scar.resources.monitor import sample

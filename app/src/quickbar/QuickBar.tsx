@@ -93,7 +93,7 @@ export function QuickBar() {
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-          <button type="button" className={clsx("icon-btn", voice.state === "listening" && "active")} aria-label="Hold to talk" onClick={() => void talk()} disabled={conn !== "online" || voice.muted}>
+          <button type="button" className={clsx("icon-btn", voice.state === "listening" && "active")} aria-label="Talk (push to talk)" onClick={() => void talk()} disabled={conn !== "online" || voice.muted}>
             <Mic size={18} />
           </button>
         </form>

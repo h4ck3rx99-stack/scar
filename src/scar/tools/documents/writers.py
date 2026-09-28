@@ -109,7 +109,7 @@ def write_pdf(path: Path, title: str, markdown: str) -> None:
             pdf.multi_cell(width, 7, t)
         elif kind in ("li", "ol"):
             pdf.set_font(font, "", 11)
-            pdf.multi_cell(width, 6, ("• " if kind == "li" else "- ") + t)
+            pdf.multi_cell(width, 6, ("• " if kind == "li" and font == "Arial" else "- ") + t)
         elif kind == "code":
             pdf.set_font("Courier", "", 9)
             pdf.multi_cell(width, 5, text.encode("latin-1", errors="replace").decode("latin-1"))

@@ -126,7 +126,7 @@ class BrowserManager:
             try:
                 self._ctx = await self._pw.chromium.launch_persistent_context(str(profile), **opts)
                 break
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - any launch failure means try the next channel
                 log.warning("browser_channel_failed", channel=channel, error=str(exc)[:200])
                 errors.append(f"{channel}: {str(exc)[:200]}")
         else:

@@ -170,6 +170,7 @@ async def test_code_run_repo_map_dev_detect_tooling(runtime_parts, ctx_factory, 
     assert "python" in str(det.data).lower()
 
 
+@pytest.mark.windows
 async def test_apps_find_and_windows_list_are_read_only(runtime_parts, ctx_factory) -> None:
     from scar.tools.apps.index import AppIndex
 
@@ -228,6 +229,7 @@ def smoke_site():  # type: ignore[no-untyped-def]
     srv.shutdown()
 
 
+@pytest.mark.windows
 async def test_browser_select_scroll_press_tabs_wait_navigate_screenshot_download(runtime_parts, ctx_factory,
                                                                                   smoke_site: str, sandbox: Path) -> None:
     from scar.tools.browser.manager import BrowserManager
@@ -344,6 +346,7 @@ async def test_git_clone_local_repository(runtime_parts, ctx_factory, sandbox: P
     assert (sandbox / "copy" / "README.md").read_text() == "hello\n"
 
 
+@pytest.mark.windows
 async def test_devserver_status_and_stop(runtime_parts, ctx_factory, sandbox: Path) -> None:
     import socket
     import textwrap

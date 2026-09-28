@@ -60,3 +60,4 @@ app/playwright-report/
 app/.vite/
 .claude/
 app/src-tauri/runtime/
+app/tsconfig.tsbuildinfo

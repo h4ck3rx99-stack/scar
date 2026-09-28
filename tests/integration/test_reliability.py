@@ -23,6 +23,7 @@ def _port() -> int:
         return s.getsockname()[1]
 
 
+@pytest.mark.windows
 async def test_browser_crash_is_detected_and_recovered(runtime_parts, ctx_factory) -> None:
     from scar.tools.browser.manager import BrowserManager
 

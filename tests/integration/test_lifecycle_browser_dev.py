@@ -55,6 +55,7 @@ def _admit_everything(services) -> None:  # type: ignore[no-untyped-def]
         True, "test: admitted", True, 99)
 
 
+@pytest.mark.windows
 async def test_start_on_demand_and_idle_unload(services, fake_llama: Path, tmp_path: Path) -> None:
     _admit_everything(services)
     s = services.settings
@@ -151,6 +152,7 @@ def site():  # type: ignore[no-untyped-def]
     srv.shutdown()
 
 
+@pytest.mark.windows
 async def test_browser_navigate_extract_type_click(runtime_parts, ctx_factory, site: str) -> None:
     from scar.tools.browser.manager import BrowserManager
 
@@ -177,6 +179,7 @@ async def test_browser_navigate_extract_type_click(runtime_parts, ctx_factory, s
         await services.browser.close()
 
 
+@pytest.mark.windows
 async def test_starting_one_model_evicts_scars_other_idle_model(services, fake_llama: Path, tmp_path: Path) -> None:
     _admit_everything(services)
     s = services.settings
@@ -201,6 +204,7 @@ async def test_starting_one_model_evicts_scars_other_idle_model(services, fake_l
 
 
 # ---------------------------------------------------------------- dev server
+@pytest.mark.windows
 async def test_devserver_ready_and_crash(runtime_parts, ctx_factory, tmp_path: Path) -> None:
     port = _free_port()
     (tmp_path / "server.py").write_text(textwrap.dedent(f'''
@@ -233,6 +237,7 @@ async def test_devserver_ready_and_crash(runtime_parts, ctx_factory, tmp_path: P
 
 
 
+@pytest.mark.windows
 async def test_devserver_wrong_url_and_pattern_hints_do_not_hide_readiness(runtime_parts, ctx_factory, tmp_path: Path) -> None:
     port = _free_port()
     (tmp_path / "server.py").write_text(textwrap.dedent(f'''

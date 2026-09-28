@@ -91,6 +91,7 @@ def test_alternate_data_stream(guard: PathGuard, tmp_path: Path) -> None:
     assert c.denied
 
 
+@pytest.mark.windows
 def test_unc_and_admin_shares(guard: PathGuard) -> None:
     assert guard.check("\\\\fileserver\\share\\doc.txt", PathOp.READ).category == PathCategory.NETWORK
     assert guard.check("\\\\fileserver\\share\\doc.txt", PathOp.WRITE).risk == RiskLevel.HIGH
