@@ -18,7 +18,7 @@ from scar.agent.executor import ExecOutcome, Executor, budget_exceeded_summary, 
 from scar.agent.fastpath.grammar import FastPath, FastPlan
 from scar.agent.planner import needs_plan
 from scar.core.budgets import TASK_CLASS_WALL_SECONDS, Budget, BudgetTracker
-from scar.core.cancel import CancelToken
+from scar.core.cancel import CancelToken, run_cancellable
 from scar.core.errors import BudgetExceeded, Cancelled
 from scar.core.events import AssistantMessage, TaskCompleted, TaskFailed, TaskProgress, TaskStarted
 from scar.core.types import InputOrigin, TaskState, TaskStatus, ToolStatus, VerificationResult, utcnow
@@ -343,16 +343,16 @@ class TaskManager:
         import re
 
         if re.match(_SMALLTALK, task.objective.strip()):
-            return await self._chat_only(task, ctxb)
+            return await self._chat_only(task, ctxb, ctx.cancel)
         from scar.agent.intent import is_knowledge_question
 
         if is_knowledge_question(task.objective) and task.role == "executor":
-            return await self._answer_directly(task, history)
+            return await self._answer_directly(task, history, ctx.cancel)
         if task.autonomy_level <= 1:
             return await self._suggest_only(task, ctxb)
         return await self.executor.run(task, ctx, ctxb, budget, plan_first=needs_plan(task.objective), role=task.role)
 
-    async def _answer_directly(self, task: TaskState, history: list[ChatMessage]) -> ExecOutcome:
+    async def _answer_directly(self, task: TaskState, history: list[ChatMessage], cancel: CancelToken) -> ExecOutcome:
         """General-knowledge and writing requests: no tools, a short prompt, streamed. Much faster than the agent loop
         and well inside free-tier token limits."""
         from scar.agent.streaming import streaming
@@ -364,16 +364,17 @@ class TaskManager:
         msgs = [ChatMessage(role="system", content=system), *history[-4:], ChatMessage(role="user", content=task.objective)]
         category = "fast" if len(task.objective) < 160 else "reasoning"
         with streaming(self.s.bus, task.task_id):
-            resp = await self.s.router.chat(category, ChatRequest(messages=msgs, max_tokens=900, temperature=0.4), task=task)
+            resp = await run_cancellable(self.s.router.chat(category, ChatRequest(messages=msgs, max_tokens=900, temperature=0.4),
+                                                            task=task), cancel)
         return ExecOutcome(TaskStatus.SUCCEEDED, resp.content.strip() or "I don't have an answer for that.", None)
 
-    async def _chat_only(self, task: TaskState, ctxb: ContextBuilder) -> ExecOutcome:
+    async def _chat_only(self, task: TaskState, ctxb: ContextBuilder, cancel: CancelToken) -> ExecOutcome:
         from scar.agent.streaming import streaming
         from scar.providers.base import ChatRequest
 
         with streaming(self.s.bus, task.task_id):
-            resp = await self.s.router.chat("fast", ChatRequest(messages=ctxb.messages(), max_tokens=300, temperature=0.5),
-                                            task=task)
+            resp = await run_cancellable(self.s.router.chat("fast", ChatRequest(messages=ctxb.messages(), max_tokens=300,
+                                                                                 temperature=0.5), task=task), cancel)
         return ExecOutcome(TaskStatus.SUCCEEDED, resp.content.strip() or "Hi.", None)
 
     async def _suggest_only(self, task: TaskState, ctxb: ContextBuilder) -> ExecOutcome:

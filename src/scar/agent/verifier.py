@@ -30,6 +30,17 @@ _CODE_OBJECT = re.compile(r"\b(tests?|bugs?|code|files?|functions?|scripts?|modu
 _TESTS = re.compile(r"\btests?\b", re.I)
 _RERUN = re.compile(r"\b(re-?run|again|make (them|it|the tests?) pass|until (they|it|the tests?) pass)\b", re.I)
 _NEGATED = re.compile(r"\b(don'?t|do not|without|no need to|never)\s+(\w+\s+){0,2}(fix|edit|modify|change|touch)", re.I)
+# imperative file actions ("move a.txt to b.txt", "please delete the old logs folder")
+_FILE_ACTION = re.compile(r"^(please\s+|can you\s+|could you\s+)?(move|rename|copy|delete|remove|trash|create|make|write|save)\b",
+                          re.I)
+_FILE_OBJECT = re.compile(r"\b(files?|folders?|director(y|ies)|documents?)\b|\.[a-z0-9]{2,5}\b|[a-z]:\\", re.I)
+_TERMINAL = frozenset({"terminal.run", "terminal.exec", "code.run"})
+_FILE_ACTION_TOOLS: list[tuple[set[str], frozenset[str]]] = [
+    ({"move", "rename"}, frozenset({"fs.move"}) | _TERMINAL),
+    ({"copy"}, frozenset({"fs.copy"}) | _TERMINAL),
+    ({"delete", "remove", "trash"}, frozenset({"fs.delete"}) | _TERMINAL),
+    ({"create", "make", "write", "save"}, frozenset({"fs.write", "fs.mkdir", "fs.edit", "fs.copy", "documents.write"}) | _TERMINAL),
+]
 FILE_CHANGE_TOOLS = frozenset({"fs.write", "fs.edit", "fs.move", "fs.copy", "documents.write", "terminal.run", "terminal.exec",
                                "code.run"})
 
@@ -42,6 +53,13 @@ def objective_checks(task: TaskState) -> list[Check]:
     objective = task.objective
     ok = [o for o in task.observations if o.result.status == ToolStatus.OK]
     checks: list[Check] = []
+    act = _FILE_ACTION.search(objective)
+    if act and _FILE_OBJECT.search(objective) and not _NEGATED.search(objective):
+        verb = act.group(2).lower()
+        wanted = next((tools for verbs, tools in _FILE_ACTION_TOOLS if verb in verbs), FILE_CHANGE_TOOLS)
+        done = any(o.tool in wanted for o in ok)
+        checks.append(Check(name="requested change was made", passed=done,
+                            detail="" if done else f"nothing was {verb}d" if verb.endswith("e") else f"nothing was {verb}ed"))
     if _MODIFY.search(objective) and _CODE_OBJECT.search(objective) and not _NEGATED.search(objective):
         changed = [i for i, o in enumerate(ok) if o.tool in FILE_CHANGE_TOOLS]
         checks.append(Check(name="requested change was made", passed=bool(changed),

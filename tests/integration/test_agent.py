@@ -231,3 +231,85 @@ async def test_state_question_answered_from_memory_is_sent_back_to_check(tm, san
     assert [o.tool for o in task.observations] == ["calendar.list"]
     assert "not connected" in task.result_summary  # the local-calendar caveat reaches the user
     assert any("current state" in (m.content or "") for _, req in c.requests for m in req.messages)
+
+
+async def test_cancel_interrupts_an_in_flight_model_call(tm) -> None:
+    """Cancel must not wait for a slow model reply to finish."""
+    import time
+
+    class SlowClient(ScriptedChatClient):
+        async def chat(self, model, request):  # type: ignore[no-untyped-def]
+            await asyncio.sleep(30)
+            return await super().chat(model, request)
+
+    client = SlowClient("s", [reply(content="late")])
+    install_scripted_router(tm.s, {"s": client})
+    handle = await tm.submit("explain the history of the printing press in detail")
+    await asyncio.sleep(0.3)
+    t0 = time.monotonic()
+    tm.cancel(handle.task.task_id)
+    task = await asyncio.wait_for(handle.future, timeout=5)
+    assert task.status == TaskStatus.CANCELLED and time.monotonic() - t0 < 2
+
+
+async def test_a_file_action_answered_only_in_words_is_not_success(tm, sandbox: Path) -> None:
+    """"move a.txt to b.txt" answered with text (no action) is sent back once, then reported as failed."""
+    (sandbox / "a.txt").write_text("x")
+    script(tm.s, [reply(content="Sure, I moved it."), reply(content="It is moved now.")])
+    task = await tm.run(f"move {sandbox / 'a.txt'} to {sandbox / 'b.txt'}")
+    assert task.status == TaskStatus.FAILED and "requested change was made" in task.result_summary
+    assert (sandbox / "a.txt").exists()
+
+
+def test_file_action_checks_match_the_verb() -> None:
+    from scar.agent.verifier import objective_checks
+    from scar.core.types import TaskState
+
+    assert objective_checks(TaskState(objective=r"move C:\x\a.txt to C:\x\b.txt"))[0].name == "requested change was made"
+    assert objective_checks(TaskState(objective="how do I move a file")) == []
+    assert objective_checks(TaskState(objective="create a reminder for 5pm")) == []
+
+
+async def test_after_a_denial_scar_does_not_ask_again(tm, sandbox: Path) -> None:
+    """Denied once means stop: no second approval request for the same thing, and an honest 'not done'."""
+    from scar.security.approval import ApprovalResponse
+
+    (sandbox / "a.txt").write_text("x")
+    services = tm.s
+    services.approvals.attach_channel("cli")
+    asked: list[str] = []
+
+    def deny(ev):  # type: ignore[no-untyped-def]
+        if ev.kind == "approval_requested":
+            asked.append(ev.request_id)
+            asyncio.get_running_loop().call_soon(lambda: services.approvals.resolve(ev.request_id, ApprovalResponse.DENY, "cli"))
+
+    services.bus.add_listener(deny)
+    move = call("fs.move", src=str(sandbox / "a.txt"), dst=str(sandbox / "b.txt"))
+    script(services, [reply(move), reply(content="Done."), reply(move), reply(content="Done.")])
+    task = await tm.run(f"move {sandbox / 'a.txt'} to {sandbox / 'b.txt'}")
+    assert len(asked) == 1
+    assert task.status == TaskStatus.FAILED and "declined" in task.result_summary
+    assert (sandbox / "a.txt").exists()
+
+
+async def test_the_same_denied_action_is_not_asked_twice(tm, sandbox: Path) -> None:
+    """Even if the model retries the exact action, the user is not asked again in the same task."""
+    from scar.security.approval import ApprovalResponse
+
+    (sandbox / "a.txt").write_text("x")
+    services = tm.s
+    services.approvals.attach_channel("cli")
+    asked: list[str] = []
+
+    def deny(ev):  # type: ignore[no-untyped-def]
+        if ev.kind == "approval_requested":
+            asked.append(ev.request_id)
+            asyncio.get_running_loop().call_soon(lambda: services.approvals.resolve(ev.request_id, ApprovalResponse.DENY, "cli"))
+
+    services.bus.add_listener(deny)
+    move = call("fs.move", src=str(sandbox / "a.txt"), dst=str(sandbox / "b.txt"))
+    script(services, [reply(move), reply(move), reply(move), reply(content="I couldn't move it.")])
+    task = await tm.run(f"move {sandbox / 'a.txt'} to {sandbox / 'b.txt'}")
+    assert len(asked) == 1 and task.status == TaskStatus.FAILED
+    assert (sandbox / "a.txt").exists()

@@ -1,5 +1,5 @@
 // Data hooks for screens: load on mount and on demand (no polling), with loading/error states.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { humanError } from "../api/client";
 import { useRuntime } from "../store/runtime";
 
@@ -15,14 +15,17 @@ export function useApiGet<T>(path: string | null, deps: unknown[] = []): Loaded<
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const hasData = useRef(false);
   const reload = useCallback(async () => {
     if (!api || !path) {
       setLoading(!api);
       return;
     }
-    setLoading(true);
+    // a refresh keeps showing the current data (no skeleton flash that would unmount forms and their messages)
+    if (!hasData.current) setLoading(true);
     try {
       setData(await api.get<T>(path));
+      hasData.current = true;
       setError("");
     } catch (e) {
       setError(humanError(e));

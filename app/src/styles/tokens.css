@@ -37,8 +37,8 @@
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* brand */
-  --accent: #0f9a89;
-  --accent-strong: #0b7e70;
+  --accent: #0b7d70; /* white text on it: 5.1:1 (WCAG AA) */
+  --accent-strong: #09685d;
   --accent-soft: #e2f5f2;
   --accent-contrast: #ffffff;
 
@@ -52,17 +52,17 @@
   --border-strong: #cdd2da;
   --text: #1a1d22;
   --text-muted: #5a616c;
-  --text-faint: #7d8591;
-  --focus: #0f9a89;
+  --text-faint: #69717d;
+  --focus: #0b7d70;
 
   /* status */
-  --ok: #17864c;
+  --ok: #11703f;
   --ok-soft: #e3f4ea;
   --warn: #9a6100;
   --warn-soft: #fbf0db;
-  --danger: #c43a3a;
+  --danger: #b02f2f;
   --danger-soft: #fbe6e6;
-  --info: #2f6fc9;
+  --info: #2560b3;
   --info-soft: #e5eefb;
 
   /* elevation */

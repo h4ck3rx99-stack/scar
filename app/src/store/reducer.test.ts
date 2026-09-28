@@ -17,6 +17,9 @@ describe("honest outcomes", () => {
     const o = outcomeFor("succeeded", null, "Posted it. (I couldn't verify this automatically.)");
     expect(o.kind).toBe("unverified");
   });
+  it("a plain answer is 'answered', not 'verified' or 'couldn't verify'", () => {
+    expect(outcomeFor("succeeded", null, "RAM is short-term memory.")).toEqual({ kind: "info" });
+  });
   it("a failed verification is a failure with its reason", () => {
     const o = outcomeFor("failed", false, "Saved it. However, verification failed: requested change was made.");
     expect(o).toEqual({ kind: "failed", reason: "requested change was made." });

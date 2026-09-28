@@ -122,6 +122,14 @@ class ToolPipeline:
 
         # 5. approval
         if outcome.decision == PolicyDecision.ASK:
+            declined_ids = {o.action_id for o in ctx.task.observations if o.result.error_type == "ApprovalDenied"} if ctx.task else set()
+            declined_before = ctx.task is not None and any(
+                a.action_id in declined_ids and a.args_hash == action.args_hash and a.tool == tool.name
+                for a in ctx.task.action_history if a is not action)
+            if declined_before:
+                # the user already said no to exactly this in this task: don't ask the same question twice
+                return self._finish(action, ToolResult(status=ToolStatus.DENIED, summary="Not approved: you declined this "
+                                                       "exact action earlier in this task", error_type="ApprovalDenied"), ctx, started)
             if approved is not None and approved.allowed and approved.args_hash == action.args_hash and not outcome.critical_confirmation:
                 resolution = approved
             else:

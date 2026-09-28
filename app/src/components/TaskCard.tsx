@@ -23,6 +23,12 @@ export function OutcomeBadge({ outcome }: { outcome: Outcome }) {
           <Check size={14} aria-hidden /> Done · verified
         </span>
       );
+    case "info":
+      return (
+        <span className="outcome outcome-muted">
+          <Check size={14} aria-hidden /> Answered
+        </span>
+      );
     case "unverified":
       return (
         <span className="outcome outcome-warn" title={outcome.reason}>

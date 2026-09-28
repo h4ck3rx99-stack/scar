@@ -25,7 +25,7 @@ def mark(size: int, dot: tuple[int, int, int] | None = None) -> Image.Image:
     gd = ImageDraw.Draw(grad)
     for y in range(s):
         t = y / (s - 1)
-        gd.line([(0, y), (s, y)], fill=tuple(int(TOP[i] + (BOTTOM[i] - TOP[i]) * t) for i in range(3)) + (255,))
+        gd.line([(0, y), (s, y)], fill=(*tuple(int(TOP[i] + (BOTTOM[i] - TOP[i]) * t) for i in range(3)), 255))
     mask = Image.new("L", (s, s), 0)
     inset = s * 4 // 64
     ImageDraw.Draw(mask).rounded_rectangle([inset, inset, s - inset, s - inset], radius=s * 16 // 64, fill=255)
@@ -42,7 +42,7 @@ def mark(size: int, dot: tuple[int, int, int] | None = None) -> Image.Image:
         r = s * 0.2
         cx, cy = s - r - s * 0.02, s - r - s * 0.02
         d.ellipse([cx - r - u * 3, cy - r - u * 3, cx + r + u * 3, cy + r + u * 3], fill=(255, 255, 255, 255))
-        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=dot + (255,))
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*dot, 255))
     return img.resize((size, size), Image.LANCZOS)
 
 

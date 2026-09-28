@@ -12,8 +12,9 @@ import structlog
 from scar.agent.context import LOCAL_BUDGET_TOKENS, ContextBuilder
 from scar.agent.planner import Planner
 from scar.agent.streaming import streaming
-from scar.agent.verifier import honest_summary, verify_finish
+from scar.agent.verifier import honest_summary, objective_checks, verify_finish
 from scar.core.budgets import BudgetTracker
+from scar.core.cancel import run_cancellable
 from scar.core.errors import BudgetExceeded, Cancelled
 from scar.core.events import StepStarted, TaskProgress
 from scar.core.types import Observation, TaskState, TaskStatus, ToolStatus, VerificationResult, hash_args
@@ -63,6 +64,10 @@ TOOL_HINTS: list[tuple[str, list[str]]] = [
     (r"\b(email|mail)\b", ["contacts.resolve", "email.send", "email.search", "email.read"]),
     (r"\b(message|telegram|discord|whatsapp)\b", ["contacts.resolve", "message.send"]),
     (r"\b(calendar|agenda|meetings?|appointments?|events?)\b", ["calendar.list", "calendar.create"]),
+    (r"\b(move|rename)\b", ["fs.move"]),
+    (r"\bcopy\b", ["fs.copy"]),
+    (r"\b(delete|remove|trash)\b", ["fs.delete"]),
+    (r"\b(new|create|make) (a )?(folder|directory)\b", ["fs.mkdir"]),
 ]
 
 
@@ -74,6 +79,14 @@ STATE_QUESTION = re.compile(
     r"(?=.*\b(what'?s|what is|what are|do i have|are there|is there|any|how much|how many|which|show me|list|check)\b)"
     r"(?=.*\b(calendar|agenda|meetings?|appointments?|inbox|e-?mails?|mail|messages?|screen|files?|folders?|downloads?|"
     r"disk|storage|cpu|ram|memory|battery|processes|apps?|open windows?|clipboard)\b)", re.I | re.S)
+
+
+DECLINED_SUMMARY = "I didn't do it: you declined the action, so nothing was changed."
+
+
+def user_declined(task: TaskState) -> bool:
+    """An action in this task was refused by the user (or by policy on their behalf)."""
+    return any(o.result.status == ToolStatus.DENIED for o in task.observations)
 
 
 def boosted_tools(objective: str) -> list[str]:
@@ -140,8 +153,8 @@ class Executor:
             req = ctxb.request(schemas, max_tokens=2048)
             try:
                 with streaming(self.s.bus, task.task_id):
-                    resp = await self.s.router.chat("reasoning", req, task=task, compactor=ctxb.compact_for_overflow,
-                                                    data_classes=self._data_classes(task))
+                    resp = await run_cancellable(self.s.router.chat("reasoning", req, task=task, compactor=ctxb.compact_for_overflow,
+                                                                    data_classes=self._data_classes(task)), ctx.cancel)
             except AllProvidersFailed as exc:
                 if len(schemas) <= 14 or not any(a.kind == ProviderErrorKind.CONTEXT_OVERFLOW for a in exc.attempts):
                     raise
@@ -153,7 +166,8 @@ class Executor:
                 ctxb.budget_tokens = max(3000, ctxb.budget_tokens // 2)
                 req = ctxb.request(schemas, max_tokens=1536)
                 with streaming(self.s.bus, task.task_id):
-                    resp = await self.s.router.chat("reasoning", req, task=task, data_classes=self._data_classes(task))
+                    resp = await run_cancellable(self.s.router.chat("reasoning", req, task=task,
+                                                                    data_classes=self._data_classes(task)), ctx.cancel)
             budget.add_tokens(resp.usage.prompt_tokens + resp.usage.completion_tokens)
             calls = resp.tool_calls
             if not calls and resp.content:
@@ -184,9 +198,22 @@ class Executor:
                                   "the result; earlier answers may be out of date.")
                     continue
                 if actions_taken == 0:
-                    return ExecOutcome(TaskStatus.SUCCEEDED, text, None)
+                    required = [c for c in objective_checks(task) if not c.passed]
+                    if not required:
+                        return ExecOutcome(TaskStatus.SUCCEEDED, text, None)
+                    # the request needs an action (move/delete/create/fix…) but the model only replied
+                    if replans < 1:
+                        replans += 1
+                        ctxb.add_note("The request needs an action on the computer, not only a reply. Do it now with a "
+                                      "tool call, or call finish with status 'failed' and say what stopped you.")
+                        continue
+                    v = VerificationResult.from_checks(required, {})
+                    return ExecOutcome(TaskStatus.FAILED, honest_summary(text, v), v)
                 v = verify_finish(task, text, [], self.s, self.registry)
                 unmet = [c for c in v.checks if not c.passed and c.name in ("requested change was made", "tests pass after the change")]
+                if unmet and user_declined(task):
+                    # the user said no: never push the model to try again (that would ask the same question twice)
+                    return ExecOutcome(TaskStatus.FAILED, DECLINED_SUMMARY, v)
                 if unmet and replans < 2 and budget.steps < budget.budget.max_steps - 3:
                     # the objective is not done (e.g. diagnosed but not fixed): send the model back to work, bounded
                     replans += 1
@@ -218,6 +245,8 @@ class Executor:
                     final = honest_summary(summary, v)
                     if status == "failed":
                         return ExecOutcome(TaskStatus.FAILED, final, v)
+                    if v.verified is False and user_declined(task):
+                        return ExecOutcome(TaskStatus.FAILED, DECLINED_SUMMARY, v)
                     if v.verified is False and replans < 1 and budget.steps < budget.budget.max_steps - 3:
                         failed = [c.name for c in v.checks if not c.passed]
                         ctxb.add_tool_result(call, None, f"[verification failed] {', '.join(failed)}. The objective is not "

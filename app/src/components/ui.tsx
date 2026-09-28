@@ -73,7 +73,7 @@ export function Badge({ tone = "neutral", children }: { tone?: "neutral" | "ok" 
 
 export function Skeleton({ lines = 3 }: { lines?: number }) {
   return (
-    <div className="skeleton" aria-busy="true" aria-label="Loading">
+    <div className="skeleton" role="status" aria-busy="true" aria-label="Loading">
       {Array.from({ length: lines }, (_, i) => (
         <div key={i} className="skeleton-line" style={{ width: `${88 - i * 14}%` }} />
       ))}

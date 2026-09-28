@@ -5,6 +5,7 @@ import type { ApprovalView, EventEnvelope, Snapshot } from "../api/types";
 export type Outcome =
   | { kind: "running" }
   | { kind: "verified" }
+  | { kind: "info" }
   | { kind: "unverified"; reason: string }
   | { kind: "failed"; reason: string }
   | { kind: "cancelled" };
@@ -109,8 +110,8 @@ export function outcomeFor(status: string, verified: boolean | null | undefined,
     return { kind: "failed", reason: vf?.[1] ?? firstSentence(message) };
   }
   if (verified === true) return { kind: "verified" };
-  const m = COULDNT_VERIFY.exec(message);
-  return { kind: "unverified", reason: m ? "SCAR had no way to check the result automatically" : "nothing to check (information only)" };
+  // an action SCAR could not confirm is "couldn't verify"; a plain answer has nothing to confirm
+  return COULDNT_VERIFY.test(message) ? { kind: "unverified", reason: "SCAR had no way to check the result automatically" } : { kind: "info" };
 }
 
 function firstSentence(text: string): string {
