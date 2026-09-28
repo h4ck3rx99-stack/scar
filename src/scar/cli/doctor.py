@@ -141,15 +141,19 @@ class Doctor:
             self.add("audio", False, f"audio unavailable: {exc}", "check audio drivers")
 
     def browsers(self) -> None:
+        from scar.tools.browser.default import default_browser, opera_gx_exe
         from scar.tools.browser.manager import CHROME_PATHS, EDGE_PATHS, detect_channel
 
+        opera = opera_gx_exe() is not None
         chrome = any(Path(p).exists() for p in CHROME_PATHS)
         edge = any(Path(p).exists() for p in EDGE_PATHS)
         pw_dir = Path.home() / "AppData/Local/ms-playwright"
         bundled = pw_dir.exists() and any(pw_dir.glob("chromium-*"))
-        self.add("browser", chrome or edge or bundled, f"browsers: Chrome {'yes' if chrome else 'no'}, Edge {'yes' if edge else 'no'}, "
-                 f"Playwright Chromium {'yes' if bundled else 'no'} → using {detect_channel(self.settings.browser_channel)}",
-                 "" if (chrome or edge or bundled) else "run `uv run playwright install chromium`")
+        found = opera or chrome or edge or bundled
+        self.add("browser", found, f"automation browsers: Opera GX {'yes' if opera else 'no'}, Chrome {'yes' if chrome else 'no'}, "
+                 f"Edge {'yes' if edge else 'no'}, Playwright Chromium {'yes' if bundled else 'no'} → using "
+                 f"{detect_channel(self.settings.browser_channel)} (own SCAR profile); websites open in "
+                 f"{default_browser().name}", "" if found else "run `uv run playwright install chromium`")
 
     async def network(self) -> None:
         try:
