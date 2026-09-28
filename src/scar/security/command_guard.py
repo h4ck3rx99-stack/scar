@@ -25,6 +25,20 @@ Shell = Literal["powershell", "pwsh", "cmd", "argv"]
 
 _MAX_DEPTH = 4
 
+# `"C:/Program Files/x/app.exe" arg` is a string expression in PowerShell, not a call (parse error on `arg`). Commands
+# written the cmd/npm way get the call operator; applied before both classification and execution.
+_QUOTED_PROGRAM = re.compile(r"""^\s*(["'])(?P<path>[^"']*?(?:[\\/][^"'\\/]+|\.(?:exe|cmd|bat|com|ps1)))\1(?=\s|$)""", re.I)
+
+
+def powershell_call_form(command: str) -> str:
+    """Prefix `& ` when a PowerShell command starts with a quoted program path."""
+    m = _QUOTED_PROGRAM.match(command)
+    if not m:
+        return command
+    if not re.search(r"[\\/]|\.(exe|cmd|bat|com|ps1)$", m.group("path"), re.I):
+        return command
+    return "& " + command.lstrip()
+
 PS_ALIASES: dict[str, str] = {
     "rm": "remove-item", "del": "remove-item", "erase": "remove-item", "rd": "remove-item", "rmdir": "remove-item",
     "ri": "remove-item", "iex": "invoke-expression", "iwr": "invoke-webrequest", "curl": "invoke-webrequest",
@@ -228,6 +242,8 @@ class CommandGuard:
         names: list[str] = []
         errors: list[str] = []
         parsed_with = shell
+        if shell in ("powershell", "pwsh"):
+            command = powershell_call_form(command)
         risk, floor = self._classify_script(command, shell, cwd, reasons, names, errors, depth=0)
         if shell in ("powershell", "pwsh"):
             parsed_with = "powershell-ast" if self.ps_parser and self.ps_parser.available else "tokenizer-fallback"

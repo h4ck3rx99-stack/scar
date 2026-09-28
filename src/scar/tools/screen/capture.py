@@ -27,7 +27,7 @@ def grab(left: int, top: int, width: int, height: int) -> Image.Image:
 
     if width <= 0 or height <= 0:
         raise ToolError("empty capture region", "InvalidInput")
-    with mss.mss() as sct:
+    with mss.MSS() as sct:
         shot = sct.grab({"left": left, "top": top, "width": width, "height": height})
         return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
 

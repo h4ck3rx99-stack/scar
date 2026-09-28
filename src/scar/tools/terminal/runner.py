@@ -26,6 +26,7 @@ from scar.config.settings import SECRET_KEYS
 from scar.core.cancel import CancelToken
 from scar.core.errors import ToolError
 from scar.core.events import TaskProgress
+from scar.security.command_guard import powershell_call_form
 from scar.security.redaction import global_redactor
 
 Shell = Literal["powershell", "pwsh", "cmd"]
@@ -79,7 +80,8 @@ def shell_argv(command: str, shell: Shell) -> tuple[list[str], Path | None]:
         exe = shutil.which("pwsh" if shell == "pwsh" else "powershell") or shutil.which("powershell") or shutil.which("pwsh")
         if exe is None:
             raise ToolError("PowerShell is not available on this system", "ShellMissing")
-        script = "$ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; " + command
+        script = ("$ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+                  + powershell_call_form(command))
         encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
         return [exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded], None
     if sys.platform != "win32":

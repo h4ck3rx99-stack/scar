@@ -49,9 +49,13 @@ def free_port() -> int:
 class FixtureServer:
     def __init__(self, pages: dict[str, str]) -> None:
         pages_ = pages
+        self.hits = 0
+        outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
             def do_GET(self) -> None:
+                if self.path != "/favicon.ico":
+                    outer.hits += 1
                 body = pages_.get(self.path, pages_.get("/", ""))
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -142,19 +146,33 @@ class Harness:
 
     # ------------------------------------------------------------------ 2
     async def t02_browser(self) -> Result:
+        """"Open Chrome and navigate to <url>": the user named Chrome, so the page opens in the real Chrome (ADR 0015),
+        not SCAR's automation profile. Runs only when Chrome is not already open, so no session of the user's is
+        touched; closes only the window it opened."""
+        import psutil
+
+        if any((p.info["name"] or "").lower() == "chrome.exe" for p in psutil.process_iter(["name"])):
+            return {"status": "IMPLEMENTED-UNVERIFIED",
+                    "evidence": {"skipped": "Chrome is already open; the scenario would add a tab to the user's session"}}
         token = f"SCAR-TOKEN-{int(time.time())}"
-        srv = FixtureServer({"/": f"<html><title>Acceptance 2</title><body><h1>{token}</h1></body></html>"})
+        srv = FixtureServer({"/": f"<html><title>Acceptance 2 {token}</title><body><h1>{token}</h1></body></html>"})
         try:
             task = await self.run(f"Open Chrome and navigate to {srv.url}")
-            bm = self.s.browser
-            _tid, page = await bm.page()
-            content = await page.content()
-            ok = task.status.value == "succeeded" and page.url.startswith(srv.url.rstrip("/")) and token in content
+            wins: list[Any] = []
+            for _ in range(20):
+                wins = [w for w in win32.find_windows(process="chrome.exe") if token in w.title]
+                if wins:
+                    break
+                await asyncio.sleep(0.5)
+            opened = [o.result.data for o in task.observations if o.tool == "apps.open" and o.result.ok]
+            ok = task.status.value == "succeeded" and bool(wins) and srv.hits > 0
             return {"status": "VERIFIED" if ok else "FAILED",
-                    "evidence": {"reply": task.result_summary, "url": page.url, "token_found": token in content,
-                                 "browser_channel": bm.state.channel, "tools": self.tools_used(task)}}
+                    "evidence": {"reply": task.result_summary, "window_titles": [w.title for w in wins],
+                                 "page_requested": srv.hits > 0, "browser": [d.get("browser") for d in opened],
+                                 "tools": self.tools_used(task)}}
         finally:
-            await self.s.browser.close()
+            await asyncio.sleep(0.5)
+            close_windows(lambda w: w.process.lower() == "chrome.exe" and token in w.title)
             srv.close()
 
     # ------------------------------------------------------------------ 3
@@ -246,7 +264,10 @@ class Harness:
         target = tree / "dir4" / "sub1" / "notes_final.txt"
         target.write_text("the unique phrase is quartz-lantern-5521")
         task = await self.run(f"Find the file in {tree} that contains the phrase 'quartz-lantern-5521'")
-        ok = clean(task) and str(target).lower() in task.result_summary.lower()
+        reply = task.result_summary.lower().replace("/", "\\")
+        # the full path, or the file name together with its folder ("notes_final.txt in C:\...\sub1")
+        ok = clean(task) and (str(target).lower() in reply
+                              or (target.name.lower() in reply and str(target.parent).lower() in reply))
         return {"status": "VERIFIED" if ok else "FAILED",
                 "evidence": {"reply": task.result_summary, "expected": str(target), "tools": self.tools_used(task)}}
 

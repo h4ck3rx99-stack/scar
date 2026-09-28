@@ -32,6 +32,31 @@ async def test_powershell_output_and_exit_code(parts, ctx_factory, sandbox: Path
     assert "UNTRUSTED_DATA" in obs.result.model_view
 
 
+async def test_quoted_program_path_runs_in_powershell(parts, ctx_factory, sandbox: Path) -> None:
+    """Recorded 2026-09-28 (acceptance D3.11): a package.json script `"C:/…/python.exe" server.py` run as-is in PowerShell
+    was a parse error, so the dev server never started. Quoted program paths get the call operator."""
+    py = sys.executable.replace("\\", "/")
+    obs = await parts["pipeline"].execute("terminal.run", {"command": f'"{py}" --version'}, ctx_factory("run it"))
+    assert obs.result.ok, obs.result.summary
+    assert obs.result.data["exit_code"] == 0
+    assert "Python 3" in obs.result.data["stdout"] + obs.result.data["stderr"]
+
+
+@pytest.mark.parametrize(("command", "expected"), [
+    ('"C:/Program Files/nodejs/npm.cmd" run dev', '& "C:/Program Files/nodejs/npm.cmd" run dev'),
+    ("'C:\\Tools\\app.exe' --flag", "& 'C:\\Tools\\app.exe' --flag"),
+    ('"C:\\Tools\\app.exe"', '& "C:\\Tools\\app.exe"'),
+    ('"hello world"', '"hello world"'),              # a plain string stays a string
+    ("Write-Output 'x'", "Write-Output 'x'"),
+    ('& "C:/x/app.exe" a', '& "C:/x/app.exe" a'),     # already a call
+    ('"./run.ps1" -Fast', '& "./run.ps1" -Fast'),
+])
+def test_powershell_call_form(command: str, expected: str) -> None:
+    from scar.security.command_guard import powershell_call_form
+
+    assert powershell_call_form(command) == expected
+
+
 async def test_cmd_shell_with_quotes(parts, ctx_factory, sandbox: Path) -> None:
     obs = await parts["pipeline"].execute("terminal.run", {"command": 'echo "quoted & text"', "shell": "cmd"}, ctx_factory("run it"))
     assert obs.result.ok
