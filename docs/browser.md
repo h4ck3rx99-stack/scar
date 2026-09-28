@@ -1,9 +1,13 @@
 # Browser
 
 SCAR drives a real browser with **Playwright**, using a **dedicated persistent SCAR profile**
-(`%LOCALAPPDATA%\SCAR\browser-profile`), never your own Chrome profile. It uses the Chrome channel when Chrome is
-installed, otherwise Edge, otherwise Playwright's bundled Chromium (`SCAR_BROWSER_CHANNEL` to force one;
-`uv run playwright install chromium` for the bundled one).
+(`%LOCALAPPDATA%\SCAR\browser-profile`), never your own browser profile. It uses **Opera GX** when it is installed,
+otherwise Edge, otherwise Playwright's bundled Chromium. Set `SCAR_BROWSER_CHANNEL` (`opera`, `msedge`, `chrome`,
+`chromium`) to force one, and run `uv run playwright install chromium` to get the bundled one. If the preferred browser
+won't start, SCAR falls back to the next one and logs why. See [ADR 0015](adr/0015-browsers.md).
+
+"Open this website" is different: the page opens in **your Windows default browser**, in your normal profile. SCAR
+doesn't assume Chrome. If you name a browser ("open opera gx and go to github.com", "in edge"), that browser opens.
 
 ## Capabilities
 

@@ -1,7 +1,7 @@
 """Playwright browser manager (C9.7).
 
 A dedicated persistent SCAR profile (never the user's real profile) running
-the Chrome or Edge channel when installed, otherwise bundled Chromium. Tabs
+Opera GX when installed (the user's choice), else Edge or Chrome, otherwise bundled Chromium. Tabs
 get stable ids. Crashes/disconnects are detected; the next call relaunches and
 restores the previously open URLs.
 """
@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -30,12 +29,18 @@ EDGE_PATHS = [r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
 
 
 def detect_channel(preferred: str) -> str:
-    if preferred in ("chrome", "msedge", "chromium"):
+    if preferred in ("chrome", "msedge", "chromium", "opera"):
         return preferred
-    if any(os.path.exists(p) for p in CHROME_PATHS):
-        return "chrome"
+    from scar.tools.browser.default import opera_gx_exe
+
+    # the user's preferred browser (ADR 0015); SCAR always drives it with its own profile, never the user's
+    if opera_gx_exe():
+        return "opera"
+    # Edge ships with Windows 11: no browser download, and automation stays out of the user's everyday Chrome
     if any(os.path.exists(p) for p in EDGE_PATHS):
         return "msedge"
+    if any(os.path.exists(p) for p in CHROME_PATHS):
+        return "chrome"
     return "chromium"
 
 
@@ -44,15 +49,11 @@ def open_in_user_browser(url: str, channel: str) -> str:
     Returns the browser name used."""
     if not url.startswith(("http://", "https://")):
         raise ValueError("only web pages are handed off")
-    paths = CHROME_PATHS if channel == "chrome" else EDGE_PATHS if channel == "msedge" else []
-    exe = next((p for p in paths if os.path.exists(p)), None)
-    if exe is None:
-        os.startfile(url)  # type: ignore[attr-defined]  # Windows: the default browser
-        return "your default browser"
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen([exe, url], creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return "Chrome" if channel == "chrome" else "Edge"
+    from scar.tools.browser.default import default_browser
+
+    del channel  # the page goes to the user's own default browser, whichever SCAR used for automation
+    os.startfile(url)  # type: ignore[attr-defined]
+    return default_browser().name
 
 
 @dataclass
@@ -107,22 +108,30 @@ class BrowserManager:
             "viewport": None if not self.settings.browser_headless else {"width": 1366, "height": 900},
             "args": ["--no-first-run", "--no-default-browser-check", "--disable-features=Translate"],
         }
-        if channel != "chromium":
-            kwargs["channel"] = channel
-        try:
-            self._ctx = await self._pw.chromium.launch_persistent_context(str(profile), **kwargs)
-        except Exception as exc:
-            if channel != "chromium":
+        candidates = [channel] + [c for c in ("msedge", "chromium") if c != channel]
+        errors: list[str] = []
+        for channel in candidates:
+            opts = dict(kwargs)
+            if channel == "opera":
+                from scar.tools.browser.default import opera_gx_exe
+
+                exe = opera_gx_exe()
+                if not exe:
+                    continue
+                opts["executable_path"] = exe
+            elif channel == "msedge" and not any(os.path.exists(p) for p in EDGE_PATHS):
+                continue
+            elif channel != "chromium":
+                opts["channel"] = channel
+            try:
+                self._ctx = await self._pw.chromium.launch_persistent_context(str(profile), **opts)
+                break
+            except Exception as exc:
                 log.warning("browser_channel_failed", channel=channel, error=str(exc)[:200])
-                kwargs.pop("channel", None)
-                channel = "chromium"
-                try:
-                    self._ctx = await self._pw.chromium.launch_persistent_context(str(profile), **kwargs)
-                except Exception as exc2:
-                    raise CapabilityUnavailable(f"cannot start a browser: {exc2}", "docs/browser.md") from exc2
-            else:
-                raise CapabilityUnavailable(f"cannot start Chromium (run `uv run playwright install chromium`): {exc}",
-                                            "docs/browser.md") from exc
+                errors.append(f"{channel}: {str(exc)[:200]}")
+        else:
+            raise CapabilityUnavailable("cannot start a browser (for bundled Chromium run `uv run playwright install "
+                                        "chromium`): " + "; ".join(errors), "docs/browser.md")
         self.state.channel = channel
         self.state.crashed = False
         self._ctx.on("close", lambda *_: self._mark_crashed("context closed"))

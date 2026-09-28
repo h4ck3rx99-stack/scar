@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import psutil
@@ -249,6 +250,8 @@ def _downloaded(p: Path) -> bool:
 
 class OpenInput(ToolInput):
     target: str = Field(description="file, folder or URL to open with its default app")
+    browser: Literal["default", "chrome", "edge", "firefox", "opera", "brave"] = Field(
+        "default", description="for web addresses: the browser the user named; otherwise their default browser")
 
 
 class AppsOpen(Tool):
@@ -288,8 +291,21 @@ class AppsOpen(Tool):
     async def run(self, args: OpenInput, ctx: ToolContext) -> ToolResult:
         parsed = urlparse(args.target)
         if parsed.scheme in ("http", "https"):
-            await asyncio.to_thread(os.startfile, args.target)  # type: ignore[attr-defined]
-            return self.ok(f"Opened {args.target} in the default browser", {"target": args.target, "url": True})
+            from scar.tools.browser.default import NAMED, default_browser, named_browser_exe
+
+            exe = named_browser_exe(args.browser) if args.browser != "default" else None
+            if exe:
+                flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                await asyncio.to_thread(subprocess.Popen, [exe, args.target], creationflags=flags, close_fds=True,
+                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                name = NAMED[args.browser][0]
+            else:
+                await asyncio.to_thread(os.startfile, args.target)  # type: ignore[attr-defined]
+                b = default_browser()
+                name, exe = b.name, b.exe
+            proc = Path(exe).name.lower() if exe else ""
+            return self.ok(f"Opened {args.target} in {name}", {"target": args.target, "url": True, "browser": name,
+                                                              "browser_process": proc})
         p = check_path(ctx, args.target, PathOp.EXECUTE).path
         if not p.exists():
             raise ToolError(f"not found: {p}", "NotFound")
@@ -302,6 +318,11 @@ class AppsOpen(Tool):
             w = await asyncio.to_thread(win32.wait_for_window, lambda w: w.process.lower() == "explorer.exe" and
                                         name.lower() in w.title.lower(), 10.0)
             return VerificationResult.from_checks([Check(name="Explorer window open", passed=w is not None)])
+        proc = result.data.get("browser_process") or ""
+        if result.data.get("url") and proc:
+            w = await asyncio.to_thread(win32.wait_for_window, lambda w: w.process.lower() == proc, 10.0)
+            return VerificationResult.from_checks([Check(name=f"{result.data.get('browser')} window open", passed=w is not None)],
+                                                  {"note": "the browser is open; the page itself was not inspected"})
         return VerificationResult.unverifiable("handed to the default application")
 
 

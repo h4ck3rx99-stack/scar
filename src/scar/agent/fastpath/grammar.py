@@ -138,16 +138,22 @@ class FastPath:
         return FastPlan("open_editor", [FastCall("apps.launch", {"app": app, "folder": cands[0].path})])
 
     def _browser_url(self, t: str, low: str) -> FastPlan | None:
-        m = re.match(rf"(?i)^(?:open\s+(?P<browser>chrome|edge|the browser|a browser|browser)\s+(?:and\s+)?)?"
+        m = re.match(rf"(?i)^(?:open\s+(?P<browser>chrome|edge|opera gx|opera|firefox|brave|the browser|a browser|browser)\s+(?:and\s+)?)?"
                      rf"(?:go to|navigate to|open|browse to|visit|load)\s+{_URL}$", t)
         if not m:
-            m = re.match(rf"(?i)^open\s+(?P<browser>chrome|edge|the browser|browser)\s+(?:at|on|to)\s+{_URL}$", t)
+            m = re.match(rf"(?i)^open\s+(?P<browser>chrome|edge|opera gx|opera|firefox|brave|the browser|browser)\s+(?:at|on|to)\s+{_URL}$", t)
         if not m:
             return None
         url = m.group("url")
         if not re.search(r"[./:]", url):
             return None
-        return FastPlan("open_url", [FastCall("browser.open", {"url": url})])
+        if not re.match(r"(?i)^https?://", url):
+            url = ("http://" if re.match(r"(?i)^(localhost|127\.0\.0\.1)", url) else "https://") + url
+        # "go to example.com" opens the user's own default browser; a named browser is honoured. Automation
+        # (clicking, filling forms, reading pages) uses SCAR's separate browser profile instead.
+        named = (m.group("browser") or "").lower().replace("opera gx", "opera")
+        browser = named if named in ("chrome", "edge", "opera", "firefox", "brave") else "default"
+        return FastPlan("open_url", [FastCall("apps.open", {"target": url, "browser": browser})])
 
     def _screenshot(self, t: str, low: str) -> FastPlan | None:
         if re.fullmatch(r"(take|grab|capture)( a)? (screenshot|screen ?shot|screen capture)( of (my|the) (whole )?screen)?", low):

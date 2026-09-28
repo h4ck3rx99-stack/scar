@@ -261,7 +261,9 @@ def test_fast_path_grammar(services, tmp_path: Path) -> None:  # type: ignore[no
     assert fp.match("what's using my RAM").calls[0].tool == "system.info"
     assert fp.match("remind me to call mom at 6pm").calls[0].args == {"when": "at 6pm", "text": "call mom"}
     assert fp.match("take a screenshot").calls[0].tool == "screen.capture"
-    assert fp.match("open chrome and go to example.com").calls[0].args == {"url": "example.com"}
+    assert fp.match("open chrome and go to example.com").calls[0].args == {"target": "https://example.com", "browser": "chrome"}
+    assert fp.match("open opera gx and go to example.com").calls[0].args == {"target": "https://example.com", "browser": "opera"}
+    assert fp.match("go to example.com").calls[0].args == {"target": "https://example.com", "browser": "default"}
     assert fp.match("set volume to 40%").calls[0].args["level"] == 40
     assert fp.match("minimize notepad").calls[0].args == {"process": "notepad.exe", "action": "minimize"}
     assert fp.match("cancel").control == "cancel"

@@ -40,7 +40,7 @@ DESCRIPTIONS: dict[str, str] = {
     "task_token_budget": "Token budget per task.", "command_timeout": "Default command timeout (s).", "command_timeout_max": "Hard ceiling for commands (s).",
     "output_cap_bytes": "Captured output kept in memory per stream; the rest goes to an artifact.",
     "max_concurrent_tasks": "Concurrent tasks.", "max_subagents": "Concurrent sub-agents per task.",
-    "browser_channel": "`auto`, `chrome`, `msedge`, `chromium`.", "browser_headless": "Run the SCAR browser headless.",
+    "browser_channel": "`auto` (Opera GX if installed, else Edge, Chrome, Chromium), `opera`, `chrome`, `msedge`, `chromium`. Always a separate SCAR profile.", "browser_headless": "Run the SCAR browser headless.",
     "downloads_dir": "Where browser downloads go (never executed).",
     "google_oauth_client_file": "Path to the Google OAuth client JSON (Desktop app).", "ms_client_id": "Azure app (client) id for Microsoft Graph.",
     "ms_tenant": "`common`, `consumers`, `organizations` or a tenant id.", "email_provider": "`auto`, `gmail`, `outlook`, `imap`.",

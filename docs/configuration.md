@@ -97,7 +97,7 @@ The full list with comments is in [`.env.example`](../.env.example).
 | `SCAR_OUTPUT_CAP_BYTES` | `65536` | Captured output kept in memory per stream; the rest goes to an artifact. |
 | `SCAR_MAX_CONCURRENT_TASKS` | `4` | Concurrent tasks. |
 | `SCAR_MAX_SUBAGENTS` | `3` | Concurrent sub-agents per task. |
-| `SCAR_BROWSER_CHANNEL` | `'auto'` | `auto`, `chrome`, `msedge`, `chromium`. |
+| `SCAR_BROWSER_CHANNEL` | `'auto'` | `auto` (Opera GX if installed, else Edge, Chrome, Chromium), `opera`, `chrome`, `msedge`, `chromium`. Always a separate SCAR profile. |
 | `SCAR_BROWSER_HEADLESS` | `False` | Run the SCAR browser headless. |
 | `SCAR_DOWNLOADS_DIR` | `''` | Where browser downloads go (never executed). |
 | `SCAR_GOOGLE_OAUTH_CLIENT_FILE` | `''` | Path to the Google OAuth client JSON (Desktop app). |
@@ -117,6 +117,13 @@ The full list with comments is in [`.env.example`](../.env.example).
 | `SCAR_TEST_TELEGRAM_CHAT` | `''` | Only chat live tests may send to. |
 | `SCAR_TEST_EMAIL_TO` | `''` | Only address live tests may email. |
 | `SCAR_TEST_DISCORD_CHANNEL` | `''` | Only channel live tests may post to. |
+| `SCAR_QUICKBAR_HOTKEY` | `'Ctrl+Alt+Space'` | Desktop app: global shortcut that opens the Quick Bar (Tauri accelerator syntax). |
+| `SCAR_THEME` | `'system'` | Desktop app theme: `system`, `light` or `dark`. |
+| `SCAR_START_MINIMIZED` | `False` | Desktop app: start hidden in the tray. |
+| `SCAR_KEEP_RUNNING_IN_BACKGROUND` | `False` | Desktop app: "Quit" leaves the runtime running for reminders and monitors. |
+| `SCAR_APP_ONBOARDING_STEP` | `0` | Desktop app: first-run setup progress (0 = not started, 99 = done). |
+| `SCAR_CONTROL_INDICATOR` | `True` | Show the on-screen indicator while SCAR controls the mouse, keyboard or windows. |
+| `SCAR_GAME_MODE` | `'auto'` | `auto`: while a full-screen game or presentation runs, defer toasts/speech and don't start live automation or local GPU inference unless asked; `off`: ignore. |
 | `SCAR_LOG_LEVEL` | `'INFO'` | DEBUG/INFO/WARNING/ERROR. |
 | `SCAR_DATA_DIR` | `''` | Data folder (default %LOCALAPPDATA%\SCAR). |
 | `SCAR_MODELS_DIR` | `''` | Downloaded speech, embedding and wake-word models (default <data folder>\models); can live on another drive. |

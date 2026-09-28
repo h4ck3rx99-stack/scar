@@ -190,7 +190,7 @@ class Settings(BaseSettings):
     max_concurrent_tasks: int = 4
     max_subagents: int = 3
     # --- browser ---
-    browser_channel: Literal["auto", "chrome", "msedge", "chromium"] = "auto"
+    browser_channel: Literal["auto", "opera", "chrome", "msedge", "chromium"] = "auto"
     browser_headless: bool = False
     downloads_dir: str = ""
     # --- integrations (non-secret parts) ---
