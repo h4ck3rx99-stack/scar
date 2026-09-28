@@ -16,8 +16,13 @@ _QUESTION = re.compile(
 _LIVE = re.compile(
     r"\b(weather|news|headlines|latest|today|tonight|tomorrow|yesterday|current(ly)?|right now|this (week|month|year)|"
     r"price|prices|stock|score|scores|who won|trending|time is it|what time|what date|what day|exchange rate)\b", re.I)
-_TARGET = re.compile(r"[A-Za-z]:\\|https?://|www\.|\b\S+\.(com|org|net|io|dev|py|js|ts|md|txt|pdf|docx|csv|json|exe)\b|~[/\\]",
-                     re.I)
+_TARGET = re.compile(r"[A-Za-z]:[\\/]|\\\\\w|(^|\s)/[\w.-]+/|https?://|www\.|"
+                     r"\b\S+\.(com|org|net|io|dev|py|js|ts|md|txt|pdf|docx|csv|json|exe)\b|~[/\\]", re.I)
+# about things on this computer even without "my": "how many files are in the Downloads folder?"
+_LOCAL = re.compile(
+    r"\bhow many (files|folders|windows|tabs|processes|apps|programs|tasks|reminders)\b|"
+    r"\b(in|on|inside|under|from|of) (the |this |that |these )?[\w.-]*\s?(folder|folders|directory|directories|drive|"
+    r"desktop|downloads|documents|disk|repo|repository|project)\b", re.I)
 _NOT_A_QUESTION = re.compile(r"^(tell me when|let me know when|remind|notify)\b", re.I)
 
 
@@ -29,4 +34,4 @@ def is_knowledge_question(text: str) -> bool:
         return False
     if not _QUESTION.search(t):
         return False
-    return not (STATE_QUESTION.search(t) or _LIVE.search(t) or _TARGET.search(t))
+    return not (STATE_QUESTION.search(t) or _LIVE.search(t) or _TARGET.search(t) or _LOCAL.search(t))

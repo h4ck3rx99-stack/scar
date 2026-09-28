@@ -21,6 +21,9 @@ def test_knowledge_questions(text: str) -> None:
     "open vs code", r"what is in C:\Users\x\notes.txt", "summarize https://example.com", "what time is it",
     "latest news about AI", "run the tests in this project", "how much RAM is in use", "find the failing test and fix it",
     "which apps are running", "remind me in 10 minutes to stretch",
+    # found live 2026-09-28: these went to the no-tools path and got "I don't have access to your file system"
+    "How many files are in /tmp/sb1? List them.", "what is in C:/Users/x/notes", "how many files are in the Downloads folder?",
+    "what's inside the project folder", r"which files are in \\server\share", "how many tabs do I have",
 ])
 def test_not_knowledge_questions(text: str) -> None:
     assert not is_knowledge_question(text)

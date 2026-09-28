@@ -108,6 +108,17 @@ async def test_short_rate_limit_only_option_waits_and_retries(services) -> None:
     assert resp.content == "later" and len(clients["a"].requests) == 2
 
 
+async def test_output_token_cap_retries_same_model_with_fewer_tokens(services) -> None:
+    # found live on Groq's free tier: waiting never helps; the model accepts the request with a smaller max_tokens
+    otpm = ('Request too large for model `m` on output tokens per minute (OTPM): Limit 1000, Requested 1374. '
+            "The request's expected output tokens exceed the enforced limit")
+    resp, clients, events = await _route(services, {"a": [perr(ProviderErrorKind.RATE_LIMIT, otpm, retry_after=0.001),
+                                                          reply(content="fits")], "b": [reply(content="b")]})
+    assert resp.provider == "a" and resp.content == "fits" and not events
+    assert [r.max_tokens for _, r in clients["a"].requests] == [REQ.max_tokens, 900]
+    assert services.health.get("a", "a-model").state != "rate_limited"
+
+
 async def test_privacy_local_only_skips_cloud(services) -> None:
     services.privacy.overrides["screen"] = "local_only"
     with pytest.raises(AllProvidersFailed) as ei:
@@ -157,6 +168,12 @@ def test_extract_json_and_json_action_protocol() -> None:
     calls = parse_json_action('{"tool": "fs.read", "args": {"path": "x"}}', {"fs__read"})
     assert calls[0].name == "fs__read" and calls[0].arguments == {"path": "x"}
     assert parse_json_action('{"tool": "evil.tool"}', {"fs__read"}) == []
+    # found live on Groq: finish's arguments written as the reply instead of a tool call
+    bare = '{"summary": "Created notes.txt.", "evidence": [{"type": "file", "path": "x"}], "status": "done"}'
+    calls = parse_json_action(bare, {"fs__read", "finish"})
+    assert calls[0].name == "finish" and calls[0].arguments["summary"] == "Created notes.txt."
+    assert parse_json_action(bare, {"fs__read"}) == []
+    assert parse_json_action('{"summary": "x", "other": 1}', {"finish"}) == []
 
 
 def test_strip_think() -> None:

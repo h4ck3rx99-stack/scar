@@ -100,6 +100,13 @@ async def structured_chat(
 _ACTION_KEYS = ("tool", "name", "action", "function")
 
 
+_FINISH_KEYS = frozenset({"summary", "evidence", "status"})
+
+
+def _is_bare_finish(item: dict[str, object]) -> bool:
+    return isinstance(item.get("summary"), str) and set(item) <= _FINISH_KEYS
+
+
 def parse_json_action(text: str, known_tools: set[str]) -> list[ToolCall]:
     """JSON action protocol: {"tool": "fs.read", "args": {...}} (or a list of them)."""
     try:
@@ -112,6 +119,10 @@ def parse_json_action(text: str, known_tools: set[str]) -> list[ToolCall]:
         if not isinstance(item, dict):
             continue
         name = next((str(item[k]) for k in _ACTION_KEYS if isinstance(item.get(k), str)), "")
+        if not name and _is_bare_finish(item) and "finish" in known_tools:
+            # the model wrote finish's arguments as its reply: {"summary": …, "evidence": […], "status": "done"}
+            calls.append(ToolCall(id=f"json_{i}", name="finish", arguments=item, raw_arguments=json.dumps(item)))
+            continue
         wire = name.replace(".", "__")
         if name not in known_tools and wire not in known_tools:
             continue

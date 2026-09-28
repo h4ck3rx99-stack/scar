@@ -112,7 +112,7 @@ providers:
 
 categories:
   reasoning:
-    - {provider: groq, models: [openai/gpt-oss-120b, qwen/qwen3.8-27b]}
+    - {provider: groq, models: [openai/gpt-oss-120b, qwen/qwen3.8-27b, openai/gpt-oss-20b]}
     - {provider: gemini, models: [gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash]}
     - {provider: cerebras, models: [gpt-oss-120b, qwen-3.8-27b]}
     - {provider: openrouter, models: ["openai/gpt-oss-120b:free", "qwen/qwen3-235b-a22b:free", "meta-llama/llama-3.3-70b-instruct:free"]}

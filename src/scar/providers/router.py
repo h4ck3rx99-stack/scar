@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import hashlib
 import random
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -41,6 +42,18 @@ log = structlog.get_logger("scar.router")
 
 MODEL_LIST_TTL = 6 * 3600.0
 Compactor = Callable[[ChatRequest], Awaitable[ChatRequest]]
+
+# Only rate-limited candidates left: wait this long at most (once) rather than fail an interactive request.
+RATE_LIMIT_MAX_WAIT_S = 30.0
+_OTPM = re.compile(r"output tokens per minute[^:]*:\s*Limit (\d+), Requested (\d+)", re.I)
+
+
+def _output_cap(err: ProviderError) -> int | None:
+    """The max_tokens a provider will accept when it refused a request for asking too many output tokens."""
+    if err.kind != ProviderErrorKind.RATE_LIMIT:
+        return None
+    m = _OTPM.search(str(err))
+    return max(256, int(int(m.group(1)) * 0.9)) if m else None
 
 
 @dataclass
@@ -184,7 +197,7 @@ class ProviderRouter:
             waits = [a.retry_after for a in exc.attempts if a.kind == ProviderErrorKind.RATE_LIMIT and a.retry_after is not None]
             usable = [a for a in exc.attempts if a.kind not in (ProviderErrorKind.UNAVAILABLE, ProviderErrorKind.AUTH,
                                                                 ProviderErrorKind.PRIVACY, ProviderErrorKind.RATE_LIMIT)]
-            if waits and not usable and min(waits) <= 15.0:
+            if waits and not usable and min(waits) <= RATE_LIMIT_MAX_WAIT_S:
                 # only rate-limited candidates remain and the wait is short: sleep once, then retry
                 await asyncio.sleep(min(waits) + 0.25)
                 return await self._chat_once(category, request, data_classes=data_classes, task=task, compactor=compactor)
@@ -334,6 +347,12 @@ class ProviderRouter:
                 tried.append(Attempt(spec.id, model, err.kind.value, (time.perf_counter() - t0) * 1000))
                 log.info("provider_error", provider=spec.id, model=model, kind=err.kind.value, retry_after=err.retry_after,
                          detail=str(err)[:300])
+                cap = _output_cap(err)
+                if cap is not None and attempt == 0 and request.max_tokens > cap:
+                    # "Request too large … output tokens per minute (OTPM): Limit 1000, Requested 1374": waiting never
+                    # helps; ask this model for fewer output tokens instead
+                    request = request.model_copy(update={"max_tokens": cap})
+                    continue
                 if err.kind == ProviderErrorKind.TRANSIENT and attempt == 0:
                     self.health.failure(err)
                     await asyncio.sleep(0.5 + random.random())
