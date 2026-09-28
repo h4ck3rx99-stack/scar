@@ -67,7 +67,7 @@ async def test_quota_long_cooldown(services) -> None:
 
 
 async def test_transient_retries_once_then_falls_through(services) -> None:
-    resp, clients, _ = await _route(services, {"a": [perr(ProviderErrorKind.TRANSIENT), perr(ProviderErrorKind.TRANSIENT)],
+    resp, clients, _ = await _route(services, {"a": [perr(ProviderErrorKind.TRANSIENT)] * 4,
                                                "b": [reply(content="b")]})
     assert len(clients["a"].requests) == 2 and resp.provider == "b"
     resp, clients, _ = await _route(services, {"a": [perr(ProviderErrorKind.TRANSIENT), reply(content="second try")]})
@@ -117,6 +117,12 @@ async def test_output_token_cap_retries_same_model_with_fewer_tokens(services) -
     assert resp.provider == "a" and resp.content == "fits" and not events
     assert [r.max_tokens for _, r in clients["a"].requests] == [REQ.max_tokens, 900]
     assert services.health.get("a", "a-model").state != "rate_limited"
+
+
+async def test_transient_elsewhere_still_waits_for_a_short_rate_limit(services) -> None:
+    resp, clients, _ = await _route(services, {"a": [perr(ProviderErrorKind.TRANSIENT)] * 4,
+                                               "b": [perr(ProviderErrorKind.RATE_LIMIT, retry_after=0.2), reply(content="later")]})
+    assert resp.content == "later" and resp.provider == "b"
 
 
 async def test_privacy_local_only_skips_cloud(services) -> None:
@@ -215,6 +221,21 @@ async def test_openai_compat_request_and_tool_call_parsing(respx_mock) -> None:
     assert body["tool_choice"] == "auto" and body["model"] == "m"
     assert resp.tool_calls[0].arguments == {"path": "a.txt"}
     assert resp.tool_calls[1].parse_error
+    await c.aclose()
+
+
+async def test_openai_compat_transcribe_sends_multipart(respx_mock) -> None:
+    # found live: the client's default Content-Type: application/json overrode the multipart header, so Groq Whisper
+    # rejected every request and voice always fell back to local STT
+    route = respx_mock.post("https://api.example.test/v1/audio/transcriptions").mock(
+        return_value=httpx.Response(200, json={"text": "hello", "language": "en", "duration": 1.0}))
+    c = OpenAICompatClient("x", "https://api.example.test/v1", SecretStr("k123"))
+    data = await c.transcribe("whisper", b"RIFF....WAVE", "en")
+    sent = route.calls[0].request
+    assert sent.headers["content-type"].startswith("multipart/form-data; boundary=")
+    assert sent.headers["authorization"] == "Bearer k123"
+    assert b'name="model"' in sent.content and b"whisper" in sent.content and b'filename="audio.wav"' in sent.content
+    assert data["text"] == "hello"
     await c.aclose()
 
 

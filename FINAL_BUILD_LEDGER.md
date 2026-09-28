@@ -12,12 +12,13 @@ Read this first when resuming. Continue from "Current item". Never start over.
 - [x] UI security (Part 4): CSP, bundled assets, SafeMarkdown + XSS fixtures, approval ID/hash/gesture/isTrusted,
       write-only secrets, minimal capabilities, **shell navigation guard added 2026-09-28** (`navguard.rs`, unit-tested;
       shell cross-checked + clippy for x86_64-pc-windows-msvc). Live WebView2 confirmation → L3
-- [ ] Latency — measured: cloud simple question first text ≈0.5 s (was 3.31 s whole reply; "three tips…" 142 s → 0.67 s);
-      fast path one-shot 2.26–4.26 s **including ~2 s runtime start per one-shot CLI process**. Warm fast path through
-      the running runtime/app (target < 1.5 s) **not yet recorded** → L6 (`scripts/bench/warm_latency.py`)
-- [ ] Cloud + fallback chain live — Groq key stored and `providers test groq` ✓ (433 ms, 2026-09-27); streaming ✓.
-      Tool calling / forced-failure fallback chain / cloud STT / sub-agents with a real model **not yet recorded** → L5.
-      (The cloud build container cannot reach api.groq.com: network policy.)
+- [x] Latency — warm runtime (what the app sees), Groq, 2026-09-28: fast path 0.03–0.96 s (target < 1.5 s); first text
+      0.52–0.81 s for simple questions (target < 3 s; baseline 3.31 s whole reply, local 8B 25–35 s). One-shot CLI still
+      pays ~2 s runtime start. Windows re-measure with local models → L6
+- [x] Cloud + fallback chain live (2026-09-28, docs/ACCEPTANCE_REPORT.md "Live cloud verification"): routing, streaming,
+      tool calling, vision provider, cloud STT (after fixing its upload bug) + local STT fallback, in-provider fallback
+      and auth → local → degraded. Sub-agents: PARTIALLY (run on a real model; the Groq free-tier TPM budget runs out).
+      Local-model step of the chain → L5 on Windows
 - [ ] Voice live with a real microphone → L2
 - [ ] 12-test acceptance suite re-run live → L1 (last full run 2026-09-27, pre-app, in docs/ACCEPTANCE_REPORT.md)
 - [ ] Game/full-screen awareness + default browser — implemented and unit-tested (`gamemode.py`,
@@ -92,6 +93,16 @@ with the user's RAM usage → fixed (requires a possessive/now cue) with 11 para
 - Known limitation (documented): the terminal voice mode's push-to-talk and the Quick Bar share Ctrl+Alt+Space by
   default; the app itself has no global push-to-talk hotkey (mic button). Defaults kept so the CLI behaves as
   documented.
+
+## Session 2026-09-28b — live Groq (network opened by the user)
+
+Six bugs found live and fixed with tests: knowledge-question shortcut vs folder/path questions; bare finish JSON
+shown as the reply; OTPM refusals not retried with fewer tokens; transient errors blocking the short rate-limit wait
+(max wait 15 → 30 s); agent.delegate never offered; Groq Whisper upload sent Content-Type application/json (cloud STT
+never worked). gpt-oss-20b added as the third Groq reasoning model. pytest 306 passed / 118 skipped.
+
+Known limit: Groq free tier (7–8K tokens/min per model, ~3.6–5.3K per tool step) → multi-step and multi-agent tasks can
+hit rate limits; SCAR waits ≤ 30 s, then fails honestly keeping what was done. Adding GEMINI_API_KEY gives a second quota.
 
 ## Decisions
 

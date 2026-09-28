@@ -68,6 +68,8 @@ TOOL_HINTS: list[tuple[str, list[str]]] = [
     (r"\bcopy\b", ["fs.copy"]),
     (r"\b(delete|remove|trash)\b", ["fs.delete"]),
     (r"\b(new|create|make) (a )?(folder|directory)\b", ["fs.mkdir"]),
+    # otherwise crowded out of the small tool set, so sub-agents were unreachable (found live 2026-09-28)
+    (r"\b(sub-?agents?|delegate|in parallel|parallel research|several sources)\b", ["agent.delegate"]),
 ]
 
 

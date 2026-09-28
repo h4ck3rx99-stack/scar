@@ -280,9 +280,13 @@ class OpenAICompatClient:
         form: dict[str, str] = {"model": model, "response_format": "verbose_json"}
         if language:
             form["language"] = language
-        headers = {k: v for k, v in self._client.headers.items() if k.lower() != "content-type"}
+        # built without the client's defaults: they carry Content-Type: application/json, which would override the
+        # multipart boundary header (httpx merges client headers into build_request)
+        headers = {k: v for k, v in self._client.headers.items() if k.lower() not in ("content-type", "content-length")}
+        req = httpx.Request("POST", f"{self.base_url.rstrip('/')}/audio/transcriptions", files=files, data=form,
+                            headers=headers, extensions={"timeout": httpx.Timeout(60.0).as_dict()})
         try:
-            resp = await self._client.post("/audio/transcriptions", files=files, data=form, headers=headers, timeout=60.0)
+            resp = await self._client.send(req)
         except httpx.HTTPError as exc:
             raise ProviderError(ProviderErrorKind.TRANSIENT, f"network error: {exc}", provider=self.provider, model=model) from exc
         if resp.status_code >= 400:

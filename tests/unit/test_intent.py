@@ -27,3 +27,11 @@ def test_knowledge_questions(text: str) -> None:
 ])
 def test_not_knowledge_questions(text: str) -> None:
     assert not is_knowledge_question(text)
+
+
+@pytest.mark.parametrize("text", ["use sub-agents to compare three laptops", "delegate the research to a subagent",
+                                  "research these in parallel"])
+def test_sub_agent_requests_offer_the_delegate_tool(text: str) -> None:
+    from scar.agent.executor import boosted_tools
+
+    assert "agent.delegate" in boosted_tools(text)

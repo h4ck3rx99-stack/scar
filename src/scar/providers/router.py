@@ -195,8 +195,10 @@ class ProviderRouter:
             return await self._chat_once(category, request, data_classes=data_classes, task=task, compactor=compactor)
         except AllProvidersFailed as exc:
             waits = [a.retry_after for a in exc.attempts if a.kind == ProviderErrorKind.RATE_LIMIT and a.retry_after is not None]
+            # a transient error was already retried once; it doesn't make waiting for a rate limit pointless
             usable = [a for a in exc.attempts if a.kind not in (ProviderErrorKind.UNAVAILABLE, ProviderErrorKind.AUTH,
-                                                                ProviderErrorKind.PRIVACY, ProviderErrorKind.RATE_LIMIT)]
+                                                                ProviderErrorKind.PRIVACY, ProviderErrorKind.RATE_LIMIT,
+                                                                ProviderErrorKind.TRANSIENT)]
             if waits and not usable and min(waits) <= RATE_LIMIT_MAX_WAIT_S:
                 # only rate-limited candidates remain and the wait is short: sleep once, then retry
                 await asyncio.sleep(min(waits) + 0.25)

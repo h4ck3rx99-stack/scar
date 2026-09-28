@@ -102,3 +102,27 @@ Verified by automated tests (see [testing.md](testing.md)); all pass on this mac
 | Every command has a timeout | `test_terminal.py::test_timeout_kills_tree`, pipeline timeout wrapper |
 | Runaway tasks/sub-agents cancellable; kill switch works | `test_agent.py::test_cancellation_mid_task`, `test_terminal.py::test_cancellation_kills_process`, kill-switch callbacks in runtime |
 | CRITICAL never auto-approved at any autonomy level | `test_policy.py::test_critical_never_auto_allowed` (hypothesis over levels × grant scopes) |
+
+## Live cloud verification (2026-09-28, Groq free tier)
+
+Run from a Linux build container against the real Groq API through a warm SCAR runtime (sandbox folders only).
+Windows-only tools (screen capture, apps, UIA) were not part of this run.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Routing to cloud + live key test | **VERIFIED** | `scar providers test groq` ✓ gpt-oss-120b 164 ms |
+| Streaming, time to first text (warm runtime) | **VERIFIED** | 0.52–0.81 s first text for simple questions (`scripts/bench/warm_latency.py`, 2 runs) |
+| Fast path end to end (warm runtime) | **VERIFIED** | "what's using my RAM" 0.03 s; "remember …" 0.57–0.96 s |
+| Tool calling | **VERIFIED** | "create notes.txt containing hello from groq" → `fs.write`, verified file, reply "Created notes.txt …"; "how many files are in <dir>?" → correct count; "read notes.txt" → exact content, verified |
+| Fallback inside the provider | **VERIFIED** | gpt-oss-120b (TPM) → qwen3.8-27b (ITPM / OTPM) → gpt-oss-20b, `provider_fallback` events recorded; the task still succeeded |
+| Full chain to degraded mode | **VERIFIED** | invalid key → `auth` → Ollama/llama.cpp unavailable → honest "no language model is reachable" in 1.24 s; the reminder fast path still worked (0.01 s) |
+| Vision (provider) | **VERIFIED** | red square + "SCAR 42" image → "The square is red, and the text … is "SCAR 42"" via groq/qwen3.8-27b, 1.17 s (`vision.ask` needs screen capture, so it is Windows-only) |
+| Cloud STT | **VERIFIED after fix** | Groq Whisper had rejected every request (multipart header bug) and voice silently used local STT. Fixed: whisper-large-v3-turbo transcribed synthetic speech exactly, 1.09 s |
+| Local STT fallback | **VERIFIED** | without the Groq key: faster-whisper base, exact transcript, 1.78 s warm |
+| Sub-agents with a real model | **PARTIALLY WORKING** | `agent.delegate` ran 2 child tasks on Groq (1 succeeded, 1 failed), then the free-tier tokens-per-minute budget ran out. With Groq alone, multi-agent and long multi-step tasks often hit rate limits; a second free provider (Gemini) is the fix |
+
+Bugs found live and fixed (with regression tests): the no-tools shortcut answered questions about folders and
+paths without looking ("I don't have access to your file system"); a finish object written as plain JSON was shown
+as the reply; output-token-cap refusals were never retried with fewer tokens; a transient error elsewhere stopped
+the router from waiting out a short rate limit; the delegate tool was never offered, so sub-agents were unreachable;
+cloud STT upload used the wrong Content-Type.
