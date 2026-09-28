@@ -272,6 +272,51 @@ def test_file_action_checks_match_the_verb() -> None:
     assert objective_checks(TaskState(objective="create a reminder for 5pm")) == []
 
 
+@pytest.mark.parametrize(("objective", "expected"), [
+    ("can you open whatsapp for me and draft a message to tuff saying hi", "the message was drafted"),
+    ("send an email to sam@example.com about the meeting", "the message was sent"),
+    ("Email this document to Priya", "the message was sent"),
+    ("message Ravi on telegram that I'm late", "the message was sent"),
+    ("reply to the last email from HR", "the message was sent"),
+    ("draft a reply to Anna but don't send it", "the message was drafted"),
+    ("write text to notes.txt", "requested change was made"),  # a file task: only the file check
+    ("save the email to notes.txt", "requested change was made"),
+    ("summarise my unread messages", None),
+    ("text me when the build finishes", None),
+    ("how do I send an email with attachments in Outlook?", None),
+    ("what should I write in a message to my landlord?", None),
+])
+def test_messaging_requests_need_a_real_send_or_draft(objective: str, expected: str | None) -> None:
+    from scar.agent.verifier import objective_checks
+    from scar.core.types import TaskState
+
+    names = [c.name for c in objective_checks(TaskState(objective=objective))]
+    assert names == ([expected] if expected else [])
+
+
+def test_opening_the_app_is_not_drafting_the_message() -> None:
+    """Recorded 2026-09-28: message.send was unavailable (WhatsApp not connected), only apps.launch succeeded and was
+    verified, and the task was reported as succeeded. The requested draft never happened."""
+    from scar.agent.verifier import verify_finish
+    from scar.core.types import Observation, TaskState, ToolResult, VerificationResult
+
+    launched = ToolResult.success("Opened WhatsApp")
+    launched.verification = VerificationResult(verified=True)
+    task = TaskState(objective="can you open whatsapp for me and draft a message to tuff saying hi", observations=[
+        Observation(action_id="a1", tool="message.send", result=ToolResult.unavailable("WHATSAPP not configured", "docs")),
+        Observation(action_id="a2", tool="apps.launch", result=launched),
+    ])
+    v = verify_finish(task, "Opened WhatsApp, but I couldn't draft the message.", [], None, None)
+    assert v.verified is False
+    assert any(c.name == "the message was drafted" and not c.passed for c in v.checks)
+
+
+async def test_a_message_claimed_only_in_words_is_not_success(tm) -> None:  # type: ignore[no-untyped-def]
+    script(tm.s, [reply(content="I drafted the message to Tuff."), reply(content="The draft is ready.")])
+    task = await tm.run("draft a message to tuff saying hi")
+    assert task.status != TaskStatus.SUCCEEDED
+
+
 async def test_after_a_denial_scar_does_not_ask_again(tm, sandbox: Path) -> None:
     """Denied once means stop: no second approval request for the same thing, and an honest 'not done'."""
     from scar.security.approval import ApprovalResponse

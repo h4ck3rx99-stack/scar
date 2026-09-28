@@ -74,9 +74,9 @@ def main() -> None:
              "(edge-tts, fpdf2, pynput) are separate, replaceable Python packages loaded at run time.", ""]
     for title, rows in sections:
         lines += [f"## {title}", "", "| Component | Version | License |", "|---|---|---|"]
-        lines += [f"| {n} | {v} | {lic} |" for n, v, lic in sorted(set(rows), key=lambda r: r[0].lower())]
+        lines += [f"| {n} | {v} | {lic} |" for n, v, lic in sorted(set(rows), key=lambda r: (r[0].lower(), r[1], r[2]))]
         lines.append("")
-    (ROOT / "THIRD_PARTY_NOTICES.md").write_text("\n".join(lines), encoding="utf-8")
+    (ROOT / "THIRD_PARTY_NOTICES.md").write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(f"wrote THIRD_PARTY_NOTICES.md ({sum(len(r) for _, r in sections)} components)")
 
 

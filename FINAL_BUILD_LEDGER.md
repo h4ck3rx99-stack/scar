@@ -10,8 +10,10 @@ Read this first when resuming. Continue from "Current item". Never start over.
 - [x] App API versioned (`/api/v1`), typed (schema.json → types.ts, contract test fails on drift), secured; contract +
       security tests pass (`tests/integration/test_app_api.py`, `test_app_api_contract.py`)
 - [x] UI security (Part 4): CSP, bundled assets, SafeMarkdown + XSS fixtures, approval ID/hash/gesture/isTrusted,
-      write-only secrets, minimal capabilities, **shell navigation guard added 2026-09-28** (`navguard.rs`, unit-tested;
-      shell cross-checked + clippy for x86_64-pc-windows-msvc). Live WebView2 confirmation → L3
+      write-only secrets, minimal capabilities, **shell navigation guard** (`navguard.rs`). **Verified on Windows
+      2026-09-28** in `pnpm tauri dev` over WebView2 CDP: the app's 3 pages load; `location` change, `window.open`,
+      middle-click and click on a `target=_blank` link, and a dropped link (CDP drag events) all left the window on the
+      app, opened no new webview or window, and loaded example.com nowhere. A real OS drag-and-drop with the mouse → L3
 - [x] Latency — warm runtime (what the app sees), Groq, 2026-09-28: fast path 0.03–0.96 s (target < 1.5 s); first text
       0.52–0.81 s for simple questions (target < 3 s; baseline 3.31 s whole reply, local 8B 25–35 s). One-shot CLI still
       pays ~2 s runtime start. Windows re-measure with local models → L6
@@ -25,9 +27,9 @@ Read this first when resuming. Continue from "Current item". Never start over.
       `tools/browser/default.py`, ADR 0015); live check with a real full-screen app → L4
 - [ ] Installer builds, installs, runs, uninstalls on a clean profile → L7 (Windows Home: no Sandbox; use a separate
       local user profile)
-- [x] Automated tests pass (2026-09-28, Linux container): pytest 294 passed / 118 skipped (Windows-only + live);
-      Vitest 26/26; Playwright e2e 12/12 incl. axe; ruff clean; pyright 0 errors; tsc clean; cargo check + clippy clean
-      (Windows target). **Re-run on Windows for the Windows-only tests** (baseline 2026-09-27: 340 passed)
+- [x] Automated tests pass — **on Windows, 2026-09-28**: pytest 432 passed / 6 skipped (the live tests; baseline
+      2026-09-27: 340); ruff clean; pyright 0 errors; tsc clean; Vitest 26/26; Playwright e2e 12/12 incl. axe on Edge;
+      `cargo test` 2/2 (navguard, first Windows compile); `cargo clippy --all-targets` clean
 - [x] Visual review — screenshots of 15 screens × light/dark × 1×/1.5× in docs/screenshots (commit 3b422c1), issues
       fixed there. Real-DPI multi-monitor check → L3
 - [ ] CLI still works exactly as documented — pytest CLI tests pass; manual Windows spot-check → L1
@@ -37,7 +39,8 @@ Read this first when resuming. Continue from "Current item". Never start over.
 
 ## Current item
 
-All non-live work is done. Next: the batched live session on the Windows machine (needs the user's go-ahead).
+Step 1 (non-live, Windows) is done — see "Session 2026-09-28c". Next: the batched live session L1–L7 (needs the
+user's go-ahead).
 
 ### Live session plan (~20 min, one batch; check foreground/full-screen before each step)
 
@@ -103,6 +106,29 @@ never worked). gpt-oss-20b added as the third Groq reasoning model. pytest 306 p
 
 Known limit: Groq free tier (7–8K tokens/min per model, ~3.6–5.3K per tool step) → multi-step and multi-agent tasks can
 hit rate limits; SCAR waits ≤ 30 s, then fails honestly keeping what was done. Adding GEMINI_API_KEY gives a second quota.
+
+## Session 2026-09-28c — Windows, step 1 (non-live)
+
+- Cloud branch pulled (fast-forward from main 65d52a4); `uv sync`, `pnpm install` clean.
+- Tests and lint: see the Definition of Done above. The shell compiled on Windows for the first time; clippy clean.
+- `pnpm tauri dev`: shell + runtime up in 23 s (debug build, cold Vite); navigation guard verified live (see UI
+  security). Shut down afterwards; nothing left running.
+- Installer: `uv run python scripts/build_installer.py` → `SCAR_1.0.0_x64-setup.exe`, 13.49 MiB. Not installed yet → L7.
+- CLI: `scar doctor` (Opera GX automation browser, Groq reachable, STT/TTS chains), `scar status`, `scar --help`,
+  and 3 requests (fast path RAM, a knowledge question on Groq, a file count in a sandbox folder): all correct.
+- **Honesty bug found in the owner's own task history and fixed.** "open whatsapp … and draft a message to tuff
+  saying hi" was reported **succeeded**. `message.send` had come back unavailable (WhatsApp not connected, so
+  nothing was sent), and only `apps.launch` was verified. The verifier now requires a real send (`message.send`,
+  `email.send`, `email.reply`) or draft (plus `email.draft`, `input.type`, `uia.act`) for messaging requests.
+  Questions ("how do I send an email…") and file tasks ("write text to notes.txt") are excluded. 13 parametrised
+  cases, a replay of the recorded task, and a words-only claim test.
+- `gen_notices.py` was not deterministic (hash order for same-named crates, CRLF on Windows), so every build dirtied
+  THIRD_PARTY_NOTICES.md. Now sorted by name/version/license and written with LF; identical across runs.
+- Cosmetic (kept): a file count done with a read-only `Get-ChildItem` via `terminal.run` gets "(I couldn't verify
+  this automatically.)" because terminal commands count as side effects. Conservative, not wrong.
+- Leftover from this session's own test (removed): a stale `app-api.json`, after force-closing the dev shell's
+  process tree ~1 s after the runtime accepted `/shutdown`. That was the test procedure, not the Quit path, and the
+  shell health-checks the port before trusting the file anyway.
 
 ## Decisions
 

@@ -41,6 +41,16 @@ _FILE_ACTION_TOOLS: list[tuple[set[str], frozenset[str]]] = [
     ({"delete", "remove", "trash"}, frozenset({"fs.delete"}) | _TERMINAL),
     ({"create", "make", "write", "save"}, frozenset({"fs.write", "fs.mkdir", "fs.edit", "fs.copy", "documents.write"}) | _TERMINAL),
 ]
+# messaging requests ("draft a message to tuff saying hi", "email the report to Sam", "reply to Priya on Telegram")
+_COMMS_IMPERATIVE = re.compile(r"^(please\s+|can you\s+|could you\s+)?(e-?mail|message|dm|text)\s+(?!me\b)\w", re.I)
+_COMMS_PHRASE = re.compile(r"\b(send|draft|write|compose|reply)\b(\s+[\w'-]+){0,3}?\s+(messages?|e-?mails?|mail|dms?|reply|"
+                           r"text|whatsapp|telegram|discord|sms)\b", re.I)
+_COMMS_DRAFT = re.compile(r"\b(draft|write|compose)\b", re.I)
+_QUESTION = re.compile(r"^\s*(how|what|why|when|where|which|who|is|are|do|does|did|should|would|can i|could i)\b", re.I)
+_COMMS_NEGATED = re.compile(r"\b(don'?t|do not|without|never)\s+(\w+\s+){0,2}(send|sending)\b", re.I)
+SEND_TOOLS = frozenset({"message.send", "email.send", "email.reply"})
+# a draft may also be typed into a messaging app's window
+DRAFT_TOOLS = SEND_TOOLS | {"email.draft", "input.type", "uia.act"}
 FILE_CHANGE_TOOLS = frozenset({"fs.write", "fs.edit", "fs.move", "fs.copy", "documents.write", "terminal.run", "terminal.exec",
                                "code.run"})
 
@@ -72,6 +82,17 @@ def objective_checks(task: TaskState) -> list[Check]:
                 failing = int(report.get("failed", 0) or 0) + int(report.get("errors", 0) or 0)
                 checks.append(Check(name="tests pass after the change", passed=bool(runs) and failing == 0,
                                     detail="tests were not re-run after the change" if not runs else f"{failing} still failing"))
+    phrase = _COMMS_PHRASE.search(objective)
+    draft = bool(phrase and _COMMS_DRAFT.fullmatch(phrase.group(1))) or bool(
+        _COMMS_DRAFT.search(objective) and _COMMS_NEGATED.search(objective))
+    # "write text to notes.txt" is a file task, not a message
+    if draft and phrase and _FILE_OBJECT.search(objective) and not _COMMS_IMPERATIVE.search(objective):
+        phrase = None
+    if ((phrase or _COMMS_IMPERATIVE.search(objective)) and (draft or not _COMMS_NEGATED.search(objective))
+            and not _QUESTION.search(objective)):
+        done = any(o.tool in (DRAFT_TOOLS if draft else SEND_TOOLS) for o in ok)
+        checks.append(Check(name="the message was drafted" if draft else "the message was sent", passed=done,
+                            detail="" if done else "no message was drafted" if draft else "no message was sent"))
     return checks
 
 

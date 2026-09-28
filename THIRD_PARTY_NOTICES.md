@@ -63,8 +63,8 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | mss | 10.2.0 | MIT License |
 | multidict | 6.9.1 | see package |
 | narwhals | 2.26.0 | MIT |
-| numpy | 2.5.3 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
 | numpy | 2.4.6 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
+| numpy | 2.5.3 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
 | nvidia-ml-py | 13.615.71 | BSD License |
 | onnxruntime | 1.30.0 | MIT License |
 | openwakeword | 0.6.0 | Apache Software License |
@@ -101,8 +101,8 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | rich | 15.0.0 | MIT License |
 | rsa | 4.9.1 | Apache Software License |
 | scikit-learn | 1.9.1 | BSD-3-Clause |
-| scipy | 1.18.1 | BSD License |
 | scipy | 1.17.1 | BSD License |
+| scipy | 1.18.1 | BSD License |
 | send2trash | 2.1.0 | BSD-3-Clause |
 | shellingham | 1.5.4 | ISC License (ISCL) |
 | six | 1.17.0 | MIT License |
@@ -328,9 +328,9 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | atomic-waker | 1.1.2 | Apache-2.0 OR MIT |
 | auto-launch | 0.5.0 | MIT |
 | autocfg | 1.5.1 | Apache-2.0 OR MIT |
+| base64 | 0.21.7 | MIT OR Apache-2.0 |
 | base64 | 0.22.1 | MIT OR Apache-2.0 |
 | base64 | 0.23.1 | MIT OR Apache-2.0 |
-| base64 | 0.21.7 | MIT OR Apache-2.0 |
 | bit-set | 0.8.0 | Apache-2.0 OR MIT |
 | bit-vec | 0.8.0 | Apache-2.0 OR MIT |
 | bitflags | 1.3.2 | MIT/Apache-2.0 |
@@ -384,10 +384,10 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | derive_more | 2.1.1 | MIT |
 | derive_more-impl | 2.1.1 | MIT |
 | digest | 0.10.7 | MIT OR Apache-2.0 |
-| dirs | 7.0.0 | MIT OR Apache-2.0 |
 | dirs | 4.0.0 | MIT OR Apache-2.0 |
-| dirs-sys | 0.5.0 | MIT OR Apache-2.0 |
+| dirs | 7.0.0 | MIT OR Apache-2.0 |
 | dirs-sys | 0.3.7 | MIT OR Apache-2.0 |
+| dirs-sys | 0.5.0 | MIT OR Apache-2.0 |
 | dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT |
 | displaydoc | 0.2.7 | MIT OR Apache-2.0 |
 | dlopen2 | 0.8.2 | MIT |
@@ -451,8 +451,8 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | gtk | 0.18.2 | MIT |
 | gtk-sys | 0.18.2 | MIT |
 | gtk3-macros | 0.18.2 | MIT |
-| hashbrown | 0.17.1 | MIT OR Apache-2.0 |
 | hashbrown | 0.12.3 | MIT OR Apache-2.0 |
+| hashbrown | 0.17.1 | MIT OR Apache-2.0 |
 | heck | 0.4.1 | MIT OR Apache-2.0 |
 | heck | 0.5.0 | MIT OR Apache-2.0 |
 | hermit-abi | 0.5.3 | MIT OR Apache-2.0 |
@@ -516,8 +516,8 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | memchr | 2.8.3 | Unlicense OR MIT |
 | memoffset | 0.9.1 | MIT |
 | mime | 0.3.17 | MIT OR Apache-2.0 |
-| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
+| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 |
 | mio | 1.2.3 | MIT |
 | moxcms | 0.8.1 | BSD-3-Clause OR Apache-2.0 |
 | muda | 0.20.0 | Apache-2.0 OR MIT |
@@ -566,8 +566,8 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | piper | 0.2.5 | MIT OR Apache-2.0 |
 | pkg-config | 0.3.34 | MIT OR Apache-2.0 |
 | plist | 1.10.1 | MIT |
-| png | 0.18.1 | MIT OR Apache-2.0 |
 | png | 0.17.16 | MIT OR Apache-2.0 |
+| png | 0.18.1 | MIT OR Apache-2.0 |
 | polling | 3.11.0 | Apache-2.0 OR MIT |
 | portable-atomic | 1.15.0 | Apache-2.0 OR MIT |
 | portable-atomic-util | 0.2.8 | Apache-2.0 OR MIT |
@@ -575,9 +575,9 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | powerfmt | 0.2.0 | MIT OR Apache-2.0 |
 | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 |
 | precomputed-hash | 0.1.1 | MIT |
+| proc-macro-crate | 1.3.1 | MIT OR Apache-2.0 |
 | proc-macro-crate | 2.0.2 | MIT OR Apache-2.0 |
 | proc-macro-crate | 3.5.0 | MIT OR Apache-2.0 |
-| proc-macro-crate | 1.3.1 | MIT OR Apache-2.0 |
 | proc-macro-error | 1.0.4 | MIT OR Apache-2.0 |
 | proc-macro-error-attr | 1.0.4 | MIT OR Apache-2.0 |
 | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 |
@@ -591,8 +591,8 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | rand_core | 0.9.5 | MIT OR Apache-2.0 |
 | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
 | redox_syscall | 0.5.18 | MIT |
-| redox_users | 0.5.3 | MIT |
 | redox_users | 0.4.6 | MIT |
+| redox_users | 0.5.3 | MIT |
 | ref-cast | 1.0.27 | MIT OR Apache-2.0 |
 | ref-cast-impl | 1.0.27 | MIT OR Apache-2.0 |
 | regex | 1.13.1 | MIT OR Apache-2.0 |
@@ -605,8 +605,8 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | rustversion | 1.0.23 | MIT OR Apache-2.0 |
 | same-file | 1.0.6 | Unlicense/MIT |
 | schemars | 0.8.22 | MIT |
-| schemars | 1.2.2 | MIT |
 | schemars | 0.9.0 | MIT |
+| schemars | 1.2.2 | MIT |
 | schemars_derive | 0.8.22 | MIT |
 | scopeguard | 1.2.0 | MIT OR Apache-2.0 |
 | selectors | 0.38.0 | MPL-2.0 |
@@ -618,8 +618,8 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | serde_derive_internals | 0.29.1 | MIT OR Apache-2.0 |
 | serde_json | 1.0.151 | MIT OR Apache-2.0 |
 | serde_repr | 0.1.21 | MIT OR Apache-2.0 |
-| serde_spanned | 1.1.1 | MIT OR Apache-2.0 |
 | serde_spanned | 0.6.9 | MIT OR Apache-2.0 |
+| serde_spanned | 1.1.1 | MIT OR Apache-2.0 |
 | serde_with | 3.24.0 | MIT OR Apache-2.0 |
 | serde_with_macros | 3.24.0 | MIT OR Apache-2.0 |
 | serialize-to-javascript | 0.1.2 | MIT OR Apache-2.0 |
@@ -679,13 +679,13 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | tinyvec | 1.13.3 | Zlib OR Apache-2.0 OR MIT |
 | tokio | 1.53.1 | MIT |
 | tokio-util | 0.7.19 | MIT |
-| toml | 1.1.6+spec-1.1.0 | MIT OR Apache-2.0 |
 | toml | 0.8.2 | MIT OR Apache-2.0 |
-| toml_datetime | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 |
+| toml | 1.1.6+spec-1.1.0 | MIT OR Apache-2.0 |
 | toml_datetime | 0.6.3 | MIT OR Apache-2.0 |
-| toml_edit | 0.25.15+spec-1.1.0 | MIT OR Apache-2.0 |
-| toml_edit | 0.20.2 | MIT OR Apache-2.0 |
+| toml_datetime | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 |
 | toml_edit | 0.19.15 | MIT OR Apache-2.0 |
+| toml_edit | 0.20.2 | MIT OR Apache-2.0 |
+| toml_edit | 0.25.15+spec-1.1.0 | MIT OR Apache-2.0 |
 | toml_parser | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 |
 | toml_writer | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 |
 | tower | 0.5.3 | MIT |
@@ -733,12 +733,12 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | winapi-util | 0.1.11 | Unlicense OR MIT |
 | winapi-x86_64-pc-windows-gnu | 0.4.0 | MIT/Apache-2.0 |
 | window-vibrancy | 0.8.1 | Apache-2.0 OR MIT |
-| windows | 0.62.2 | MIT OR Apache-2.0 |
 | windows | 0.61.3 | MIT OR Apache-2.0 |
-| windows-collections | 0.3.2 | MIT OR Apache-2.0 |
+| windows | 0.62.2 | MIT OR Apache-2.0 |
 | windows-collections | 0.2.0 | MIT OR Apache-2.0 |
-| windows-core | 0.62.2 | MIT OR Apache-2.0 |
+| windows-collections | 0.3.2 | MIT OR Apache-2.0 |
 | windows-core | 0.61.2 | MIT OR Apache-2.0 |
+| windows-core | 0.62.2 | MIT OR Apache-2.0 |
 | windows-future | 0.2.1 | MIT OR Apache-2.0 |
 | windows-future | 0.3.2 | MIT OR Apache-2.0 |
 | windows-implement | 0.60.2 | MIT OR Apache-2.0 |
@@ -747,47 +747,47 @@ SCAR is MIT-licensed. It ships or installs the components below under their own 
 | windows-link | 0.2.1 | MIT OR Apache-2.0 |
 | windows-numerics | 0.2.0 | MIT OR Apache-2.0 |
 | windows-numerics | 0.3.1 | MIT OR Apache-2.0 |
-| windows-result | 0.4.1 | MIT OR Apache-2.0 |
 | windows-result | 0.3.4 | MIT OR Apache-2.0 |
-| windows-strings | 0.5.1 | MIT OR Apache-2.0 |
+| windows-result | 0.4.1 | MIT OR Apache-2.0 |
 | windows-strings | 0.4.2 | MIT OR Apache-2.0 |
+| windows-strings | 0.5.1 | MIT OR Apache-2.0 |
 | windows-sys | 0.45.0 | MIT OR Apache-2.0 |
+| windows-sys | 0.59.0 | MIT OR Apache-2.0 |
 | windows-sys | 0.60.2 | MIT OR Apache-2.0 |
 | windows-sys | 0.61.2 | MIT OR Apache-2.0 |
-| windows-sys | 0.59.0 | MIT OR Apache-2.0 |
 | windows-targets | 0.42.2 | MIT OR Apache-2.0 |
-| windows-targets | 0.53.5 | MIT OR Apache-2.0 |
 | windows-targets | 0.52.6 | MIT OR Apache-2.0 |
-| windows-threading | 0.2.1 | MIT OR Apache-2.0 |
+| windows-targets | 0.53.5 | MIT OR Apache-2.0 |
 | windows-threading | 0.1.0 | MIT OR Apache-2.0 |
+| windows-threading | 0.2.1 | MIT OR Apache-2.0 |
 | windows-version | 0.1.7 | MIT OR Apache-2.0 |
 | windows_aarch64_gnullvm | 0.42.2 | MIT OR Apache-2.0 |
-| windows_aarch64_gnullvm | 0.53.1 | MIT OR Apache-2.0 |
 | windows_aarch64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
+| windows_aarch64_gnullvm | 0.53.1 | MIT OR Apache-2.0 |
+| windows_aarch64_msvc | 0.42.2 | MIT OR Apache-2.0 |
 | windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 |
 | windows_aarch64_msvc | 0.53.1 | MIT OR Apache-2.0 |
-| windows_aarch64_msvc | 0.42.2 | MIT OR Apache-2.0 |
+| windows_i686_gnu | 0.42.2 | MIT OR Apache-2.0 |
 | windows_i686_gnu | 0.52.6 | MIT OR Apache-2.0 |
 | windows_i686_gnu | 0.53.1 | MIT OR Apache-2.0 |
-| windows_i686_gnu | 0.42.2 | MIT OR Apache-2.0 |
 | windows_i686_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
 | windows_i686_gnullvm | 0.53.1 | MIT OR Apache-2.0 |
+| windows_i686_msvc | 0.42.2 | MIT OR Apache-2.0 |
 | windows_i686_msvc | 0.52.6 | MIT OR Apache-2.0 |
 | windows_i686_msvc | 0.53.1 | MIT OR Apache-2.0 |
-| windows_i686_msvc | 0.42.2 | MIT OR Apache-2.0 |
-| windows_x86_64_gnu | 0.53.1 | MIT OR Apache-2.0 |
 | windows_x86_64_gnu | 0.42.2 | MIT OR Apache-2.0 |
 | windows_x86_64_gnu | 0.52.6 | MIT OR Apache-2.0 |
+| windows_x86_64_gnu | 0.53.1 | MIT OR Apache-2.0 |
 | windows_x86_64_gnullvm | 0.42.2 | MIT OR Apache-2.0 |
-| windows_x86_64_gnullvm | 0.53.1 | MIT OR Apache-2.0 |
 | windows_x86_64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
+| windows_x86_64_gnullvm | 0.53.1 | MIT OR Apache-2.0 |
+| windows_x86_64_msvc | 0.42.2 | MIT OR Apache-2.0 |
 | windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 |
 | windows_x86_64_msvc | 0.53.1 | MIT OR Apache-2.0 |
-| windows_x86_64_msvc | 0.42.2 | MIT OR Apache-2.0 |
-| winnow | 1.0.4 | MIT |
 | winnow | 0.5.40 | MIT |
-| winreg | 0.55.0 | MIT |
+| winnow | 1.0.4 | MIT |
 | winreg | 0.10.1 | MIT |
+| winreg | 0.55.0 | MIT |
 | wit-bindgen | 0.57.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | writeable | 0.6.4 | Unicode-3.0 |
 | wry | 0.57.0 | Apache-2.0 OR MIT |
