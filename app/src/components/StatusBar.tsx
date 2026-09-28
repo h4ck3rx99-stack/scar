@@ -85,15 +85,15 @@ export function StatusBar() {
   );
 }
 
-function Meter({ label, value, max, unit }: { label: string; value: number; max: number; unit: string }) {
+const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
+
+function Meter({ label, value, max, detail }: { label: string; value: number; max: number; detail: string }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
     <div className="meter">
       <div className="meter-head">
         <span>{label}</span>
-        <span className="muted">
-          {Math.round(value).toLocaleString()} / {Math.round(max).toLocaleString()} {unit}
-        </span>
+        <span className="muted">{detail}</span>
       </div>
       <div className="meter-track" role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
         <div className={clsx("meter-fill", pct > 85 && "hot")} style={{ width: `${pct}%` }} />
@@ -139,7 +139,7 @@ function StatusPanel() {
           <section className="status-section">
             <h3>SCAR</h3>
             <p>
-              <StatePill /> <span className="muted small">{hello.data ? `Runtime PID ${hello.data.pid} · v${hello.data.app_version}` : ""}</span>
+              <StatePill /> <span className="muted small">{hello.data ? `version ${hello.data.app_version}` : ""}</span>
             </p>
             {game && <p className="muted small">Game mode: a full-screen app is in front, so notifications and speech are held.</p>}
             {state === "offline" && <p className="text-danger small">The runtime isn't reachable.</p>}
@@ -165,9 +165,11 @@ function StatusPanel() {
               </div>
             ) : (
               <>
-                <Meter label={`CPU ${res.cpu_percent.toFixed(0)}%`} value={res.cpu_percent} max={100} unit="%" />
-                <Meter label="Memory" value={res.ram_used_mb} max={res.ram_total_mb} unit="MB" />
-                {res.gpu && <Meter label={`GPU ${res.gpu.util_percent.toFixed(0)}% · ${res.gpu.name}`} value={res.gpu.vram_used_mb} max={res.gpu.vram_total_mb} unit="MB VRAM" />}
+                <Meter label="Processor" value={res.cpu_percent} max={100} detail={`${res.cpu_percent.toFixed(0)}% busy`} />
+                <Meter label="Memory" value={res.ram_used_mb} max={res.ram_total_mb} detail={`${gb(res.ram_used_mb)} of ${gb(res.ram_total_mb)}`} />
+                {res.gpu && (
+                  <Meter label="Graphics memory" value={res.gpu.vram_used_mb} max={res.gpu.vram_total_mb} detail={`${gb(res.gpu.vram_used_mb)} of ${gb(res.gpu.vram_total_mb)} · GPU ${res.gpu.util_percent.toFixed(0)}% busy`} />
+                )}
                 <p className="muted small">
                   <Cpu size={12} aria-hidden /> SCAR uses {res.scar_rss_mb.toFixed(0)} MB
                   {res.battery_percent != null && ` · battery ${res.battery_percent.toFixed(0)}%${res.on_ac ? " (plugged in)" : ""}`}

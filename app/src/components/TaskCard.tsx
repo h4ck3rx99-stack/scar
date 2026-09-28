@@ -64,6 +64,7 @@ export function TaskCard({ task }: { task: LiveTask }) {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const running = task.outcome.kind === "running";
+  const waiting = useRuntime((s) => Object.values(s.approvals).some((a) => a.task_id === task.taskId));
 
   async function toggle() {
     const next = !open;
@@ -97,8 +98,9 @@ export function TaskCard({ task }: { task: LiveTask }) {
             ))}
           </ol>
         )}
-        {running && task.progress && !task.draft && <p className="progress-line">{task.progress}</p>}
-        {reply ? <SafeMarkdown text={reply} /> : running && !visibleSteps.length && <p className="thinking">Thinking…</p>}
+        {running && waiting && <p className="progress-line waiting">Waiting for your permission below.</p>}
+        {running && !waiting && task.progress && !task.draft && <p className="progress-line">{task.progress}</p>}
+        {reply ? <SafeMarkdown text={reply} /> : running && !waiting && !visibleSteps.length && <p className="thinking">Thinking…</p>}
         <div className="task-foot">
           <OutcomeBadge outcome={task.outcome} />
           {task.outcome.kind === "failed" && <span className="task-reason">{task.outcome.reason}</span>}

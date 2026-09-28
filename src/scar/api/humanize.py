@@ -84,3 +84,22 @@ def _local_possible(settings: Any) -> bool:
     if settings.local_inference_policy == "never":
         return False
     return bool(settings.local_llm_model_path) or shutil.which("ollama") is not None
+
+
+def approval_reason(reason: str, risk: str, tool: str, details: dict[str, Any]) -> str:
+    """Why SCAR is asking, in plain words ("Moving files is a high-risk action…"), keeping any specific reasons."""
+    import re
+
+    m = re.match(r"(LOW|MEDIUM|HIGH|CRITICAL) risk needs approval at level (\d)", reason)
+    extra = [str(r) for r in (details.get("risk_reasons") or []) if r and "needs approval" not in str(r)]
+    if m:
+        level = m.group(2)
+        word = risk.lower()
+        text = (f"{tool_title(tool)} is a {word}-risk action, and at your current setting (level {level}) SCAR asks before "
+                f"{word}-risk actions.")
+        if risk == "CRITICAL":
+            text = f"{tool_title(tool)} is a critical action. SCAR always asks, at every setting, and needs the confirmation word."
+        if extra:
+            text += " Also: " + "; ".join(extra[:3]) + "."
+        return text
+    return reason[:1].upper() + reason[1:]

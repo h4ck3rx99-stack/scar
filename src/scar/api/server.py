@@ -32,7 +32,7 @@ from pydantic import BaseModel, ValidationError
 
 from scar import __version__
 from scar.api import models as m
-from scar.api.humanize import CAPTURE_TOOLS, CONTROL_TOOLS, provider_summary, tool_title
+from scar.api.humanize import CAPTURE_TOOLS, CONTROL_TOOLS, approval_reason, provider_summary, tool_title
 from scar.core.events import AssistantState, ControlActive, Event, GameModeChanged, ScreenCaptured
 from scar.runtime.ipc import restrict_to_user
 
@@ -703,7 +703,8 @@ class AppApi:
     def _approval_view(self, req: Any) -> m.ApprovalView:
         return m.ApprovalView(
             request_id=req.request_id, task_id=req.task_id, tool=req.tool, args_hash=req.args_hash, risk=req.risk.name,
-            summary=req.summary, reason=req.reason, details=_redact_details(req.details), critical=req.critical,
+            summary=req.summary, reason=approval_reason(req.reason, req.risk.name, req.tool, req.details),
+            details=_redact_details(req.details), critical=req.critical,
             grantable=req.grantable, confirmation_code=req.confirmation_code if req.critical else "",
             allowed_responses=[r.value for r in req.allowed_responses()], created_at=req.created_at.isoformat(),
             expires_at=(req.created_at + timedelta(seconds=req.timeout_s)).isoformat())

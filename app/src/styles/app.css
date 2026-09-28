@@ -1821,3 +1821,32 @@ pre,
     grid-template-columns: 1fr;
   }
 }
+
+/* review fixes: long check labels wrap next to their icon; account Save sits under its fields */
+.check {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 8px;
+}
+.check > svg {
+  margin-top: 3px;
+}
+.check-label {
+  overflow-wrap: anywhere;
+}
+.check-hint {
+  grid-column: 2;
+}
+.check > .btn {
+  grid-column: 3;
+  grid-row: 1;
+}
+.account-fields > .btn {
+  justify-self: start;
+  align-self: end;
+}
+.progress-line.waiting {
+  color: var(--warn);
+  font-weight: 500;
+}
