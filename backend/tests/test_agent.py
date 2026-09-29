@@ -109,6 +109,18 @@ def test_tool_calls_are_capped():
     assert len(tools) == agent_mod.MAX_TOOL_CALLS
 
 
+def test_invented_research_note_is_blocked():
+    from jarvis.brain.agent import _ungrounded
+    call = {"name": "take_note", "arguments": {"text": "Top laptops: MacBook Pro 14-inch M3 - 54,999; Dell XPS 13 Plus - 52,999"}}
+    failed = ["research laptops", "Web search for 'laptops' returned nothing (search service unreachable or no results)."]
+    assert _ungrounded(call, failed)
+    found = ["research laptops", "Search results: 1. Lenovo IdeaPad Slim 5 at 54,999 ... 2. HP Pavilion Plus 14 at 52,999"]
+    ok = {"name": "take_note", "arguments": {"text": "Lenovo IdeaPad Slim 5 - 54,999; HP Pavilion Plus 14 - 52,999"}}
+    assert _ungrounded(ok, found) == []
+    # Notes that don't follow a lookup are the user's own words: never blocked.
+    assert _ungrounded({"name": "take_note", "arguments": {"text": "Call Dr Rao at 98450 12345"}}, ["take a note"]) == []
+
+
 def test_router_hit_skips_llm():
     a, _, tools = make_agent()
     run(a.handle("minimize chrome", {}))

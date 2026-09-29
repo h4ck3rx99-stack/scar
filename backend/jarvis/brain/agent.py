@@ -30,6 +30,8 @@ For questions about what is on the screen, an error, a page or "this", call look
 For multi-step requests, do a step or two, check the results (read_screen / look_at_screen show what's there, e.g. exact
 names to click), then continue until the whole request is done, and finish with one short spoken summary.
 For current facts, prices, news or comparisons, call web_research. To write emails, messages or text into an app, call write_text.
+NEVER invent facts: product names, prices, numbers, dates and quotes must come from tool results (or be general knowledge you
+are sure of). If a search or tool found nothing, say so plainly and do not save or type made-up content.
 Answer general knowledge directly. For facts about people, places or events you're unsure of, call wikipedia. Today is {today}.{facts}"""
 
 FOLLOW_UP_RULE = """
@@ -190,7 +192,9 @@ class Agent:
         tools = SCHEMA + ([IGNORE_TOOL] if follow_up else [])
         messages = [{"role": "system", "content": system}, *self.memory.turns, {"role": "user", "content": text}]
         multi_step = bool(_MULTI.search(text))
-        said, trail = [], []
+        said, trail, evidence = [], [], [text]   # evidence: everything the user and the tools actually said
+        uses = {}                                  # tool name -> calls this turn (stops retry loops)
+        self.tools.spoken_fillers = set()
         for step in range(MAX_STEPS):
             spoken, calls = await self._stream_speech(messages, timings, tools=tools)
             said += spoken
@@ -212,20 +216,42 @@ class Agent:
             need_more = multi_step
             for c in calls:
                 log.info("llm tool (step %d) -> %s %s", step + 1, c["name"], c["arguments"])
+                uses[c["name"]] = uses.get(c["name"], 0) + 1
+                if c["name"] in DATA_TOOLS and uses[c["name"]] > 2:
+                    messages.append({"role": "tool", "tool_call_id": c["id"], "content":
+                                     "error: already tried this twice. Stop and tell the user briefly what you found or that it failed."})
+                    need_more = True
+                    continue
+                ungrounded = _ungrounded(c, evidence)
+                if ungrounded:
+                    # Small models make up products and prices when a search fails. Don't let that reach the user.
+                    log.warning("blocked ungrounded %s: %s", c["name"], ungrounded)
+                    result = ("error: refused, these details are not in any search or tool result: " + ", ".join(ungrounded[:6]) +
+                              ". Tell the user plainly that you couldn't find reliable information. Do not retry with made-up data.")
+                    messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
+                    trail.append(f"[{c['name']}] {result[:120]}")
+                    need_more = True
+                    continue
                 result = await self.tools.call(c["name"], c["arguments"])
+                if c["name"] in DATA_TOOLS:
+                    evidence.append(str(result))
                 timings.setdefault("first_action", time.perf_counter())
                 if isinstance(result, dict) and "image" in result:
                     result = "Screen shows: " + await self._describe(result)
                 result = str(result)
                 trail.append(f"[{c['name']}] {result[:120]}")
-                messages.append({"role": "tool", "tool_call_id": c["id"], "content": result[:3500]})
+                messages.append({"role": "tool", "tool_call_id": c["id"], "content": result[:TOOL_RESULT_CHARS]})
+                _fit_budget(messages)
                 # Information has to be phrased for the user; failures need a reaction.
                 need_more |= c["name"] in DATA_TOOLS or result.startswith(_FAIL_PREFIXES)
             if not need_more:
                 break
         self.memory.add(text, " ".join(said) + (" " + "; ".join(trail) if trail else ""))
         if not said and any(t.split("] ", 1)[1].startswith(_FAIL_PREFIXES) for t in trail):
-            await self.speak("Sorry, I couldn't do that.")
+            if any("Web search" in t or "search service" in t for t in trail):
+                await self.speak("I couldn't reach the search engines just now, so I didn't make anything up. Try again in a few minutes.")
+            else:
+                await self.speak("Sorry, I couldn't do that.")
         return None
 
     async def _describe(self, shot) -> str:
@@ -275,6 +301,38 @@ class Agent:
                         {"role": "user", "content": f"User asked: {question}\nText read from their screen:\n{ocr}"}]
             spoken, _ = await self._stream_speech(messages, timings, max_tokens=250)
         self.memory.add(text, " ".join(spoken))
+
+
+_WRITES = {"take_note": "text", "write_text": "instructions", "add_todo": "item", "type_text": "text"}
+_FACT = re.compile(r"\b\d[\d,.]{2,}\b|\b[A-Z][a-zA-Z]+(?:\s+[A-Z0-9][a-zA-Z0-9]+)+\b")
+
+
+def _ungrounded(call, evidence):
+    """For notes/text written after research in this turn: facts (numbers, multi-word names) that no tool
+    result mentions. Returns the unsupported ones, or [] when fine / not applicable."""
+    field = _WRITES.get(call["name"])
+    if not field or len(evidence) < 2:          # only guard content that claims to come from lookups
+        return []
+    content = str(call["arguments"].get(field, ""))
+    seen = " ".join(evidence).lower().replace(",", "")
+    facts = {f.strip() for f in _FACT.findall(content)}
+    missing = [f for f in facts if f.lower().replace(",", "") not in seen]
+    return missing if facts and len(missing) / len(facts) > 0.4 else []
+
+
+TOOL_RESULT_CHARS = 3000
+CONTEXT_CHARS = 20000   # ~6k tokens of conversation on top of the ~4k-token tool schema, inside a 12k context
+
+
+def _fit_budget(messages):
+    """Keep a long multi-step task inside the context window: shrink the oldest tool results first."""
+    def size():
+        return sum(len(m["content"]) if isinstance(m.get("content"), str) else 2000 for m in messages)
+    for m in messages:
+        if size() <= CONTEXT_CHARS:
+            return
+        if m.get("role") == "tool" and len(m["content"]) > 400:
+            m["content"] = m["content"][:400] + " ...(trimmed)"
 
 
 def _is_filler(s):

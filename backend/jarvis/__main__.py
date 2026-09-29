@@ -39,7 +39,7 @@ async def ensure_llama_server(llm):
     if not config.MANAGE_LLAMA_SERVER:
         log.warning("llama-server not reachable and JARVIS_MANAGE_LLAMA_SERVER=false")
         return None
-    cmd = [config.LLAMA_SERVER, "-m", config.LLM_GGUF, "-ngl", "99", "-c", "6144", "--port", str(config.LLM_PORT),
+    cmd = [config.LLAMA_SERVER, "-m", config.LLM_GGUF, "-ngl", "99", "-c", "12288", "--port", str(config.LLM_PORT),
            "--host", "127.0.0.1", "--jinja", "-fa", "on", "--no-webui", "-np", "1"]
     if Path(config.LLM_MMPROJ).is_file():
         cmd += ["--mmproj", config.LLM_MMPROJ]  # lets the model see screenshots

@@ -39,6 +39,25 @@ Weather uses your internet location. On slow Wi-Fi you can pin a city in `backen
 - **Info:** anything general (local model), "what's the weather?", "weather in Mumbai", "who was Nikola Tesla?", exact maths ("17 percent of 2340"), "good morning" briefing, time and date.
 - **Look:** dark/light theme follows Windows ("light mode" to switch); size slider in the top-left dock; expressive face with lip-sync.
 
+## Advanced
+
+- **Multi-step tasks:** "Open YouTube and search lofi music", "research the best laptops under 60000 and put the top 3 in a note". Scar plans the steps, checks the results and continues. Anything it writes down after research must be backed by what it actually found. If a search fails, it says so instead of making something up.
+- **Web research without keys:** "research …", "search the web for …". Uses DuckDuckGo, then Bing, and reads the top pages.
+- **Writing for you:** "write an email to my professor asking for an extension". Scar drafts the text and types it into the active window.
+- **Dictation:** "start dictation", then just talk; say "comma", "full stop" or "new line" for punctuation. "Stop dictation" ends it.
+- **Memory:** "what was that error yesterday?", "what did I work on today?", "do you remember …". Covers conversations, what Scar saw on screen, and an activity journal.
+- **Your files:** "search my files for thermodynamics", "summarize syllabus.pdf", "what does my timetable say about Friday?". Documents, Downloads and Desktop are indexed in the background: PDF, Word, PowerPoint, text and code.
+- **Routines:** built in are "study mode", "focus mode", "break time" and "good night". Make your own with "create a routine called gaming mode: close VS Code, open Steam, volume 80".
+- **Schedule:** "add maths class every Monday at 9 am", "what's my schedule tomorrow?". It reminds you 10 minutes before.
+- **Proactive help:** offers to explain error pop-ups, suggests a break after 90 minutes, announces your schedule. "Stop the suggestions" turns this off.
+- **Knows your voice:** "learn my voice" (read three lines). After that it responds only to you; "listen to everyone" turns that off. It also recognizes and ignores its own voice.
+- **Echo cancellation:** you can say "Scar, stop" while it's talking, even on laptop speakers. It learns the speakers' echo during the first few answers and remembers it after that.
+- **Voice:** "change your voice to British / female / deep / butler", "talk faster / slower".
+- **"What's this song?"** works for Spotify, YouTube, or anything playing.
+- **Multiple monitors:** it follows your mouse to the screen you're on, and hops to another screen to press a button there.
+- **Phone remote:** "enable phone control" shows an address and a one-time PIN. Open it on your phone on the same Wi-Fi to type commands, use quick buttons, or see your screen. "Disable phone control" turns it off. Windows Firewall may ask once to allow Python on private networks.
+- **Interrupt anytime:** say "Scar" or "stop", click the robot, or press **Ctrl+Shift+Space**.
+
 ## Settings (`backend/.env`, all optional)
 
 ```
@@ -49,7 +68,11 @@ JARVIS_INPUT_DEVICE=                # mic name (default: Windows default mic)
 JARVIS_VOICE=am_michael             # Kokoro voice, e.g. af_heart, bm_george
 JARVIS_WHISPER_MODEL=               # default large-v3-turbo; backend/models/whisper/small.en is lighter
 JARVIS_REAL_CLICK=false             # true = move the real mouse and click, instead of a direct Windows call
-JARVIS_OFFLINE=false                # true = no weather/Wikipedia lookups at all
+JARVIS_OFFLINE=false                # true = no weather/Wikipedia/web lookups at all
+JARVIS_VOICE_MATCH=0.45             # how closely a voice must match yours (after "learn my voice")
+JARVIS_ONLY_MY_VOICE=true           # after enrolling, ignore other people
+JARVIS_ECHO_CANCEL=true             # remove Scar's own voice from the microphone
+JARVIS_FOLLOW_UP_MIN_LEVEL=0.5      # follow-up speech quieter than this share of your voice is ignored
 
 # Optional cloud brain (OpenAI-compatible, e.g. Groq / Gemini / OpenRouter free tiers).
 # Falls back to the local model if it fails. Your speech text is sent to that provider.

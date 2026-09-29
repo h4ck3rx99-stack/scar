@@ -460,6 +460,15 @@ class Tools:
         return "done"
 
     # ------------------------------------------------------------- the eyes
+    def _point_at(self, w: Window):
+        """Fly over to the window being talked about (in the background; the tool doesn't wait for it).
+        The screenshot is taken before the robot arrives, so it never photobombs its own view."""
+        if self.ui is None or not getattr(self.ui, "clients", None):
+            return
+        f = w.frame
+        asyncio.get_running_loop().create_task(
+            self.ui.fly_to(f.left + f.width // 2, f.top + max(12, int(16 * w.dpi_scale)), purpose="present"))
+
     def _target_or_screen(self, app):
         if app and app.lower() not in ("screen", "the screen", "my screen", "everything"):
             return self._resolve(app)
@@ -470,6 +479,7 @@ class Tools:
         await self.speak("Let me take a look.")
         w = self._target_or_screen(app)
         if w and not w.minimized:
+            self._point_at(w)
             f = w.frame
             img = ImageGrab.grab(bbox=(f.left, f.top, f.right, f.bottom), all_screens=True)
         else:
@@ -489,6 +499,8 @@ class Tools:
 
     async def t_read_screen(self, app=None, from_router=False):
         w = self._target_or_screen(app) or foreground_window()
+        if app and w and not w.minimized:
+            self._point_at(w)
         text = await screen.read_window(w)
         if runtime.memory is not None and text.strip():
             runtime.memory.add("screen", w.title if w else "screen", text)
@@ -764,7 +776,10 @@ class Tools:
     # ------------------------------------------------------ research & writing
     async def t_web_research(self, query, from_router=False):
         from jarvis.skills import research
-        await self.speak(random_of("Let me look that up.", "Searching the web.", "On it, checking online."))
+        fillers = getattr(self, "spoken_fillers", set())
+        if "research" not in fillers:        # say it once per request, not on every retry
+            fillers.add("research")
+            await self.speak(random_of("Let me look that up.", "Searching the web.", "On it, checking online."))
         text = await research.research(query)
         if runtime.memory is not None:
             runtime.memory.add("research", query, text[:3000])

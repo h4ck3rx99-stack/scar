@@ -24,6 +24,7 @@ const TOKEN_FILE = path.join(process.env.APPDATA || '', 'jarvis', 'token');
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
 
 let mainWindow = null;
+let currentDisplay = null;   // the display the overlay currently covers
 let tray = null;
 let backendProc = null;
 let quitting = false;
@@ -118,10 +119,39 @@ function createWindow() {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('hotkey-talk');
   });
   ipcMain.on('close-app', () => quit());
+
+  // ---- multi-monitor: the overlay lives on one display at a time and hops to where it's needed.
+  currentDisplay = display;
+  let followCursor = true;
+  const displayInfo = (d) => ({
+    id: d.id, bounds: d.bounds, scaleFactor: d.scaleFactor,
+    // Physical-pixel origin of this display (what the Python brain's coordinates are relative to).
+    physOrigin: screen.dipToScreenPoint ? screen.dipToScreenPoint({ x: d.bounds.x, y: d.bounds.y })
+                                        : { x: d.bounds.x * d.scaleFactor, y: d.bounds.y * d.scaleFactor },
+  });
+  const moveToDisplay = (d, reason) => {
+    if (!mainWindow || mainWindow.isDestroyed() || d.id === currentDisplay.id) return false;
+    currentDisplay = d;
+    mainWindow.setBounds(d.bounds);
+    mainWindow.webContents.send('display-changed', { ...displayInfo(d), reason });
+    return true;
+  };
+  ipcMain.handle('move-to-point', (_e, phys) => {
+    const dip = screen.screenToDipPoint ? screen.screenToDipPoint(phys) : phys;
+    const d = screen.getDisplayNearestPoint({ x: Math.round(dip.x), y: Math.round(dip.y) });
+    moveToDisplay(d, 'target');
+    return displayInfo(currentDisplay);
+  });
+  ipcMain.on('follow-cursor', (_e, on) => { followCursor = Boolean(on); });
+  setInterval(() => {
+    if (!followCursor || screen.getAllDisplays().length < 2) return;
+    moveToDisplay(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()), 'cursor');
+  }, 1500);
+
   ipcMain.handle('get-config', () => ({
     token: readToken(),
     wsUrl: `ws://127.0.0.1:${WS_PORT}`,
-    display: { bounds: display.bounds, scaleFactor: display.scaleFactor },
+    display: displayInfo(currentDisplay),
     osTheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
     settings: readSettings(),
   }));
@@ -174,11 +204,14 @@ app.whenReady().then(async () => {
   await startBackend();
   createWindow();
   createTray();
-  screen.on('display-metrics-changed', () => {
+  const refit = () => {
     if (!mainWindow) return;
-    const b = screen.getPrimaryDisplay().bounds;
-    mainWindow.setBounds(b);
-  });
+    // Keep covering the same display (or fall back to the primary one if it was unplugged).
+    currentDisplay = screen.getAllDisplays().find((d) => currentDisplay && d.id === currentDisplay.id) || screen.getPrimaryDisplay();
+    mainWindow.setBounds(currentDisplay.bounds);
+  };
+  screen.on('display-metrics-changed', refit);
+  screen.on('display-removed', refit);
 });
 
 app.on('window-all-closed', () => quit());

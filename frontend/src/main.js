@@ -404,7 +404,7 @@ function animate(now, manual = false) {
 // 6. Boot ---------------------------------------------------------------------
 async function boot() {
   const cfg = await bridge.loadConfig();
-  if (cfg.display) space.setScale(cfg.display.scaleFactor);
+  if (cfg.display) space.setDisplay(cfg.display);
   state.sizeMultiplier = cfg.settings?.sizeMultiplier || 1.0;
   state.playful = Boolean(cfg.settings?.playful);
   setupUI();
@@ -418,6 +418,10 @@ async function boot() {
   bridge.on('alert', (m) => { if (controller.mode === 'standby') showToast(m.text); });
   if (ipcRenderer) {
     ipcRenderer.on('os-theme', (_e, mode) => { state.themeOverride = null; setModelMode(mode); });
+    ipcRenderer.on('display-changed', (_e, info) => {
+      space.setDisplay(info);
+      controller.onDisplayChanged(info.reason);
+    });
     ipcRenderer.on('hotkey-talk', () => {
       controller.noteActivity();
       if (bridge.send('avatar_clicked')) soundEngine.playBoop();

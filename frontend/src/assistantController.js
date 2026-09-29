@@ -5,6 +5,22 @@ import { soundEngine } from './soundEngine.js';
 
 const LOCAL_SLEEP_MS = 180000; // used only while the brain is offline; otherwise the brain decides
 
+function ipc() {
+  try { return window.require ? window.require('electron').ipcRenderer : null; } catch { return null; }
+}
+
+/** Pick a face for a sentence Scar is about to say. */
+export function emotionFor(text) {
+  const t = text.toLowerCase();
+  if (/\b(sorry|couldn't|can't|cannot|unable|failed|unfortunately|didn't work|no luck|not available)\b/.test(t)) return 'sad';
+  if (/\b(thank|love|glad|appreciate|you're welcome|anytime)\b/.test(t)) return 'love';
+  if (/\b(wow|whoa|oh no|oops|uh oh|heads up|careful|warning|battery is at)\b/.test(t)) return 'scared';
+  if (/\b(hmm|let me (?:think|check|look|see)|looking|searching|checking|reading)\b/.test(t)) return 'thinking';
+  if (/\b(done|great|sure|okay|got it|perfect|nice|awesome|opening|here's|saved|all set)\b|!/.test(t)) return 'happy';
+  if (/\?\s*$/.test(t)) return 'curious';
+  return 'normal';
+}
+
 /**
  * The avatar's "Jarvis" behaviour layer: turns brain events into motion.
  * modes: entry | roam | attentive | flying | tapping | carrying | to_sleep | sleeping | waking
@@ -40,9 +56,13 @@ export class AssistantController {
     const b = this.bridge;
     b.on('summon', (m) => this.summon(m));
     b.on('voice_state', (m) => this.onVoiceState(m));
-    b.on('say', (m) => this.speechBubble.show(m.text, {
-      chime: false, type: 'normal', duration: Math.min(9000, Math.max(2500, 1200 + m.text.length * 55)),
-    }));
+    b.on('say', (m) => {
+      this.speechBubble.show(m.text, {
+        chime: false, type: 'normal', duration: Math.min(9000, Math.max(2500, 1200 + m.text.length * 55)),
+      });
+      // The face reacts to what Scar is saying.
+      if (!['carrying', 'standby', 'sleeping'].includes(this.mode)) this.eyeVisor.setExpression(emotionFor(m.text));
+    });
     b.on('level', (m) => { this.level = m.value; });
     b.on('fly_to', (m) => this.flyTo(m));
     b.on('proxy_start', (m) => this.proxyStart(m));
@@ -273,9 +293,18 @@ export class AssistantController {
     });
   }
 
-  flyTo(m) {
+  async flyTo(m) {
     this.noteActivity();
     this.raise();
+    if (!this.space.containsPhys(m.target.x, m.target.y) && ipc()) {
+      // The button is on another monitor: hop the overlay there first, then fly in from its edge.
+      const info = await ipc().invoke('move-to-point', m.target);
+      this.space.setDisplay(info);
+      await new Promise((r) => setTimeout(r, 120));   // let the window resize land
+      const from = this.space.clientToWorld(m.target.x > this.space.origin.x ? -80 : window.innerWidth + 80, window.innerHeight / 2, 0.3);
+      this.avatarRoot.position.copy(from);
+      this.avatarRoot.visible = true;
+    }
     if (this.mode === 'sleeping' || this.mode === 'to_sleep') this.avatarRoot.rotation.set(0, 0, 0);
     this.kill();
     this.pauseRoam();
@@ -304,7 +333,16 @@ export class AssistantController {
   }
 
   raise() {
-    try { if (window.require) window.require('electron').ipcRenderer.send('raise-overlay'); } catch {}
+    try { ipc()?.send('raise-overlay'); } catch {}
+  }
+
+  /** The overlay just moved to another monitor (following the cursor, or for a target there). */
+  onDisplayChanged(reason) {
+    if (reason === 'target' || this.mode === 'standby') return;
+    this.kill();
+    this.avatarRoot.position.set(0, 0, 0);
+    this.avatarRoot.visible = true;
+    this.playRandomEntry();
   }
 
   /** Point the eyes at a client-space spot. */
@@ -443,6 +481,12 @@ export class AssistantController {
   update(delta, time) {
     // Speaking: the mouth follows the voice loudness.
     this.eyeVisor.setTalk(this.voice === 'speaking' ? this.level : 0);
+    // Only follow the cursor to other monitors while idly roaming, never mid-action.
+    const follow = this.mode === 'roam' && this.voice === 'idle';
+    if (follow !== this._following) {
+      this._following = follow;
+      try { ipc()?.send('follow-cursor', follow); } catch {}
+    }
 
     if (this.card) {
       this.card.update(delta);

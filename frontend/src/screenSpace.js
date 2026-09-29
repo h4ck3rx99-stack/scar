@@ -2,17 +2,33 @@ import * as THREE from 'three';
 
 /**
  * Maps between physical screen pixels (what the brain sends), overlay client pixels (CSS px), and
- * world units on a z-plane of the perspective camera. The overlay covers the primary display, whose
- * physical origin is (0, 0), so physical -> client is a divide by the display scale factor.
+ * world units on a z-plane of the perspective camera. The overlay covers one display at a time; physical ->
+ * client subtracts that display's physical origin and divides by its scale factor.
  */
 export class ScreenSpace {
   constructor(camera) {
     this.camera = camera;
     this.scale = window.devicePixelRatio || 1;
+    this.origin = { x: 0, y: 0 };
   }
 
   setScale(scaleFactor) {
     this.scale = scaleFactor || window.devicePixelRatio || 1;
+  }
+
+  /** display: { physOrigin: {x, y}, scaleFactor, bounds: {width, height} } from Electron. */
+  setDisplay(display) {
+    if (!display) return;
+    this.setScale(display.scaleFactor);
+    this.origin = display.physOrigin || { x: 0, y: 0 };
+    this.size = display.bounds ? { w: display.bounds.width * this.scale, h: display.bounds.height * this.scale } : null;
+  }
+
+  /** Is a physical point on the display the overlay is currently covering? */
+  containsPhys(x, y) {
+    const w = this.size ? this.size.w : window.innerWidth * this.scale;
+    const h = this.size ? this.size.h : window.innerHeight * this.scale;
+    return x >= this.origin.x && y >= this.origin.y && x < this.origin.x + w && y < this.origin.y + h;
   }
 
   visibleSize(z = 0) {
@@ -26,7 +42,7 @@ export class ScreenSpace {
   }
 
   physToClient(x, y) {
-    return { x: x / this.scale, y: y / this.scale };
+    return { x: (x - this.origin.x) / this.scale, y: (y - this.origin.y) / this.scale };
   }
 
   clientToWorld(cx, cy, z = 0) {
