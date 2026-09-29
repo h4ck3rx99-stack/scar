@@ -11,13 +11,15 @@ from jarvis.hands.windows import Window
 user32 = ctypes.windll.user32
 
 
-async def ocr_image(img) -> str:
-    """OCR a PIL image with Windows.Media.Ocr (ships with Windows, no download, no network)."""
+async def _recognize(img):
+    """Run Windows.Media.Ocr (ships with Windows, no download, no network). Returns (result, scale) where
+    scale maps the engine's pixel coordinates back to the original image."""
     from winrt.windows.graphics.imaging import BitmapPixelFormat, SoftwareBitmap
     from winrt.windows.media.ocr import OcrEngine
     from winrt.windows.storage.streams import DataWriter
 
     img = img.convert("RGBA")
+    w0 = img.width
     # The engine reads small text badly and huge images slowly; ~2400 px wide is the sweet spot.
     if img.width > 2600:
         img = img.resize((2600, round(img.height * 2600 / img.width)))
@@ -30,8 +32,44 @@ async def ocr_image(img) -> str:
     writer.write_bytes(bgra)
     bmp = SoftwareBitmap.create_copy_from_buffer(writer.detach_buffer(), BitmapPixelFormat.BGRA8, img.width, img.height)
     engine = OcrEngine.try_create_from_user_profile_languages()
-    result = await engine.recognize_async(bmp)
+    return await engine.recognize_async(bmp), w0 / img.width
+
+
+async def ocr_image(img) -> str:
+    result, _ = await _recognize(img)
     return "\n".join(line.text for line in result.lines)
+
+
+async def ocr_find(w: Window | None, query: str):
+    """Where is this text on screen? Best-matching OCR line or run of words -> (text, (left, top, right, bottom))
+    in screen pixels, or None. Used to click things accessibility can't see (web page content, games, custom UIs)."""
+    from rapidfuzz import fuzz
+    if w is not None and not w.minimized:
+        f = w.frame
+        ox, oy = f.left, f.top
+        img = ImageGrab.grab(bbox=(f.left, f.top, f.right, f.bottom), all_screens=True)
+    else:
+        ox = oy = 0
+        img = ImageGrab.grab(all_screens=False)
+    result, k = await _recognize(img)
+    q = query.lower().strip()
+    nq = len(q.split())
+    best, best_score = None, 0
+    for line in result.lines:
+        words = list(line.words)
+        # every run of up to (query words + 1) consecutive words, so "first video" can match inside a long line
+        for i in range(len(words)):
+            for j in range(i + 1, min(len(words), i + nq + 1) + 1):
+                run = words[i:j]
+                text = " ".join(x.text for x in run)
+                score = fuzz.ratio(q, text.lower())
+                if score > best_score:
+                    x1 = min(x.bounding_rect.x for x in run)
+                    y1 = min(x.bounding_rect.y for x in run)
+                    x2 = max(x.bounding_rect.x + x.bounding_rect.width for x in run)
+                    y2 = max(x.bounding_rect.y + x.bounding_rect.height for x in run)
+                    best, best_score = (text, (int(ox + x1 * k), int(oy + y1 * k), int(ox + x2 * k), int(oy + y2 * k))), score
+    return best if best_score >= 80 else None
 
 
 async def read_window(w: Window | None) -> str:

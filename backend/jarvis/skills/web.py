@@ -58,7 +58,8 @@ async def location(city: str | None = None):
             return await _geocode(city)
         if _location:
             return _location
-        home = os.environ.get("JARVIS_CITY")
+        from jarvis.core import settings
+        home = settings.get("city") or os.environ.get("JARVIS_CITY")
         if home:
             _location = await _geocode(home)
             return _location

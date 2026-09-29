@@ -186,6 +186,10 @@ async def main(text_only=False):
     scheduler = Scheduler(fire)
     session = Session(ui, mic, vad, wake, stt, speech, lambda control: Agent(ui, speech.say, control, scheduler))
     runtime.session = session
+    # Scar's own settings (settings.json): hook the live objects up, then apply what was saved.
+    from jarvis.core import settings
+    settings.on_change("voice_volume", lambda v: setattr(speaker, "gain", float(v) / 100))
+    settings.apply_all()
     if aec_ref is not None:
         session.aec, session.aec_ref = EchoCanceller(), aec_ref
         session.aec.load(config.APPDATA_DIR / "aec_filter.npz")
@@ -204,6 +208,7 @@ async def main(text_only=False):
     @ui.on("hello")
     async def _hello(msg):
         await ui.send("voice_state", status=session.state.value)
+        await ui.send("settings", values=settings.values())
         if not booted["done"]:
             booted["done"] = True
             import random
@@ -223,6 +228,22 @@ async def main(text_only=False):
         session.mic_on = bool(msg.get("on", True))
         log.info("microphone %s (from the menu)", "on" if session.mic_on else "off")
 
+    @ui.on("settings")
+    async def _settings(msg):
+        """Changed from the Settings panel on the robot's menu."""
+        values = msg.get("values") or {}
+        if values.get("__reset"):
+            settings.reset()
+            log.info("settings reset (from the panel)")
+        for key, raw in values.items():
+            if key not in settings.SPEC:
+                continue
+            val, err = settings.parse_value(key, raw) if not isinstance(raw, bool) else (raw, None)
+            if err is None:
+                settings.set_value(key, val)
+                log.info("setting %s = %r (from the panel)", key, val)
+        await ui.send("settings", values=settings.values())
+
     @ui.on("user_activity")
     async def _activity(msg):
         session.last_activity = time.monotonic()
@@ -235,7 +256,7 @@ async def main(text_only=False):
 
     atexit.register(capture.reveal_all)
     mic.start()
-    log.info("Jarvis is listening. Say 'Hey Jarvis'.")
+    log.info("%s is listening. Say '%s' or 'Hey Jarvis'.", config.NAME, config.NAME)
     await session.run()
 
 

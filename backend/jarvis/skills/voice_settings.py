@@ -18,7 +18,8 @@ def apply_saved():
     s = _store.load()
     if runtime.tts is not None:
         runtime.tts.voice = s.get("voice", config.KOKORO_VOICE)
-        runtime.tts.speed = s.get("speed", config.KOKORO_SPEED)
+        from jarvis.core import settings
+        runtime.tts.speed = settings.get("voice_speed") if "voice_speed" in settings._store.load() else s.get("speed", config.KOKORO_SPEED)
 
 
 def set_voice(description: str):
@@ -45,6 +46,6 @@ def change_speed(direction: str):
     speed = round(max(0.7, min(1.6, speed)), 2)
     s["speed"] = speed
     _store.save(s)
-    if runtime.tts is not None:
-        runtime.tts.speed = speed
+    from jarvis.core import settings
+    settings.set_value("voice_speed", speed)   # one source of truth for "what are your settings"
     return speed

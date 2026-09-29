@@ -41,6 +41,9 @@ ENROLL_LINES = [
     "Last one: I usually study in the evening and listen to music while I work.",
 ]
 # Said over Scar's voice, these cut it off.
+# A sentence that stops on one of these words was cut off by a pause ("open Chrome and search about ...").
+_DANGLING = re.compile(r"(?:\b(?:search|tell me|talk|know|information|info|learn|read) about|\b(?:and|or|the|an|my|your|called|named|"
+                       r"but|because|into|than|search for|open|play|type|tell me|show me|search|put|some|a)\b)\W*$", re.I)
 _INTERRUPT = re.compile(r"^\W*(?:ok(?:ay)?\W+)?(?:stop|wait|shut up|enough|quiet|be quiet|cancel|hold on|never ?mind|pause|that's enough)\b", re.I)
 
 
@@ -84,11 +87,17 @@ class Session:
         self.aec = self.aec_ref = None  # echo canceller + what the speaker played (set up by __main__)
         self.aec_saved = time.monotonic()
         self.enrolling = 0            # enrollment lines still to be read ("learn my voice")
-        self.always_listen = config.ALWAYS_LISTEN   # act on requests without the name (not in standby)
+        from jarvis.core import settings
+        self.always_listen = bool(settings.get("always_listen"))   # act on requests without the name (not in standby)
+        settings.on_change("always_listen", lambda v: setattr(self, "always_listen", bool(v)))
+        settings.on_change("only_my_voice", self._set_voice_filter)
+        self.pending_prefix = None    # first half of a sentence cut off by a pause
+        self.last_audio = time.monotonic()
+        self.back_task = None         # "do not disturb for 30 minutes": comes back on its own
         self.mic_on = True            # privacy switch: off = ignore the mic except click / hotkey turns
         self.dictating = False        # every utterance is typed out until "stop dictation"
         vp = runtime.voiceprint
-        self.voice_filter = bool(vp is not None and vp.enrolled and config.ONLY_MY_VOICE)
+        self.voice_filter = bool(vp is not None and vp.enrolled and settings.get("only_my_voice"))
         self.state = State.IDLE
         self.preroll = collections.deque(maxlen=int(config.PREROLL_S * 1000 / BLOCK_MS))
         self.utter = []
@@ -110,6 +119,10 @@ class Session:
         self.spot_blocks = []
         self.spot_speech_ms = self.spot_silence_ms = 0
         self.spot_task = None
+
+    def _set_voice_filter(self, on):
+        vp = runtime.voiceprint
+        self.voice_filter = bool(on and vp is not None and vp.enrolled)
 
     # ------------------------------------------------------------ state changes
     async def _set(self, state, **extra):
@@ -143,7 +156,15 @@ class Session:
             self.speech.cancel()
             self.timings["no_follow_up"] = True
         elif name == "standby":
-            await say(f"Going on standby. Just say {config.NAME} when you need me.")
+            minutes = (args or {}).get("minutes")
+            if self.back_task and not self.back_task.done():
+                self.back_task.cancel()
+            if minutes:
+                n = f"{minutes:g} minute{'s' * (minutes != 1)}" if minutes < 60 else f"{minutes / 60:g} hour{'s' * (minutes != 60)}"
+                await say(f"Okay, I'll stay quiet for {n}. Say {config.NAME} if you need me sooner.")
+                self.back_task = asyncio.get_running_loop().create_task(self._back_after(minutes * 60))
+            else:
+                await say(f"Going on standby. Just say {config.NAME} when you need me.")
             self.timings["standby_after"] = True
         elif name == "go_to_sleep":
             await say(random.choice(["Going to sleep.", "Call me if you need me.", "I'll be around."]))
@@ -171,11 +192,12 @@ class Session:
             await say("Dictation on. I'll type what you say. Say stop dictation when you're done.")
             self.timings["keep_listening"] = True
         elif name in ("suggestions_on", "suggestions_off"):
-            from jarvis.core.proactive import prefs
-            prefs.save({"suggestions": name == "suggestions_on"})
+            from jarvis.core import settings
+            settings.set_value("suggestions", name == "suggestions_on")
             await say("Suggestions back on." if name == "suggestions_on" else "Okay, no more suggestions unless you ask.")
         elif name in ("listen_always", "listen_on_call"):
-            self.always_listen = name == "listen_always"
+            from jarvis.core import settings
+            settings.set_value("always_listen", name == "listen_always")
             await say("Okay, I'm always listening. No need to say my name." if self.always_listen
                       else f"Okay, I'll only respond when you say {config.NAME}.")
         elif name in ("mic_off", "mic_on"):
@@ -198,6 +220,15 @@ class Session:
                 url, pin = await phone.start()
                 await self.ui.send("say", text=f"📱 Open {url} on your phone · PIN {pin}")
                 await say(f"Phone control is on. Open the address on my bubble on your phone, same Wi-Fi, and enter the PIN {' '.join(pin)}.")
+
+    async def _back_after(self, seconds):
+        await asyncio.sleep(seconds)
+        if self.state == State.STANDBY:
+            log.info("do-not-disturb time is up")
+            await self.ui.send("summon", entry=random.randint(0, 3), reason="wake")
+            self.last_activity = time.monotonic()
+            await self._set(State.IDLE)
+            await self.speech.say(random.choice(["I'm back!", "Quiet time's over. I'm here if you need me.", "And I'm back."]))
 
     async def announce(self, text, kind="reminder"):
         """Speak unprompted (timer done, reminder due). Opens the follow-up window afterwards."""
@@ -235,6 +266,7 @@ class Session:
                 self.last_activity = now
                 await self._set(State.IDLE)
             last = now
+            self.last_audio = now
             try:
                 await self._process(block)
             except Exception:  # noqa: BLE001 - never let one bad block kill the ears
@@ -242,7 +274,7 @@ class Session:
 
     async def _process(self, block):
         now = time.monotonic()
-        if not self.mic_on and not (self.state == State.LISTENING and self.timings.get("trigger") in ("click", "continue")):
+        if not self.mic_on and not (self.state == State.LISTENING and self.timings.get("trigger") in ("click", "continue", "rest")):
             return   # mic switched off: only an explicit click / hotkey turn is heard
         if self.aec is not None:
             # Remove Scar's own voice (what the speaker is playing) before anything listens to the mic.
@@ -294,6 +326,13 @@ class Session:
             elif not self.speech_started and elapsed_ms > (20000 if self.timings.get("trigger") == "continue" else config.NO_SPEECH_TIMEOUT_MS):
                 log.info("no speech after trigger")
                 self.last_activity = now
+                if self.pending_prefix:
+                    # The rest of the sentence never came: do what we can with the first half.
+                    text, self.pending_prefix = self.pending_prefix, None
+                    self.timings = {"trigger": "wake", "t_end_speech": time.perf_counter(), "unfinished_ok": True}
+                    await self._set(State.THINKING)
+                    self.turn_task = asyncio.get_running_loop().create_task(self._turn(text=text))
+                    return
                 if self.dictating or self.enrolling:
                     self.dictating, self.enrolling = False, 0
                     await self.speech.say("Stopping there.")
@@ -357,6 +396,12 @@ class Session:
         norm = re.sub(r"[^\w\s']", "", text.lower()).strip()
         if len(words) < 2 or len(words) > 25 or norm in _JUNK:
             return
+        from jarvis.brain.router import route_all
+        hits = route_all(text)
+        if hits and hits[0][0] in ("smalltalk", "confirm", "stop"):
+            return                      # "thanks", "yes", "stop" said to someone else
+        if not hits and len(words) < 3:
+            return                      # "show me", "go ahead": too vague without the name
         loop = asyncio.get_running_loop()
         if self.user_level:
             blocks = audio[: len(audio) // config.BLOCK * config.BLOCK].reshape(-1, config.BLOCK)
@@ -420,8 +465,9 @@ class Session:
                 self.last_activity = time.monotonic()
                 await self._set(State.IDLE)
                 return
-        if len(rest.split()) >= 2:
-            # "Scar, open YouTube" in one breath: run it straight away.
+        from jarvis.brain.router import route_all
+        if len(rest.split()) >= 2 or (rest and route_all(rest)):
+            # "Scar, open YouTube" / "Scar, standby" in one breath: run it straight away.
             if self.state in (State.SLEEPING, State.STANDBY):
                 await self.ui.send("summon", entry=random.randint(0, 3), reason="wake")
             self.timings = {"trigger": "wake", "t_end_speech": t_end, "t_stt": time.perf_counter()}
@@ -493,6 +539,17 @@ class Session:
                 return await self._dictate(text)
             if norm in _JUNK:
                 await self._after_turn(empty=True)
+                return
+            if self.pending_prefix:
+                text, self.pending_prefix = f"{self.pending_prefix} {text}", None
+                log.info("joined: %r", text)
+            elif (audio is not None and _DANGLING.search(text) and len(text.split()) >= 2
+                  and not self.timings.get("unfinished_ok")):
+                log.info("sounds unfinished, listening for the rest: %r", text)
+                self.pending_prefix = text
+                await self.ui.send("voice_state", status="thinking", transcript=text + " …")
+                self.turn_task = None           # don't let start_listening cancel this very task
+                await self.start_listening("rest")
                 return
             await self.ui.send("voice_state", status="thinking", transcript=text)
             self.speech.new_turn()

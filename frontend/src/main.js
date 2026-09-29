@@ -13,6 +13,7 @@ import { MischiefEngine } from './mischiefEngine.js';
 import { soundEngine } from './soundEngine.js';
 import { ScarFace } from './scarFace.js';
 import { DragController } from './dragController.js';
+import { SettingsPanel } from './settingsPanel.js';
 import { ScreenSpace } from './screenSpace.js';
 import { StatusRing } from './statusRing.js';
 import { AssistantController } from './assistantController.js';
@@ -188,6 +189,31 @@ function saveSettings(patch) {
   if (ipcRenderer) ipcRenderer.invoke('save-settings', patch);
 }
 
+// Scar's settings live in the brain (settings.json); it sends the full set on connect and after every change.
+const BASE_ROAM_SPEED = state.roamSpeed;
+let settingsPanel = null;
+function sendSettings(values) {
+  return bridge.send('settings', { values });
+}
+function applySettings(v) {
+  if (v.size != null) {
+    state.sizeMultiplier = +v.size;
+    updateScale();
+    const sl = document.getElementById('scale-slider');
+    if (sl) { sl.value = state.sizeMultiplier; document.getElementById('scale-val').textContent = `${state.sizeMultiplier.toFixed(2)}x`; }
+  }
+  if (v.pranks != null) { mischiefEngine.allowed = Boolean(v.pranks); state.showPlayful?.(); }
+  if (v.idle_moves != null) controller.idleLife.enabled = Boolean(v.idle_moves);
+  if (v.roam_speed != null) roamEngine.setSpeed(BASE_ROAM_SPEED * v.roam_speed);
+  if (v.sounds != null) {
+    soundEngine.muted = !v.sounds;
+    const b = document.getElementById('audio-toggle-btn');
+    if (b) b.textContent = soundEngine.muted ? '🔇 Effects: OFF' : '🔊 Effects: ON';
+  }
+  if (v.bubbles != null) speechBubble.enabled = Boolean(v.bubbles);
+  settingsPanel?.fill(v);
+}
+
 // 3. Settings dock + context menu ------------------------------------------
 function setupUI() {
   const asideDock = document.getElementById('aside-column');
@@ -205,12 +231,13 @@ function setupUI() {
     scaleVal.textContent = `${state.sizeMultiplier.toFixed(2)}x`;
     updateScale();
   };
-  scaleSlider.onchange = () => saveSettings({ sizeMultiplier: state.sizeMultiplier });
+  scaleSlider.onchange = () => { saveSettings({ sizeMultiplier: state.sizeMultiplier }); sendSettings({ size: state.sizeMultiplier }); };
 
   const audioBtn = document.getElementById('audio-toggle-btn');
   audioBtn.onclick = () => {
     soundEngine.muted = !soundEngine.muted;
     audioBtn.textContent = soundEngine.muted ? '🔇 Effects: OFF' : '🔊 Effects: ON';
+    sendSettings({ sounds: !soundEngine.muted });
   };
   document.getElementById('btn-trigger-wellness').onclick = () => wellnessEngine.triggerRandomReminder();
   const roamBtn = document.getElementById('roam-toggle-btn');
@@ -226,12 +253,14 @@ function setupUI() {
     playBtn.textContent = mischiefEngine.allowed ? '🎭 Playful pranks: ON' : '🎭 Playful pranks: OFF';
     playBtn.classList.toggle('primary', mischiefEngine.allowed);
   };
+  state.showPlayful = showPlayful;
   mischiefEngine.allowed = Boolean(state.playful);
   showPlayful();
   playBtn.onclick = () => {
     mischiefEngine.allowed = !mischiefEngine.allowed;
     showPlayful();
     saveSettings({ playful: mischiefEngine.allowed });
+    sendSettings({ pranks: mischiefEngine.allowed });
   };
   document.getElementById('theme-toggle-btn').onclick = () => {
     const next = state.currentMode === 'dark' ? 'light' : 'dark';
@@ -269,6 +298,11 @@ function setupContextMenu() {
   };
   document.getElementById('ctx-sleep-btn').onclick = () => { controller.goSleep(); hide(); };
   document.getElementById('ctx-roam-btn').onclick = () => { controller.place('roam'); hide(); };
+  document.getElementById('ctx-settings-btn').onclick = () => {
+    const r = menu.getBoundingClientRect();
+    hide();
+    settingsPanel.open(r.left, r.top);
+  };
   const micBtn = document.getElementById('ctx-mic-btn');
   let micOn = true;
   micBtn.onclick = () => {
@@ -283,7 +317,7 @@ function setupContextMenu() {
     speechBubble.stopAllSpeech();
     if (ipcRenderer) ipcRenderer.send('close-app'); else window.close();
   };
-  window.addEventListener('click', (e) => { if (!e.target.closest('#character-context-menu')) hide(); });
+  window.addEventListener('click', (e) => { if (!e.target.closest?.('#character-context-menu')) hide(); });
 }
 
 // 4. Mouse: click-through except over the robot / UI -------------------------
@@ -311,16 +345,17 @@ function isOverRobot(clientX, clientY) {
 
 function checkPointerPassthrough(e) {
   if (dragController.isDragging || isMouseDownOnRobot) return setPassthrough(false);
-  const overUI = e.target?.closest?.('#aside-column, #character-context-menu, #toast');
+  const overUI = e.target?.closest?.('#aside-column, #character-context-menu, #toast, #settings-panel');
+  if (settingsPanel?.isOpen && overUI) return setPassthrough(false);
   const menuOpen = document.getElementById('character-context-menu').classList.contains('visible');
   setPassthrough(!(overUI || menuOpen || isOverRobot(e.clientX, e.clientY)));
 }
 
 window.addEventListener('pointerdown', (e) => {
-  if (e.button === 2 || e.target.closest('#aside-column, #character-context-menu')) return;
+  if (e.button === 2 || e.target.closest?.('#aside-column, #character-context-menu, #settings-panel')) return;
   pointerDownTime = performance.now();
   pointerDownPos = { x: e.clientX, y: e.clientY };
-  if (isOverRobot(e.clientX, e.clientY) && !controller.busy) {
+  if (isOverRobot(e.clientX, e.clientY) && controller.draggable) {
     isMouseDownOnRobot = true;
     setPassthrough(false);
   }
@@ -330,9 +365,8 @@ window.addEventListener('pointermove', (e) => {
   eyeVisor.setGaze((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   if (isMouseDownOnRobot) {
     if (Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y) > 6 && !dragController.isDragging) {
+      controller.pickUp();
       dragController.startDrag(e.screenX, e.screenY, e.clientX, e.clientY, camera);
-      controller.dragging = true;
-      controller.kill();
       bridge.send('user_activity');
     }
     if (dragController.isDragging) dragController.updateDrag(e.screenX, e.screenY, e.clientX, e.clientY, camera);
@@ -344,10 +378,8 @@ window.addEventListener('pointerup', (e) => {
   if (dragController.isDragging) {
     // Dropped: stay exactly here (parked) until told to roam again.
     dragController.wasRoaming = false;
+    controller.drop();
     dragController.endDrag();
-    controller.dragging = false;
-    controller.parked = true;
-    setTimeout(() => { controller.hold(); if (!controller.busy) controller.mode = 'attentive'; }, 700);
     isMouseDownOnRobot = false;
     controller.noteActivity();
     checkPointerPassthrough(e);
@@ -355,7 +387,7 @@ window.addEventListener('pointerup', (e) => {
   }
   const wasOnRobot = isMouseDownOnRobot;
   isMouseDownOnRobot = false;
-  if (e.target.closest('#aside-column, #character-context-menu')) return;
+  if (e.target.closest?.('#aside-column, #character-context-menu, #settings-panel')) return;
   const quick = performance.now() - pointerDownTime < 350 && Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y) < 8;
   if (wasOnRobot && quick) {
     // A tap on the robot = "I want to talk to you" (same as the wake word).
@@ -438,6 +470,24 @@ async function boot() {
   state.sizeMultiplier = cfg.settings?.sizeMultiplier || 1.0;
   state.playful = Boolean(cfg.settings?.playful);
   setupUI();
+  settingsPanel = new SettingsPanel({
+    send: (values) => {
+      if (values.__reset) return sendSettings({ __reset: true });
+      applySettings(values);                   // feel it immediately; the brain confirms
+      return sendSettings(values);
+    },
+    onOpenChange: (open) => {
+      setPassthrough(!open);
+      if (open && ipcRenderer) ipcRenderer.send('focus-overlay');
+    },
+  });
+  bridge.on('settings', (m) => {
+    applySettings(m.values || {});
+    if (m.open && !settingsPanel.isOpen) {
+      const c = space.worldToClient(avatarRoot.position);
+      settingsPanel.open(c.x + avatarHeightPx() * 0.5, c.y - 200);
+    }
+  });
   await setModelMode(cfg.osTheme || 'dark');
   // Standby: no wellness pop-ups or pranks until Scar is called again.
   bridge.on('voice_state', (m) => {
@@ -477,5 +527,5 @@ if (!ipcRenderer) {
       animate(performance.now(), true);
     }
   };
-  window.__jarvis = { controller, avatarRoot, space, state, bridge, camera, renderer, setModelMode, step, statusRing, updateScale, gltfLoader, THREE, scene };
+  window.__jarvis = { get settingsPanel() { return settingsPanel; }, applySettings, controller, avatarRoot, space, state, bridge, camera, renderer, setModelMode, step, statusRing, updateScale, gltfLoader, THREE, scene };
 }

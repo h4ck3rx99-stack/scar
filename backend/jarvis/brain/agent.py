@@ -9,6 +9,7 @@ import io
 import logging
 import re
 import time
+from pathlib import Path
 
 from jarvis import config, runtime
 from jarvis.brain.llm import LLM
@@ -64,7 +65,18 @@ CONTROLS = {"stop", "go_to_sleep", "standby", "learn_voice", "forget_voice", "on
             "mic_on", "mic_off", "place"}
 # Requests that obviously need several steps ("X and then Y", "research ... and put it in a note").
 _MULTI = re.compile(r"\b(and then|then|after that|afterwards|and also|and (?:open|search|play|click|type|put|save|send|write|close|tell|read|summari[sz]e|find|make|add|note))\b|,\s*(?:then|and)\b|\bresearch\b|\bcompare\b|\bstep by step\b", re.I)
+# Follow-ups phrased as a request to Scar are accepted without asking the LLM whether they were meant for it
+# ("I would like to watch In the End", "can you tell me Bangalore's weather", "add a new document in notepad").
+_REQUEST = re.compile(r"^\W*(?:(?:ok(?:ay)?|and|also|now|so|then|oh|um|uh|hey)\W+)*(?:can you|could you|would you|will you|please|"
+                      r"i (?:want|would like|wanna|need|'d like)|let's|let me|show me|tell me|give me|help me|how (?:do|can|about)|what(?:'s| is| about)|"
+                      r"open|close|play|pause|stop|search|find|type|write|add|remove|delete|set|turn|make|put|move|minimi[sz]e|maximi[sz]e|"
+                      r"switch|go to|start|create|save|read|check|click|press|scroll|take|remind|call|send|explain|summari[sz]e|translate)\b", re.I)
+_TYPE_ORIGINAL = re.compile(r"(?i)\btype(?:\s+out)?[\s,:]+(.+?)\s*$")
 _FAIL_PREFIXES = ("error", "No open", "Bad", "Unknown", "not found", "no ", "I can't", "Couldn't", "Wikipedia had no", "Web search for")
+
+
+def looks_like_request(text: str) -> bool:
+    return bool(_REQUEST.match(text)) and 2 <= len(text.split()) <= 20
 
 
 class Memory:
@@ -92,7 +104,13 @@ class Agent:
         today = datetime.date.today().strftime("%A %d %B %Y")
         facts = store.facts.load()
         facts_txt = ("\nThings the user told you to remember: " + "; ".join(facts[-15:]) + ".") if facts else ""
-        return SYSTEM.format(name=config.NAME, today=today, facts=facts_txt)
+        from jarvis.core import settings
+        style = settings.PERSONALITY.get(settings.get("personality"), "")
+        brain = (f"a cloud model ({config.CLOUD_LLM_MODEL}) via the user's own API key, with a local fallback" if config.CLOUD_LLM_URL
+                 else f"a local model ({Path(config.LLM_GGUF).stem}) through llama.cpp on this PC, with no API key and no cloud")
+        style = (f"About yourself (only if asked): you run {brain}; speech recognition is local Whisper, your voice is "
+                 f"local Kokoro. Users can change your settings by voice (say 'what are your settings').\n") + style
+        return SYSTEM.format(name=config.NAME, today=today, facts=facts_txt) + ("\n" + style if style else "")
 
     async def warm_up(self):
         """Prime llama.cpp's prompt cache with the system prompt + tool schema, so the first real
@@ -113,6 +131,17 @@ class Agent:
         hits = [] if _MULTI.search(text) and len(text.split()) > 5 else route_all(text)
         for name, args in hits:
             timings["route"] = "router"
+            if name == "repeat":
+                return await self._repeat(args.get("what"), timings)
+            if name == "type_text":
+                m = _TYPE_ORIGINAL.search(text)       # the router lower-cases; type what was actually said
+                if m and args.get("text") != "cls":
+                    typed = m.group(1).strip(" ,")
+                    if args.get("app"):               # "type dir /s on command prompt": the app isn't part of the text
+                        typed = re.sub(rf"\s+(?:in|on|into|inside)\s+(?:the\s+|my\s+)?(?:{re.escape(args['app'])}|cmd)\W*$", "", typed, flags=re.I)
+                    args = {**args, "text": typed.rstrip("?.!") if args.get("app") else typed}
+            if name == "look_at_screen" and len(text.split()) >= 5:
+                args = {**args, "question": text}     # keep the user's actual question, not a generic "describe it"
             if name in CONTROLS:
                 await self.on_control(name, args)
                 return None
@@ -127,16 +156,35 @@ class Agent:
                 await self._answer_from(text, name, args, result, timings)
             else:
                 self.memory.add(text, str(result))   # plain words: a "[tool {args}]" tag here gets parroted aloud by the LLM
+            self.last_request = text
             return "end" if name == "smalltalk" else None
         text = fix(text)
         if follow_up and len(text.split()) > 30:
             log.info("ignoring long follow-up utterance (likely background talk)")
             return "ignored"
-        if follow_up and not await self._is_directed(text):
+        if follow_up and not looks_like_request(text) and not await self._is_directed(text):
             log.info("follow-up judged not addressed to Scar: %r", text)
             return "ignored"
         timings["route"] = "llm"
+        self.last_request = text
         return await self._llm_turn(text, timings, follow_up)
+
+    async def _repeat(self, what, timings):
+        """"Say that again" repeats the last answer; "do that again" re-runs the last request."""
+        if what == "action":
+            last = getattr(self, "last_request", None)
+            if not last:
+                await self.speak("There's nothing to repeat yet.")
+                return None
+            log.info("repeating: %r", last)
+            return await self.handle(last, timings)
+        speech = getattr(self.speak, "__self__", None)      # SpeechOut: remembers what was really said aloud
+        said = list(getattr(speech, "prev_said", []) or [])
+        if not said:
+            await self.speak("I haven't said anything yet.")
+        for sentence in said:
+            await self.speak(sentence)
+        return None
 
     async def _is_directed(self, text):
         """Tiny yes/no LLM check for wake-word-free follow-ups: was this said *to* the assistant?

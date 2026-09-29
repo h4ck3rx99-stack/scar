@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jarvis</title>
+  <title>Scar</title>
   <link rel="stylesheet" href="./src/style.css">
 </head>
 <body class="desktop-transparent theme-dark">
   <div id="canvas-container"></div>
 
-  <div id="toast" class="toast">Jarvis</div>
+  <div id="toast" class="toast">Scar</div>
 
   <!-- Settings dock (top right, collapsed by default) -->
   <aside id="aside-column" class="aside-dock collapsed">
     <div id="aside-toggle-btn" class="aside-trigger" title="Click to expand/collapse controls">
       <div class="aside-pulse-dot"></div>
-      <span class="aside-title-text">🤖 JARVIS</span>
+      <span class="aside-title-text">🤖 SCAR</span>
       <span class="aside-toggle-chevron">▼</span>
     </div>
     <div class="aside-content">
@@ -37,7 +37,7 @@
   <!-- Right-click the robot -->
   <div id="character-context-menu" class="context-menu">
     <div class="menu-header">
-      <span>🤖 JARVIS</span>
+      <span>🤖 SCAR</span>
       <button id="menu-close-btn" class="menu-close-x">✕</button>
     </div>
 
@@ -54,12 +54,13 @@
     </div>
 
     <div class="menu-divider"></div>
+    <button id="ctx-settings-btn" class="ctx-item">⚙ Settings</button>
     <button id="ctx-roam-btn" class="ctx-item">🌐 Roam freely</button>
     <button id="ctx-mic-btn" class="ctx-item">🎙 Mic: ON</button>
     <button id="ctx-sleep-btn" class="ctx-item">😴 Go to sleep</button>
     <button id="ctx-rest-btn" class="ctx-item">💧 Break reminder</button>
     <div class="menu-divider"></div>
-    <button id="ctx-quit-btn" class="ctx-item danger">✕ Quit Jarvis</button>
+    <button id="ctx-quit-btn" class="ctx-item danger">✕ Quit Scar</button>
   </div>
 
   <script type="module" src="./src/main.js"></script>

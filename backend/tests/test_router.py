@@ -27,7 +27,7 @@ CASES = [
     ("open github.com", ("open_url", {"url": "github.com"})),
     ("launch notepad", ("open", {"name": "notepad"})),
     ("search youtube for lofi beats", ("web_search", {"engine": "youtube", "query": "lofi beats"})),
-    ("play interstellar soundtrack on youtube", ("web_search", {"engine": "youtube", "query": "interstellar soundtrack"})),
+    ("play interstellar soundtrack on youtube", ("play_youtube", {"query": "interstellar soundtrack"})),
     ("google best pizza near me", ("web_search", {"engine": "google", "query": "best pizza near me"})),
     ("close this tab", ("browser_tab", {"action": "close"})),
     ("open a new tab", ("browser_tab", {"action": "new"})),

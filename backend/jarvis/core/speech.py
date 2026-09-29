@@ -17,6 +17,7 @@ class SpeechOut:
         self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
         self._worker = None
         self.spoken_in_turn = 0
+        self.turn_said, self.prev_said = [], []   # what was actually spoken this turn / last turn
 
     def start(self):
         self._worker = asyncio.get_running_loop().create_task(self._run())
@@ -26,6 +27,7 @@ class SpeechOut:
         if not text:
             return
         await self.ui.send("say", text=text)
+        self.turn_said.append(text)
         self._busy += 1
         self.queue.put_nowait((self.epoch, text))
 
@@ -38,6 +40,9 @@ class SpeechOut:
 
     def new_turn(self):
         self.spoken_in_turn = 0
+        if self.turn_said:
+            self.prev_said = self.turn_said    # "say that again" repeats this
+        self.turn_said = []
 
     async def _run(self):
         loop = asyncio.get_running_loop()

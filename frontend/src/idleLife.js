@@ -11,6 +11,8 @@ export class IdleLife {
     this.next = performance.now() + 8000;
     this.last = null;
     this.mouse = { x: 0.5, y: 0.5 };
+    this.enabled = true;   // "stop fidgeting" / Settings panel
+    this.tl = null;
     window.addEventListener('mousemove', (e) => { this.mouse = { x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight }; });
     this.moves = {
       lookAround: (tl, r) => {
@@ -68,9 +70,20 @@ export class IdleLife {
     };
   }
 
+  /** Abort the current move (picked up, summoned, told to go somewhere). */
+  stop() {
+    if (!this.tl) return;
+    const tl = this.tl;
+    this.tl = null;
+    tl.kill();
+    this.c.avatarRoot.rotation.set(0, 0, 0);
+    this.c.avatarRoot.scale.setScalar(1);
+  }
+
   tick(now) {
     const c = this.c;
     if (now < this.next) return;
+    if (!this.enabled) { this.next = now + 5000; return; }
     this.next = now + 12000 + Math.random() * 28000;
     if (!['roam', 'attentive'].includes(c.mode) || c.voice !== 'idle' || c.mischiefEngine.isBusy) return;
     const names = Object.keys(this.moves).filter((n) => n !== this.last);
@@ -79,8 +92,9 @@ export class IdleLife {
     const wasRoaming = c.mode === 'roam';
     c.hold();
     c.mode = 'fidget';
-    const tl = gsap.timeline({
+    const tl = this.tl = gsap.timeline({
       onComplete: () => {
+        this.tl = null;
         c.avatarRoot.rotation.set(0, 0, 0);
         c.avatarRoot.scale.setScalar(1);
         c.eyeVisor.setExpression('normal');

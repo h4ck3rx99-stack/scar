@@ -7,6 +7,7 @@ A tool returns FALLTHROUGH when the router guessed wrong and the LLM should hand
 import asyncio
 import datetime
 import logging
+import re
 import time
 
 from jarvis import config
@@ -15,6 +16,7 @@ from jarvis.hands import capture as C
 from jarvis.hands import keys, uia
 from jarvis.hands.windows import Rect, Window, find_window, foreground_window, list_windows
 from jarvis import runtime
+from jarvis.brain.tools_more import MORE_DATA_TOOLS, MORE_SCHEMA, MoreTools
 from jarvis.skills import calc, files, reminders, screen, store, system, web
 
 
@@ -23,6 +25,29 @@ def random_of(*options):
     return random.choice(options)
 
 log = logging.getLogger("tools")
+_SHELLS = {"cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe", "wt.exe", "bash.exe", "wsl.exe"}
+# spoken word, symbol, how it joins: True = no spaces either side, False = spaces kept, None = flag-or-path (slash, dash)
+_SYMBOLS = [("backslash", "\\", True), ("forward slash", "/", None), ("slash", "/", None), ("underscore", "_", True),
+            ("dot", ".", True), ("colon", ":", True), ("at the rate", "@", True), ("at sign", "@", True), ("hyphen", "-", True),
+            ("dash", "-", None), ("pipe", "|", False), ("tilde", "~", True)]
+
+
+def spoken_symbols(text: str, command=False) -> str:
+    """"dir slash s" -> "dir /s", "google dot com" -> "google.com", "c colon backslash users" -> "c:\\users".
+    Only for commands, paths and addresses: symbol words are left alone in normal sentences."""
+    if not command and not re.search(r"\b(?:dot com|dot in|dot org|at the rate)\b", text, re.I):
+        return text
+    for word, sym, glue in _SYMBOLS:
+        if glue is None:
+            # a flag ("dir slash s", "ls dash la") keeps the space before it; a path ("src slash main") joins both sides
+            text = re.sub(rf"(?<=\w)\s+{word}\s+(?=\w{{1,3}}\b(?!\s+(?:slash|dot)\b))(?<!\b(?:src|usr|etc|bin|lib|app|api)\s{word}\s)",
+                          f" {sym}", text, flags=re.I)
+            text = re.sub(rf"\s*\b{word}\b\s*", sym, text, flags=re.I)
+        elif glue:
+            text = re.sub(rf"\s*\b{word}\b\s*", lambda _: sym, text, flags=re.I)
+        else:
+            text = re.sub(rf"\s*\b{word}\b\s*", f" {sym} ", text, flags=re.I)
+    return text.strip()
 FALLTHROUGH = object()
 
 LAYOUT_NAMES = {"left": "the left half", "right": "the right half", "top": "the top half", "bottom": "the bottom half",
@@ -116,7 +141,9 @@ SCHEMA += [
     _fn("find_file", "Find and open a file by (part of) its name.", {"name": S}, ["name"]),
     _fn("clipboard", "Read, summarize or explain the clipboard or the selected text.",
         {"action": {"type": "string", "enum": ["read", "summarize", "explain", "translate"]}, "source": {"type": "string", "enum": ["clipboard", "selection"]}}),
-    _fn("type_text", "Type text into the active window.", {"text": S}, ["text"]),
+    _fn("type_text", "Type text into the active window, or into a named app (opened first if needed).",
+        {"text": S, "app": {"type": "string", "description": "optional: app to type into, e.g. 'command prompt', 'notepad'"},
+         "enter": {"type": "boolean", "description": "press Enter afterwards"}}, ["text"]),
     _fn("screenshot", "Save a screenshot to Pictures/Jarvis."),
     _fn("lock_pc", "Lock the computer."),
     _fn("arrange_windows", "Put the two most recent windows side by side.", {}),
@@ -168,7 +195,11 @@ DATA_TOOLS = {"list_windows", "read_screen", "system_status", "list_reminders", 
               "search_my_files", "ask_file", "list_routines", "my_schedule", "news", "define"}
 
 
-class Tools:
+SCHEMA += MORE_SCHEMA
+DATA_TOOLS |= MORE_DATA_TOOLS
+
+
+class Tools(MoreTools):
     def __init__(self, ui, speak, memory, scheduler=None):
         self.ui = ui                # UiLink
         self.speak = speak          # async fn(text) - queues speech, returns immediately
@@ -188,7 +219,8 @@ class Tools:
         except Exception as e:  # noqa: BLE001 - tell the user instead of dying mid-sentence
             log.exception("tool %s failed", name)
             await self.speak("Sorry, that didn't work.")
-            return f"error: {e}"
+            result = f"error: {e}"
+        self.note_result(name, args, result)
         return result
 
     # ------------------------------------------------------------ helpers
@@ -332,8 +364,29 @@ class Tools:
                 A.restore(w)
                 await asyncio.sleep(0.2)
             await self._press_button(w, action)
+            if action == "close":
+                await self._make_sure_closed(w)
         log.info("%s %s -> minimized=%s maximized=%s alive=%s", action, name, w.minimized, w.maximized, w.alive)
         return f"{action} {name}: done"
+
+    async def _make_sure_closed(self, w):
+        """Some apps (Spotify, Discord, custom title bars) ignore the caption-button close. Escalate:
+        WM_CLOSE, then Alt+F4. Hiding to the tray counts as closed."""
+        def gone():
+            return not w.alive or not A.user32.IsWindowVisible(w.hwnd)
+        for attempt in range(3):
+            for _ in range(12):
+                await asyncio.sleep(0.1)
+                if gone():
+                    return True
+            if attempt == 0:
+                A.user32.PostMessageW(w.hwnd, 0x0010, 0, 0)          # WM_CLOSE
+            elif attempt == 1:
+                A.focus(w)
+                await asyncio.sleep(0.15)
+                A.press("alt", "f4")
+        log.warning("%s refused to close", w.spoken_name)
+        return False
 
     async def t_minimize_all(self, from_router=False):
         await self.speak("Clearing the desktop.")
@@ -395,9 +448,10 @@ class Tools:
             if self.ui.clients:
                 await self._present(before)
             return f"opened {resolved}"
-        if from_router:
-            return FALLTHROUGH
-        await self.speak(f"I couldn't find an app called {name}.")
+        found = await self.open_fallback(name)     # a file with that name, or that website
+        if found:
+            return found
+        await self.speak(f"I couldn't find an app, file or website called {name}.")
         return "not found"
 
     async def t_open_url(self, url, from_router=False):
@@ -405,6 +459,8 @@ class Tools:
         return f"opened {A.open_url(url)}"
 
     async def t_web_search(self, engine, query, from_router=False):
+        if engine.lower() == "youtube":
+            self.last_yt_query = query         # "play the first video" plays this search's top result
         await self.speak(f"Searching {engine} for {query}.")
         A.open_url(A.search_url(engine, query))
         return "done"
@@ -536,9 +592,13 @@ class Tools:
     async def t_set_brightness(self, level=None, change=None, from_router=False):
         loop = asyncio.get_running_loop()
         fn = (lambda: system.set_brightness(level)) if level is not None else (lambda: system.change_brightness(int(change or 10)))
-        v = await loop.run_in_executor(None, fn)
+        try:
+            v = await loop.run_in_executor(None, fn)
+        except Exception as e:  # noqa: BLE001
+            log.warning("brightness failed: %s", e)
+            v = None
         if v is None:
-            await self.speak("I can't control this screen's brightness.")
+            await self.speak("I can't control this screen's brightness. External monitors need DDC/CI switched on in their own menu.")
             return "unsupported"
         await self.ui.send("hud", kind="brightness", value=v)
         await self.speak(f"Brightness {v} percent.")
@@ -702,10 +762,35 @@ class Tools:
             return "The clipboard is empty." if source == "clipboard" else "Nothing is selected."
         return f"Task: {action} this text.\n{text[:4000]}"
 
-    async def t_type_text(self, text, from_router=False):
-        target = self.memory.last_window if self.memory.last_window and self.memory.last_window.alive else None
-        await asyncio.get_running_loop().run_in_executor(None, screen.type_text, text, target)
-        return "done"
+    async def t_type_text(self, text, app=None, enter=False, from_router=False):
+        loop = asyncio.get_running_loop()
+        m = re.search(r"[,.]?\s+(?:and|then)\s+(?:press|hit)\s+enter\W*$", text, re.I)
+        if m:
+            text, enter = text[:m.start()], True
+        target = None
+        if app:
+            target = self._resolve(app)
+            if target is None:
+                before = {w.hwnd for w in list_windows()}
+                if await loop.run_in_executor(None, A.open_app, app.lower()):
+                    await self.speak(f"Opening {app} first.")
+                    target = await self._present(before) if self.ui.clients else None
+                    if target is None:
+                        await asyncio.sleep(1.5)
+                        target = foreground_window()
+                    await asyncio.sleep(0.6)       # let the new window get ready for keystrokes
+                else:
+                    text = f"{text} on {app}"       # not an app after all: it was part of the sentence
+        if target is None:
+            fg = foreground_window()
+            last = self.memory.last_window if self.memory.last_window and self.memory.last_window.alive else None
+            target = fg if fg is not None else last
+        if app and target is not None:
+            self.memory.last_window = target
+        command = bool(target and target.exe in _SHELLS) or bool(re.search(r"\b(?:slash|backslash|underscore)\b", text, re.I))
+        text = spoken_symbols(text, command)
+        await loop.run_in_executor(None, screen.type_text, text + ("\n" if enter else ""), target)
+        return f"typed {text!r}" + (f" into {target.spoken_name}" if target else "")
 
     async def t_arrange_windows(self, from_router=False):
         wins = [w for w in list_windows() if not w.minimized][:2]
@@ -728,9 +813,21 @@ class Tools:
             await asyncio.sleep(0.3)
         hit = await uia.find_element(w, name)
         if not hit:
+            # Not in the accessibility tree (web page content, custom UIs): find the words on screen and click them.
+            seen = await screen.ocr_find(w, name)
+            if seen:
+                text, (l, t, r, b) = seen
+                point = ((l + r) // 2, (t + b) // 2)
+                await self.speak(f"Clicking {name}.")
+                await self.ui.fly_to(*point, purpose="click", button={"x": l, "y": t, "width": r - l, "height": b - t})
+                A.focus(w)
+                await asyncio.sleep(0.1)
+                A.real_click(*point)
+                self.memory.last_window = w
+                return f"clicked the text '{text}'"
             if from_router:
                 return FALLTHROUGH
-            await self.speak(f"I can't see a {name} button in {w.spoken_name}.")
+            await self.speak(f"I can't see {name} in {w.spoken_name}.")
             return f"no element named {name}"
         ctrl, rect = hit
         await self.speak(f"Clicking {name}.")

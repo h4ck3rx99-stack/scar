@@ -96,17 +96,37 @@ def set_mute(mute: bool):
 # -------------------------------------------------------------- brightness
 def get_brightness():
     import screen_brightness_control as sbc
-    try:
-        return sbc.get_brightness()[0]
-    except Exception:  # noqa: BLE001 - external monitors often don't support it
-        return None
+    for method in ("wmi", None):          # laptop panel (WMI) first; external monitors (DDC/CI) are slow and flaky
+        try:
+            vals = sbc.get_brightness(method=method) if method else sbc.get_brightness()
+            if vals:
+                return vals[0]
+        except Exception:  # noqa: BLE001 - not every screen supports it
+            continue
+    return None
 
 
 def set_brightness(percent: int):
+    """Set every screen that supports it. Returns the level, or None if no screen could be changed."""
     import screen_brightness_control as sbc
     percent = max(0, min(100, int(percent)))
-    sbc.set_brightness(percent)
-    return percent
+    try:
+        sbc.set_brightness(percent, method="wmi")      # the laptop's own panel: instant and reliable
+        return percent
+    except Exception:  # noqa: BLE001 - desktop PC / no WMI panel: try monitors one by one
+        pass
+    ok = False
+    try:
+        displays = sbc.list_monitors()
+    except Exception:  # noqa: BLE001
+        displays = []
+    for d in displays:
+        try:
+            sbc.set_brightness(percent, display=d, max_tries=2)
+            ok = True
+        except Exception:  # noqa: BLE001 - e.g. a virtual display or a monitor without DDC/CI
+            continue
+    return percent if ok else None
 
 
 def change_brightness(delta: int):

@@ -44,9 +44,18 @@ def _stop(m):
     return "stop", {}
 
 
-@rule(r"^(?:go |get |switch )?(?:on |to |into )?stand ?by(?: mode)?$|^(?:go )?offline$|^disappear$|^leave me alone$|^take a break$")
+@rule(r"^(?:go |get |switch |start |enter |activate |turn on |begin |put yourself )?(?:on |to |into |in )?(?:the )?stand ?-?by(?: mode)?$"
+      r"|^(?:go )?offline$|^disappear$|^leave me alone$|^take a break$|^(?:do not|don't) disturb(?: me)?$|^do not disturb mode$")
 def _standby(m):
     return "standby", {}
+
+
+@rule(r"^(?:go |get |switch )?(?:on |to |into )?(?:the )?(?:stand ?-?by|do not disturb|quiet mode)(?: mode)? for (?P<d>.+)$"
+      r"|^(?:do not|don't) disturb(?: me)? for (?P<d2>.+)$|^(?:leave me alone|be quiet|hide|disappear|go away|shut up) for (?P<d3>.+)$")
+def _standby_for(m):
+    from jarvis.skills.reminders import parse_duration
+    secs = parse_duration(m["d"] or m["d2"] or m["d3"])
+    return ("standby", {"minutes": round(secs / 60, 1)}) if secs else None
 
 
 @rule(r"^(?:go to sleep|sleep|goodbye|good bye|bye|that's all|that is all|see you|dismiss|go away|hide)$")
@@ -67,6 +76,129 @@ def _no(m):
 @rule(r"^(?:thanks|thank you|thank you jarvis|cool|great|awesome|nice|perfect)$")
 def _thanks(m):
     return "smalltalk", {"kind": "thanks"}
+
+
+# --- about Scar: help, repeat, self check -------------------------------------------
+@rule(r"^(?:what (?:all )?can you do|tell me what you can do|what are your (?:features|abilities|skills|commands|powers)|help(?: me)?"
+      r"|what do you do|how can you help(?: me)?|what are you capable of|show me what you can do|what commands (?:do you know|are there))$")
+def _help(m):
+    return "capabilities", {}
+
+
+@rule(r"^(?:repeat that|say that again|what did you (?:just )?say|come again|pardon(?: me)?|repeat|sorry what|can you repeat(?: that)?)$")
+def _repeat_said(m):
+    return "repeat", {"what": "said"}
+
+
+@rule(r"^(?:do (?:that|it) again|again|one more time|repeat (?:the |that )?last (?:command|action|thing)|same again)$")
+def _repeat_action(m):
+    return "repeat", {"what": "action"}
+
+
+@rule(r"^(?:run (?:a )?(?:self[- ]?check|self[- ]?test|diagnostics? on yourself|health check)|check yourself|self[- ]?(?:check|test|diagnosis)"
+      r"|are you (?:ok|okay|working (?:properly|fine|ok)?|alright|feeling ok)|how are your systems|diagnose yourself)$")
+def _self_check(m):
+    return "self_check", {}
+
+
+@rule(r"^(?:what went wrong|why didn't (?:that|it|you) work|why did (?:that|it) fail|what happened(?: there)?|what was the (?:error|problem)"
+      r"|why couldn't you (?:do )?(?:that|it))$")
+def _what_wrong(m):
+    return "what_went_wrong", {}
+
+
+# --- Scar's own settings --------------------------------------------------------------
+def _setting_names():
+    from jarvis.core.settings import SPEC
+    names = {k.replace("_", " ") for k in SPEC} | {n for s in SPEC.values() for n in s["names"]}
+    names.discard("speed")               # "speed up" is about talking speed
+    return "|".join(sorted(map(re.escape, names), key=len, reverse=True))
+
+
+_SET_RE = _setting_names()
+
+
+@rule(rf"^(?:set|change|make|put|turn|adjust|switch) (?:your |the |my )?(?P<k>{_SET_RE})(?: setting)? (?:to|at|as|into) (?P<v>.+)$")
+def _set_to(m):
+    return "change_setting", {"setting": m["k"], "value": m["v"]}
+
+
+@rule(rf"^(?:turn|switch|set|put) (?P<v>on|off) (?:your |the |my )?(?P<k>{_SET_RE})$|^(?:turn|switch|set|put) (?:your |the |my )?(?P<k2>{_SET_RE}) (?P<v2>on|off)$"
+      rf"|^(?P<v3>enable|disable) (?:your |the |my )?(?P<k3>{_SET_RE})$")
+def _set_onoff(m):
+    return "change_setting", {"setting": m["k"] or m["k2"] or m["k3"], "value": m["v"] or m["v2"] or m["v3"]}
+
+
+@rule(rf"^(?:make |set )?(?:your |the )?(?P<k>{_SET_RE}) (?P<v>higher|lower|longer|shorter|faster|slower|bigger|smaller|louder|quieter|up|down|\d+(?:\.\d+)?(?: ?\w+)?)$"
+      rf"|^(?:increase|raise) (?:your |the )?(?P<k2>{_SET_RE})$|^(?:decrease|reduce|lower) (?:your |the )?(?P<k3>{_SET_RE})$")
+def _set_rel(m):
+    if m["k"]:
+        return "change_setting", {"setting": m["k"], "value": m["v"]}
+    return "change_setting", {"setting": m["k2"] or m["k3"], "value": "up" if m["k2"] else "down"}
+
+
+@rule(r"^(?:make yourself|get|grow|be|become|go) (?:a (?:bit|little|lot) )?(?P<d>bigger|larger|smaller|tinier|huge|tiny|normal size)$|^(?P<d2>shrink|grow)(?: yourself)?$|^(?:reset|normal) (?:your )?size$")
+def _size(m):
+    d = m["d"] or m["d2"] or "normal"
+    v = {"larger": "bigger", "huge": "2", "grow": "bigger", "tinier": "smaller", "tiny": "0.6", "shrink": "smaller",
+         "normal size": "default", "normal": "default"}.get(d, d)
+    return "change_setting", {"setting": "size", "value": v}
+
+
+@rule(r"^(?:speak|talk) (?P<d>louder|softer|quieter|more quietly|more loudly|at normal volume)$|^(?:raise|lower) your voice$")
+def _voice_vol(m):
+    d = m["d"] or ("louder" if m.string.startswith("raise") else "quieter")
+    return "change_setting", {"setting": "voice_volume",
+                              "value": "default" if "normal" in d else "up" if "loud" in d else "down"}
+
+
+@rule(r"^(?:listen|wait) (?P<d>longer|shorter|less|more|a bit longer|a little longer)(?: (?:after|before) .+| for me)?$|^give me (?:more|a bit more) time(?: to .+)?$")
+def _follow_len(m):
+    d = m["d"] or "longer"
+    return "change_setting", {"setting": "follow_up_seconds", "value": "up" if ("long" in d or "more" in d) else "down"}
+
+
+@rule(r"^(?:be|act|talk|become|sound|answer) (?:a (?:bit|little) |more |a bit more |a little more |very )?(?P<p>funny|funnier|serious|formal|professional|brief|concise|detailed|sarcastic|calm|normal|polite|chill|relaxed)(?: from now on| please)?$"
+      r"|^(?:keep|make) (?:your )?(?:answers|replies|responses) (?P<p2>short|shorter|brief|longer|detailed)$|^give (?:me )?(?P<p3>detailed|longer|shorter|short) answers$"
+      r"|^(?:stop being|don't be) (?:so )?(?:funny|sarcastic|formal|serious|brief)$|^(?:switch to |use )?(?P<p4>funny|formal|sarcastic|calm|brief|detailed|normal) (?:mode|personality)$")
+def _personality(m):
+    p = m["p"] or m["p2"] or m["p3"] or m["p4"] or "normal"
+    return "change_setting", {"setting": "personality", "value": p}
+
+
+@rule(r"^(?:stop|no more|quit|cut out) (?:the )?(?:pranks|pranking(?: me)?|being playful|messing around|mischief|tricks)$|^(?:no|don't) prank(?:s| me)?$")
+def _pranks_off(m):
+    return "change_setting", {"setting": "pranks", "value": "off"}
+
+
+@rule(r"^(?:you can |start |go ahead and )?(?:prank(?: me)?|be playful|pranks on|do (?:your )?pranks|play pranks)$")
+def _pranks_on(m):
+    return "change_setting", {"setting": "pranks", "value": "on"}
+
+
+@rule(r"^(?:stop|no more|quit) (?:fidgeting|moving around randomly|the random moves|random moves|idle (?:moves|animations)|dancing)$")
+def _idle_off(m):
+    return "change_setting", {"setting": "idle_moves", "value": "off"}
+
+
+@rule(r"^(?:mute|silence) (?:your )?(?:sounds|beeps|sound effects|effects)$")
+def _sounds_off(m):
+    return "change_setting", {"setting": "sounds", "value": "off"}
+
+
+@rule(r"^(?:what are|show|list|tell me|read|say|open|show me) (?:me )?(?:your|all your|all of your|scar's) settings(?: panel)?$|^your settings$|^settings panel$")
+def _list_settings(m):
+    return "list_settings", {}
+
+
+@rule(r"^reset (?:your |all (?:of )?(?:your )?)?settings(?: to default)?$|^(?:go back to|restore|use) (?:your )?default settings$|^factory reset$")
+def _reset_settings(m):
+    return "reset_settings", {}
+
+
+@rule(r"^(?:change|set) your (?:name|wake word) (?:to )?(?P<n>.+)$|^(?:can i )?call you (?P<n2>.+)$")
+def _rename(m):
+    return "change_setting", {"setting": "name", "value": m["n"] or m["n2"]}
 
 
 # --- time -------------------------------------------------------------------------
@@ -115,6 +247,35 @@ def _next(m):
 @rule(r"^(?:previous|go back)(?: (?:song|track|video))$|^play (?:the )?previous (?:song|track|video)$")
 def _prev(m):
     return "media", {"action": "previous"}
+
+
+@rule(r"^(?:play|click(?: on)?|open|start|watch) (?:the )?(?:first|top|1st) (?:video|result|one|song|link)(?: on youtube)?$|^play (?:the )?(?:top|first) (?:search )?result$")
+def _yt_first(m):
+    return "play_youtube", {}
+
+
+@rule(r"^(?:search|find|look up|look for)(?: for)? (?P<q>.+?) (?:on|in) spotify$|^(?:search )?spotify for (?P<q2>.+)$|^open (?P<q3>.+?) on spotify$")
+def _spotify_search(m):
+    return "spotify", {"action": "search", "query": m["q"] or m["q2"] or m["q3"]}
+
+
+@rule(r"^(?:play|put on) (?P<q>.+?) (?:on|in|using) spotify$")
+def _spotify_play(m):
+    return "spotify", {"action": "play", "query": m["q"]}
+
+
+@rule(r"^(?:search|look up|find|look for|type)(?: for)? (?P<q>.+?) (?:here|in here|over here|in (?:this|the) (?:app|search ?bar|search box|page|site|website|window|search field)"
+      r"|(?:on|into|using) (?:this|the) (?:search ?bar|search box|search field|page|site|website|app)|in the search)$")
+def _search_here(m):
+    return "search_here", {"query": m["q"]}
+
+
+@rule(r"^(?:play|put on|i (?:want|would like|wanna|'d like) to (?:watch|listen to|hear)|can i (?:watch|listen to)) (?P<q>.+?)(?: on youtube| video| song| music video)?$")
+def _play_anything(m):
+    q = m["q"].strip()
+    if q in ("it", "that", "this", "again", "something", "music", "some music", "a song", "anything", "the music", "the video", "my music"):
+        return None
+    return "play_youtube", {"query": q}
 
 
 # --- browser tabs -----------------------------------------------------------------
@@ -593,6 +754,20 @@ def _forget(m):
 
 
 # --- info ------------------------------------------------------------------------------
+@rule(r"^(?:tell me |give me |show me |check |what(?:'s| is) )?(?:the )?(?P<city>[a-z][a-z .]{1,30}?)(?:'s|s)? weather(?: like)?(?: today| now| tomorrow| forecast)?$"
+      r"|^(?:tell me |give me |show me |check |what(?:'s| is) )?(?:the )?weather (?:of|for|at) (?P<city2>[a-z][a-z .]{1,30})$")
+def _city_weather(m):
+    city = (m["city"] or m["city2"]).strip()
+    if re.fullmatch(r"(?:the|today|todays|today's|current|local|my|our|here|how|what|what's|whats|tomorrow|tomorrows|how's the|what's the|what is the)", city):
+        return "weather", {"city": None}
+    return "weather", {"city": city}
+
+
+@rule(r"^(?:tell me |give me |show me |check )(?:the )?weather(?: like)?(?: today| now| tomorrow)?(?: in (?P<city>.+?))?(?: today| now| tomorrow)?$")
+def _weather_tell(m):
+    return "weather", {"city": m["city"]}
+
+
 @rule(r"^(?:what(?:'s| is) the |how(?:'s| is) the )?weather(?: like)?(?: today| now| tomorrow)?(?: in (?P<city>.+?))?(?: today| now| tomorrow)?$|^(?:is it|will it) (?:going to )?(?:rain|be hot|be cold)(?: today| tomorrow)?(?: in (?P<city2>.+))?$")
 def _weather(m):
     return "weather", {"city": m["city"] or m["city2"]}
@@ -625,6 +800,31 @@ def _find(m):
     return "find_file", {"name": m["n"]}
 
 
+_TYPE_APPS = (r"command prompt|cmd|the terminal|terminal|powershell|notepad|word|whatsapp|chrome|the browser|browser|vs code|"
+              r"visual studio code|discord|telegram|the search bar|search bar")
+
+
+@rule(rf"^type (?:out )?(?P<t>.+?) (?:in|on|into|inside|in the) (?:the |my )?(?P<app>{_TYPE_APPS})$")
+def _type_in(m):
+    app = re.sub(r"^the ", "", m["app"])
+    if app == "search bar":
+        return "search_here", {"query": m["t"]}
+    return "type_text", {"text": m["t"], "app": "command prompt" if app == "cmd" else app}
+
+
+@rule(r"^(?:clear|clean|cls) (?:the |my )?(?:command prompt|terminal|cmd|console|powershell)(?: screen| window)?$")
+def _cls(m):
+    return "type_text", {"text": "cls", "enter": True}
+
+
+@rule(r"^(?:set |turn |put )?(?:the )?(?:screen )?brightness (?:to |at |on )?(?P<w>max|maximum|full|min|minimum|lowest|highest|zero|half|fifty percent)$"
+      r"|^(?:set |put )?(?P<w2>max|maximum|full|min|minimum|lowest|highest|zero|half) brightness$")
+def _bright_words(m):
+    w = m["w"] or m["w2"]
+    return "set_brightness", {"level": {"max": 100, "maximum": 100, "full": 100, "highest": 100, "half": 50,
+                                        "fifty percent": 50}.get(w, 0)}
+
+
 @rule(r"^type (?:out )?(?P<t>.+)$")
 def _type(m):
     return "type_text", {"text": m["t"]}
@@ -651,9 +851,15 @@ def _google(m):
     return "web_search", {"engine": "google", "query": m["q"]}
 
 
+@rule(r"^(?:open|show|find) (?:the |my )?(?:document|file|pdf|doc|word file|presentation|ppt|slides|sheet|spreadsheet|excel file) (?:called |named |titled )?(?P<n>.+)$")
+def _open_doc(m):
+    return "find_file", {"name": m["n"]}
+
+
 @rule(r"^(?:open|launch|start|run|go to|take me to) (?P<target>.+)$")
 def _open(m):
     t = re.sub(r"^(?:a|an|the|my|up)\s+", "", m["target"]).strip()
+    t = re.sub(r"\s+(?:in|on) (?:a |the )?(?:new|another|separate) (?:tab|window)$", "", t)
     if re.match(r"^[\w-]+(\.[\w-]+)+(/\S*)?$", t):  # something.com
         return "open_url", {"url": t}
     return "open", {"name": t}
@@ -667,6 +873,8 @@ def _min_all(m):
 
 @rule(rf"^(?P<act>minimi[sz]e|maximi[sz]e|restore|close|quit|exit|kill|focus|bring up|switch to|show me|show) {_WIN}$")
 def _win(m):
+    if m["app"] in ("me", "you", "us", "yourself", "him", "her", "them", "me that", "me it", "up", "off", "around"):
+        return None
     act = m["act"]
     action = ("minimize" if act.startswith("minim") else "maximize" if act.startswith("maxim") else
               "close" if act in ("close", "quit", "exit", "kill") else "restore" if act == "restore" else "focus")
@@ -729,7 +937,7 @@ def keyword_route(t: str):
     if "screenshot" in t:
         return "screenshot", {}
     if re.search(r"\b(?:on|at|see|look at|read) (?:my|the|this) screen\b", t):
-        return "look_at_screen", {"question": "What's on my screen? Describe it briefly."}
+        return "look_at_screen", {"question": t if len(t.split()) >= 5 else "What's on my screen? Describe it briefly."}
     if "weather" in t or re.search(r"\b(?:rain|temperature)\b.*\b(?:today|tomorrow|outside)\b", t):
         m = _CITY.search(t)
         return "weather", {"city": m.group(1).strip() if m and m.group(1).strip() not in ("the", "here", "my area") else None}

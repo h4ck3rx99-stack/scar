@@ -234,3 +234,67 @@ async def find_element(w: Window, query: str):
 
 async def invoke(ctrl):
     return await run(_invoke, ctrl, timeout=3)
+
+
+def _find_search_box(hwnd, max_nodes=3000, budget_s=2.0):
+    """The window's search field: a focused edit box, else an edit/combo box named or hinted like 'search'."""
+    import time
+    root = _auto.ControlFromHandle(hwnd)
+    if root is None:
+        return None
+    try:
+        foc = _auto.GetFocusedControl()
+        if foc and foc.ControlTypeName in ("EditControl", "ComboBoxControl") and "search" in (
+                (foc.Name or "") + (foc.AutomationId or "") + (foc.HelpText or "")).lower():
+            return foc
+    except Exception:  # noqa: BLE001
+        pass
+    queue, seen, fallback = [root], 0, None
+    t0 = time.monotonic()
+    while queue and seen < max_nodes and time.monotonic() - t0 < budget_s:
+        ctrl = queue.pop(0)
+        seen += 1
+        try:
+            children = ctrl.GetChildren()
+        except Exception:  # noqa: BLE001
+            continue
+        for c in children:
+            queue.append(c)
+            try:
+                kind = c.ControlTypeName
+                if kind not in ("EditControl", "ComboBoxControl"):
+                    continue
+                hint = ((c.Name or "") + " " + (c.AutomationId or "") + " " + (c.HelpText or "")).lower()
+                r = c.BoundingRectangle
+                if r.width() < 20:
+                    continue
+                if "search" in hint or "what do you want" in hint or "find" in hint:
+                    return c
+                if fallback is None and "address" not in hint and "url" not in hint:
+                    fallback = c
+            except Exception:  # noqa: BLE001
+                continue
+    return fallback
+
+
+def _type_into(ctrl, text):
+    """Focus the field, replace its text, press Enter."""
+    ctrl.SetFocus()
+    try:
+        vp = ctrl.GetValuePattern()
+        vp.SetValue(text)
+    except Exception:  # noqa: BLE001 - not every field supports ValuePattern: type it instead
+        ctrl.Click(simulateMove=False)
+        _auto.SendKeys("{Ctrl}a", waitTime=0.05)
+        _auto.SendKeys(text.replace("{", "{{}").replace("}", "{}}"), interval=0.005, waitTime=0.05)
+    _auto.SendKeys("{Enter}", waitTime=0.05)
+    r = ctrl.BoundingRectangle
+    return Rect(r.left, r.top, r.right, r.bottom)
+
+
+async def search_in(w: Window, text: str):
+    """Type a query into the window's own search bar. Returns the box's rect, or None if there is none."""
+    box = await run(_find_search_box, w.hwnd, timeout=4)
+    if box is None:
+        return None
+    return await run(_type_into, box, text, timeout=4)

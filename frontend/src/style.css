@@ -598,3 +598,88 @@ body.theme-light {
   from { transform: scale(0.6); opacity: 1; }
   to { transform: scale(5); opacity: 0; }
 }
+
+/* Scar's Settings panel (right-click → ⚙ Settings, or "open your settings") */
+.settings-panel {
+  position: fixed;
+  display: none;
+  flex-direction: column;
+  width: 280px;
+  background: rgba(14, 18, 28, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75);
+  z-index: 510;
+  color: var(--text-main);
+  animation: popIn 0.18s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+.settings-panel.visible { display: flex; }
+.settings-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 2px 6px;
+  scrollbar-width: thin;
+}
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: default;
+}
+.settings-row.range { grid-template-columns: 1fr 52px; }
+.settings-row.range .settings-label { grid-column: 1 / -1; }
+.settings-row input[type='range'] { width: 100%; accent-color: var(--accent-cyan); }
+.settings-val { font-size: 10px; color: var(--accent-cyan); text-align: right; font-variant-numeric: tabular-nums; }
+.settings-row select,
+.settings-row input[type='text'] {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-main);
+  border-radius: 5px;
+  font-size: 11px;
+  padding: 3px 6px;
+  width: 120px;
+}
+.settings-row select option { background: #111722; }
+.settings-row.toggle { cursor: pointer; }
+.settings-row.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.settings-switch {
+  width: 30px;
+  height: 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  position: relative;
+  transition: background 0.15s ease;
+}
+.settings-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+.settings-row.toggle input:checked + .settings-switch { background: var(--accent-cyan); }
+.settings-row.toggle input:checked + .settings-switch::after { transform: translateX(14px); }
+.settings-row.toggle input:focus-visible + .settings-switch { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+.settings-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+}
+.settings-tip { font-size: 9.5px; color: var(--text-dim); line-height: 1.35; }

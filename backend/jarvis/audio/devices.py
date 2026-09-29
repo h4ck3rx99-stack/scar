@@ -68,6 +68,7 @@ class Speaker:
         self.loop = loop
         self.on_level = on_level
         self.reference = reference   # aec.ReferenceBuffer: gets exactly what is played, for echo cancellation
+        self.gain = 1.0              # Scar's own voice volume ("speak louder"), separate from the Windows volume
         self._chunks = collections.deque()
         self._lock = threading.Lock()
         self._idle = asyncio.Event()
@@ -118,6 +119,8 @@ class Speaker:
             samples = np.interp(idx, np.arange(len(samples)), samples).astype(np.float32)
         if not len(samples):
             return
+        if self.gain != 1.0:
+            samples = np.clip(samples * self.gain, -1.0, 1.0).astype(np.float32)
         self._idle.clear()
         with self._lock:
             self._chunks.append(samples)

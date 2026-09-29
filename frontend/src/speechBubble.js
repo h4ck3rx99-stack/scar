@@ -15,6 +15,7 @@ export class SpeechBubble {
     this.container = null;
     this.timeout = null;
     this.headOffset = 0.85; // world units above the robot's centre; main.js keeps it in sync with the robot's size
+    this.enabled = true;     // Settings: "speech bubbles off" (info cards like the settings list still show)
     this.ttsEnabled = false; // Strictly OFF by default - no robotic ghost voice!
     this.speechSynth = window.speechSynthesis || null;
     if (this.speechSynth) {
@@ -48,6 +49,7 @@ export class SpeechBubble {
     } = options;
 
     if (!this.container) return;
+    if (!this.enabled && !options.force) return;
 
     clearTimeout(this.timeout);
 

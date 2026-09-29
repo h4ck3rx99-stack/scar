@@ -17,7 +17,7 @@ WM_SYSCOMMAND, SC_CLOSE = 0x0112, 0xF060
 SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
 MONITOR_DEFAULTTONEAREST = 2
 KEYEVENTF_KEYUP = 0x2
-VK = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B, "tab": 0x09, "w": 0x57, "t": 0x54,
+VK = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B, "tab": 0x09, "w": 0x57, "t": 0x54, "f4": 0x73,
       "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD, "play_pause": 0xB3, "next": 0xB0, "previous": 0xB1}
 
 
@@ -147,10 +147,16 @@ def next_monitor_rect(w: Window):
     return Rect(round(left), round(top), round(left + width), round(top + height))
 
 
-def real_click(x, y):
+def real_click(x, y, restore=True):
+    """A genuine mouse click at (x, y); the pointer goes back where it was, so the user barely notices."""
+    old = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(old))
     user32.SetCursorPos(int(x), int(y))
     user32.mouse_event(0x0002, 0, 0, 0, 0)
     user32.mouse_event(0x0004, 0, 0, 0, 0)
+    if restore:
+        time.sleep(0.05)
+        user32.SetCursorPos(old.x, old.y)
 
 
 # ------------------------------------------------------------------ open things
@@ -161,6 +167,7 @@ SITES = {
     "amazon": "https://www.amazon.in", "instagram": "https://www.instagram.com", "linkedin": "https://www.linkedin.com",
     "twitter": "https://x.com", "x": "https://x.com", "reddit": "https://www.reddit.com", "maps": "https://maps.google.com",
     "stack overflow": "https://stackoverflow.com", "spotify web": "https://open.spotify.com",
+    "nxtwave": "https://learning.ccbp.in", "next wave": "https://learning.ccbp.in", "ccbp": "https://learning.ccbp.in",
 }
 SEARCH = {
     "youtube": "https://www.youtube.com/results?search_query={}", "google": "https://www.google.com/search?q={}",
@@ -186,6 +193,29 @@ def _start_menu_shortcuts():
                 if "uninstall" not in name and "readme" not in name:
                     items.setdefault(name, lnk)
     return items
+
+
+_apps_cache = {"at": 0.0, "apps": {}}
+
+
+def _start_apps():
+    """Every app in the Start menu including Microsoft Store apps (WhatsApp, Spotify from the Store, Netflix...),
+    as {lower name: AppUserModelID}. Cached for 10 minutes; the PowerShell call takes ~1 s."""
+    import json
+    import subprocess
+    if time.time() - _apps_cache["at"] < 600 and _apps_cache["apps"]:
+        return _apps_cache["apps"]
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-StartApps | ConvertTo-Json -Compress"],
+                             capture_output=True, text=True, timeout=8, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+        data = json.loads(out or "[]")
+        data = [data] if isinstance(data, dict) else data
+        apps = {d["Name"].lower(): d["AppID"] for d in data if d.get("Name") and d.get("AppID")
+                and "uninstall" not in d["Name"].lower()}
+        _apps_cache.update(at=time.time(), apps=apps)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return _apps_cache["apps"]
 
 
 def open_url(url: str):
@@ -216,6 +246,12 @@ def open_app(name: str):
     match = process.extractOne(key, shortcuts.keys(), scorer=fuzz.WRatio, score_cutoff=85)
     if match:
         os.startfile(str(shortcuts[match[0]]))
+        return match[0]
+    apps = _start_apps()
+    match = process.extractOne(key, apps.keys(), scorer=fuzz.WRatio, score_cutoff=86)
+    if match:
+        import subprocess
+        subprocess.Popen(["explorer.exe", "shell:AppsFolder\\" + apps[match[0]]])
         return match[0]
     if key in SITES:
         open_url(SITES[key])

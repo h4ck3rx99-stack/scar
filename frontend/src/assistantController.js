@@ -47,7 +47,29 @@ export class AssistantController {
 
   /** True while this controller owns the avatar's transform (roam/mischief must not move it). */
   get busy() {
-    return ['entry', 'flying', 'tapping', 'carrying', 'to_sleep', 'sleeping', 'waking', 'standby', 'fidget', 'placing'].includes(this.mode);
+    return ['entry', 'flying', 'tapping', 'carrying', 'to_sleep', 'sleeping', 'waking', 'standby', 'fidget', 'placing', 'held'].includes(this.mode);
+  }
+
+  /** Can the user pick the robot up right now? Anything but a task in progress (pressing a button, carrying a window). */
+  get draggable() {
+    return !['entry', 'flying', 'tapping', 'carrying', 'standby', 'to_sleep', 'waking'].includes(this.mode);
+  }
+
+  /** Picked up by the mouse: drop whatever it was doing (idle move, nap, flight to a spot). */
+  pickUp() {
+    this.kill();
+    this.idleLife.stop();
+    this.pauseRoam();
+    this.mode = 'held';
+    this.dragging = true;
+  }
+
+  /** Let go: stay exactly where it was dropped (until told to roam again). */
+  drop() {
+    this.dragging = false;
+    this.parked = true;
+    this.roamEngine.setEnabled(false);          // re-anchors the hover to the drop point (no snapping back)
+    this.mode = 'attentive';
   }
 
   get frameRate() {
@@ -62,8 +84,11 @@ export class AssistantController {
     b.on('summon', (m) => this.summon(m));
     b.on('voice_state', (m) => this.onVoiceState(m));
     b.on('say', (m) => {
+      // Cards that start with an icon (settings, self check, phone PIN) show even with bubbles off, and stay longer.
+      const card = /^\p{Extended_Pictographic}/u.test(m.text);
       this.speechBubble.show(m.text, {
-        chime: false, type: 'normal', duration: Math.min(9000, Math.max(2500, 1200 + m.text.length * 55)),
+        chime: false, type: 'normal', force: card,
+        duration: Math.min(card ? 20000 : 9000, Math.max(2500, 1200 + m.text.length * 55)),
       });
       // The face reacts to what Scar is saying.
       if (!['carrying', 'standby', 'sleeping'].includes(this.mode)) this.eyeVisor.setExpression(emotionFor(m.text));
@@ -82,6 +107,7 @@ export class AssistantController {
   // ------------------------------------------------------------------ helpers
   kill() {
     clearTimeout(this.resumeTimer);
+    this.idleLife?.stop();
     gsap.killTweensOf(this.avatarRoot.position);
     gsap.killTweensOf(this.avatarRoot.rotation);
     gsap.killTweensOf(this.avatarRoot.scale);
@@ -380,6 +406,7 @@ export class AssistantController {
     p.x += (target.x - p.x) * 0.25;
     p.y += (target.y - p.y) * 0.25;
     if (this.roamEngine.enabled) this.roamEngine.currentPos.set(p.x, p.y, p.z);
+    else { this.roamEngine.anchor.x = p.x; this.roamEngine.anchor.y = p.y; }   // hovering: move the anchor too, or it pulls back out
   }
 
   /** Height of the Windows taskbar at the bottom of this display, in CSS px (the robot shouldn't hide behind it). */
