@@ -8,8 +8,9 @@ import { Document, NodeIO } from '@gltf-transform/core';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const THEMES = {
-  dark: { obj: 'assets/dark/model.obj', tex: 'assets/dark', prefix: 'futuristic-robot-head-3d-model-oorbmzoygnj_Material_01_' },
-  light: { obj: 'assets/light/model.obj', tex: 'assets/light', prefix: 'futuristic-robot-head-3d-model-aoomgkoejcj_Material_01_' },
+  // symKeep: mirror the head from its +z half (both ears end up tall and equal; the source's are uneven).
+  dark: { obj: 'assets/dark/model.obj', tex: 'assets/dark', prefix: 'futuristic-robot-head-3d-model-oorbmzoygnj_Material_01_', symKeep: 1 },
+  light: { obj: 'assets/light/model.obj', tex: 'assets/light', prefix: 'futuristic-robot-head-3d-model-aoomgkoejcj_Material_01_', symKeep: 1 },
 };
 const BASE_SIZE = 2048;
 const ORM_SIZE = 1024;
@@ -61,8 +62,63 @@ async function readMap(dir, prefix, name, size) {
   return sharp(path.join(ROOT, dir, `${prefix}${name}.png`)).resize(size, size);
 }
 
+/**
+ * Make the head mirror-symmetric (the source model's ears/antennae are uneven). The head (above HEAD_MIN_Y) is
+ * cut exactly along its centre plane z = c - triangles crossing the plane are clipped, not dropped - the kept
+ * half is copied mirrored onto the other side, so both halves meet on identical seam vertices (no crack).
+ * keep: +1 keeps the z > c half, -1 the z < c half. The body is left untouched.
+ */
+const HEAD_MIN_Y = -0.155;
+
+function symmetrizeHead(mesh, keep) {
+  const P = mesh.pos, N = mesh.nrm, T = mesh.uv, I = mesh.idx;
+  // Centre plane: middle of the helmet shell below the ears.
+  let zmin = Infinity, zmax = -Infinity;
+  for (let v = 0; v < P.length / 3; v++) {
+    const y = P[v * 3 + 1];
+    if (y > -0.1 && y < 0.25) { zmin = Math.min(zmin, P[v * 3 + 2]); zmax = Math.max(zmax, P[v * 3 + 2]); }
+  }
+  const c = (zmin + zmax) / 2;
+  const pos = [], nrm = [], uv = [], idx = [];
+  const vert = (v) => ({ p: [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], n: [N[v * 3], N[v * 3 + 1], N[v * 3 + 2]], t: [T[v * 2], T[v * 2 + 1]] });
+  const lerp = (a, b, s) => ({
+    p: a.p.map((x, k) => x + (b.p[k] - x) * s), n: a.n.map((x, k) => x + (b.n[k] - x) * s), t: a.t.map((x, k) => x + (b.t[k] - x) * s),
+  });
+  const emit = (poly) => {
+    const base = pos.length / 3;
+    for (const q of poly) { pos.push(...q.p); nrm.push(...q.n); uv.push(...q.t); }
+    for (let k = 1; k < poly.length - 1; k++) idx.push(base, base + k, base + k + 1);
+  };
+  const mirror = (poly) => poly.map((q) => ({ p: [q.p[0], q.p[1], 2 * c - q.p[2]], n: [q.n[0], q.n[1], -q.n[2]], t: q.t })).reverse();
+  for (let f = 0; f < I.length; f += 3) {
+    const tri = [vert(I[f]), vert(I[f + 1]), vert(I[f + 2])];
+    const isHead = (tri[0].p[1] + tri[1].p[1] + tri[2].p[1]) / 3 > HEAD_MIN_Y;
+    if (!isHead) { emit(tri); continue; }
+    // Sutherland-Hodgman clip against the kept half-space  keep * (z - c) >= 0.
+    const side = (q) => keep * (q.p[2] - c);
+    const out = [];
+    for (let k = 0; k < 3; k++) {
+      const a = tri[k], b = tri[(k + 1) % 3];
+      const sa = side(a), sb = side(b);
+      if (sa >= 0) out.push(a);
+      if ((sa >= 0) !== (sb >= 0)) {
+        const q = lerp(a, b, sa / (sa - sb));
+        q.p[2] = c;   // exactly on the plane, so both halves share the seam
+        out.push(q);
+      }
+    }
+    if (out.length >= 3) { emit(out); emit(mirror(out)); }
+  }
+  return { pos: new Float32Array(pos), nrm: new Float32Array(nrm), uv: new Float32Array(uv), idx: new Uint32Array(idx), plane: c };
+}
+
 async function buildTheme(theme, cfg) {
-  const mesh = parseObj(fs.readFileSync(path.join(ROOT, cfg.obj), 'utf8'));
+  let mesh = parseObj(fs.readFileSync(path.join(ROOT, cfg.obj), 'utf8'));
+  const keep = Number(process.env[`SYM_${theme.toUpperCase()}`] ?? cfg.symKeep ?? 0);
+  if (keep) {
+    mesh = symmetrizeHead(mesh, keep);
+    console.log(`${theme}: head mirrored (kept ${keep > 0 ? '+z' : '-z'} half, plane z=${mesh.plane.toFixed(3)})`);
+  }
   const doc = new Document();
   const buffer = doc.createBuffer();
 

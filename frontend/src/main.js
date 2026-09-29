@@ -457,5 +457,5 @@ if (!ipcRenderer) {
       animate(performance.now(), true);
     }
   };
-  window.__jarvis = { controller, avatarRoot, space, state, bridge, camera, renderer, setModelMode, step, statusRing, updateScale };
+  window.__jarvis = { controller, avatarRoot, space, state, bridge, camera, renderer, setModelMode, step, statusRing, updateScale, gltfLoader, THREE, scene };
 }
