@@ -46,7 +46,8 @@ def name_call(text: str):
     if not words:
         return None
     first, name = words[0], config.NAME.lower()
-    spellings = {name, "skar", "scarr", "scaar", "sccar", "skarr"} if name == "scar" else {name}
+    # Whisper's usual spellings of "Scar" (from real logs: "Scott.").
+    spellings = {name, "skar", "scarr", "scaar", "sccar", "skarr", "scott", "scot", "skaar"} if name == "scar" else {name}
     if first in _NOT_NAME or (first not in spellings and fuzz.ratio(first, name) < 86):
         return None
     return " ".join(text.split()[len(text.split()) - len(words) + 1:]).strip(" ,.!?")
@@ -317,6 +318,8 @@ class Session:
                 self.follow_up_chain = 0
                 await self._set(State.IDLE)
                 return
+            if outcome == "end":
+                self.timings["no_follow_up"] = True   # "thanks" closes the conversation
             await self.speech.wait_done()
             await self._after_turn()
         except asyncio.CancelledError:

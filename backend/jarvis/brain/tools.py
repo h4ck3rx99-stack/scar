@@ -571,11 +571,11 @@ class Tools:
     # ----------------------------------------------------------------- info
     async def t_weather(self, city=None, from_router=False):
         w = await web.weather(city)
-        return w if w else "Weather is unavailable (no internet connection)."
+        return w if w else "The weather service didn't respond (slow network). Suggest trying again in a moment."
 
     async def t_wikipedia(self, topic, from_router=False):
         w = await web.wikipedia(topic)
-        return f"{w['title']}: {w['summary']}" if w else f"Couldn't look up {topic} (offline or no article)."
+        return f"{w['title']}: {w['summary']}" if w else f"Wikipedia had no article on {topic} or didn't respond; answer from your own knowledge if you can."
 
     async def t_calculate(self, expression, from_router=False):
         try:

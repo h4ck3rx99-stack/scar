@@ -170,7 +170,7 @@ def foreground_window():
     return wins[0] if wins else None
 
 
-_FILLER = re.compile(r"\b(the|my|a|window|app|application|tab|please)\b")
+_FILLER = re.compile(r"\b(the|my|a|this|that|current|window|app|application|tab|please)\b")
 
 
 def normalize(name: str) -> str:

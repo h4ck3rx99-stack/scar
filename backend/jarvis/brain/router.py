@@ -2,7 +2,7 @@
 Returns (tool_name, args) matching the tool schema in tools.py, or None to fall through to the LLM."""
 import re
 
-_PREFIX = re.compile(r"^(?:(?:hey|hi|ok|okay|yo)\s+)?(?:(?:jarvis|scar)\W*\s*)?(?:(?:please|can you|could you|would you|will you|kindly|just|now|and|then|also)\s+)*")
+_PREFIX = re.compile(r"^(?:(?:hey|hi|ok|okay|yo)\s+)?(?:(?:jarvis|scar|skar|scott)\W*\s*)?(?:(?:please|can you|could you|would you|will you|kindly|just|now|and|then|also|so|okay|i want you to|i need you to|go ahead and|try to|quickly)\s+)*")
 _SUFFIX = re.compile(r"\s+(?:please|for me|now|right now|thanks|thank you)$")
 _NUM = {"one": "1", "two": "2", "three": "3", "four": "4", "nine": "9", "sixteen": "16", "twenty one": "21"}
 
@@ -337,7 +337,7 @@ def _google(m):
 
 @rule(r"^(?:open|launch|start|run|go to|take me to) (?P<target>.+)$")
 def _open(m):
-    t = m["target"]
+    t = re.sub(r"^(?:a|an|the|my|up)\s+", "", m["target"]).strip()
     if re.match(r"^[\w-]+(\.[\w-]+)+(/\S*)?$", t):  # something.com
         return "open_url", {"url": t}
     return "open", {"name": t}
@@ -384,12 +384,70 @@ def _size(m):
     return "resize_window", {"app": m["app"], "preset": preset}
 
 
-def route(text: str):
-    t = clean(text)
-    if not t:
-        return None
+def _route_one(t):
     for pattern, fn in RULES:
         m = pattern.match(t)
         if m:
-            return fn(m)
+            hit = fn(m)
+            if hit is None:
+                continue
+            args = hit[1]
+            # An "app name" that is really half a sentence means the rule misfired.
+            for key in ("app", "name"):
+                if key in args and len(str(args[key]).split()) > 4:
+                    hit = None
+            if hit:
+                return hit
     return None
+
+
+_CITY = re.compile(r"\b(?:in|at|for) ([a-z][a-z .]{2,30}?)(?: today| now| tomorrow|$)")
+
+
+def keyword_route(t: str):
+    """Last resort for short utterances the exact rules missed: one unmistakable keyword decides."""
+    if len(t.split()) > 12:
+        return None
+    if "standby" in t:
+        return "standby", {}
+    if "screenshot" in t:
+        return "screenshot", {}
+    if re.search(r"\b(?:on|at|see|look at|read) (?:my|the|this) screen\b", t):
+        return "look_at_screen", {"question": "What's on my screen? Describe it briefly."}
+    if "weather" in t or re.search(r"\b(?:rain|temperature)\b.*\b(?:today|tomorrow|outside)\b", t):
+        m = _CITY.search(t)
+        return "weather", {"city": m.group(1).strip() if m and m.group(1).strip() not in ("the", "here", "my area") else None}
+    if re.search(r"\bbattery\b", t):
+        return "system_status", {"what": "battery"}
+    m = re.search(r"\btimer\b", t)
+    if m:
+        from jarvis.skills.reminders import parse_duration
+        if parse_duration(t):
+            return "set_timer", {"duration": t}
+    if re.search(r"\bvolume (?:up|higher|louder)\b|\blouder\b", t):
+        return "media", {"action": "volume_up"}
+    if re.search(r"\bvolume (?:down|lower)\b|\bquieter\b", t):
+        return "media", {"action": "volume_down"}
+    return None
+
+
+def route_all(text: str):
+    """Every distinct routing of the utterance's phrasings, best first (the agent tries them in order)."""
+    from jarvis.brain.normalize import candidates
+    cands = candidates(text)
+    hits = []
+    for cand in cands:
+        t = clean(cand)
+        hit = _route_one(t) if t else None
+        if hit and hit not in hits:
+            hits.append(hit)
+    if not hits:
+        hit = keyword_route(clean(cands[-1]))
+        if hit:
+            hits.append(hit)
+    return hits
+
+
+def route(text: str):
+    hits = route_all(text)
+    return hits[0] if hits else None

@@ -12,7 +12,8 @@ import time
 
 from jarvis import config
 from jarvis.brain.llm import LLM
-from jarvis.brain.router import route
+from jarvis.brain.normalize import fix
+from jarvis.brain.router import route_all
 from jarvis.brain.tools import DATA_TOOLS, FALLTHROUGH, IGNORE_TOOL, SCHEMA, Tools
 from jarvis.skills import store
 
@@ -31,10 +32,11 @@ FOLLOW_UP_RULE = """
 IMPORTANT: this message was picked up WITHOUT the wake word, right after you spoke. It may be background talk, a video,
 or someone speaking to another person. If it is not clearly a request or question for you, call `ignore` and nothing else."""
 
-ANSWER_SYSTEM = """You are Jarvis, a voice assistant. Using the tool results, answer the user's request in 1-3 short spoken
-sentences. No lists, markdown or emojis. Round numbers sensibly."""
+ANSWER_SYSTEM = """You are Scar, a voice assistant. Using the tool results, answer the user's request in 1-3 short spoken
+sentences. No lists, markdown or emojis. Round numbers sensibly. If a tool says a service could not be reached,
+say that service didn't respond and suggest trying again; don't claim the whole PC is offline."""
 
-VISION_SYSTEM = """You are Jarvis, a voice assistant looking at a screenshot of the user's screen. Answer their question about it
+VISION_SYSTEM = """You are Scar, a voice assistant looking at a screenshot of the user's screen. Answer their question about it
 in 1-4 short spoken sentences: be specific (name the app, the error, the key point). No markdown or lists.
 OCR text from the same screen is included to help with small text."""
 
@@ -86,22 +88,24 @@ class Agent:
         text = text.strip()
         if not text:
             return None
-        hit = route(text)
-        if hit:
-            name, args = hit
+        for name, args in route_all(text):
             timings["route"] = "router"
             if name in ("stop", "go_to_sleep", "standby"):
                 await self.on_control(name)
                 return None
+            if follow_up and name == "confirm" and self.tools.pending_confirm is None:
+                return "ignored"          # a stray "yes" / "no" after an answer: nothing to do
             log.info("router -> %s %s", name, args)
             result = await self.tools.call(name, args, from_router=True)
-            if result is not FALLTHROUGH:
-                timings["first_action"] = time.perf_counter()
-                if name in DATA_TOOLS or isinstance(result, dict):
-                    await self._answer_from(text, name, args, result, timings)
-                else:
-                    self.memory.add(text, f"[{name} {args}] {result}")
-                return None
+            if result is FALLTHROUGH:
+                continue                  # e.g. "open opera bukhachot" isn't an app: try the next phrasing
+            timings["first_action"] = time.perf_counter()
+            if name in DATA_TOOLS or isinstance(result, dict):
+                await self._answer_from(text, name, args, result, timings)
+            else:
+                self.memory.add(text, f"[{name} {args}] {result}")
+            return "end" if name == "smalltalk" else None
+        text = fix(text)
         if follow_up and len(text.split()) > 30:
             log.info("ignoring long follow-up utterance (likely background talk)")
             return "ignored"

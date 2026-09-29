@@ -6,8 +6,11 @@ using free public services that need no account or key.
 
 ## Start
 
-Double-click `Launch_Desktop_Assistant.bat`. The robot flies in and says "Scar online".
-Quit from the tray icon (yellow dot) or right-click the robot → Quit.
+- **`Start_Scar.bat`**: double-click to start. It stops any old copy, rebuilds the UI, and launches. After about 10 s the robot flies in and says "Scar online".
+- **`Stop_Scar.bat`**: stops everything. The tray icon (yellow dot) or right-click on the robot → Quit also work.
+- **`Start_Scar_Debug.bat`**: the same, but the brain runs in a visible window, so you can see exactly what it heard and did.
+
+Weather uses your internet location. On slow Wi-Fi you can pin a city in `backend/.env`: `JARVIS_CITY=Bengaluru`.
 
 ## Talking to it
 

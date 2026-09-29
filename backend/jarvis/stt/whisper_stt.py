@@ -14,12 +14,11 @@ from jarvis.gpu import add_nvidia_dll_dirs
 
 log = logging.getLogger("stt")
 
-# App names the recogniser should spell correctly.
-HOTWORDS = "Scar, Jarvis, Chrome, Opera, VS Code, Spotify, YouTube, Notepad, Paint, Discord, WhatsApp, Instagram"
-
+# No initial_prompt: on unclear audio Whisper pastes the prompt's words into the transcript
+# ("Scar, Jarvis, Chrome, and XS, ..."). Mishearings are fixed afterwards in brain/normalize.py instead.
 DECODE = dict(
     language="en", beam_size=1, temperature=0.0, vad_filter=False, condition_on_previous_text=False,
-    without_timestamps=True, no_repeat_ngram_size=3, initial_prompt=HOTWORDS,
+    without_timestamps=True, no_repeat_ngram_size=3,
 )
 
 
