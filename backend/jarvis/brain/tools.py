@@ -146,6 +146,16 @@ SCHEMA += [
         {"title": S, "when": {"type": "string", "description": "e.g. 'every monday at 9 am', 'friday at 4:30 pm', 'tomorrow at 10'"}}, ["title", "when"]),
     _fn("remove_event", "Remove a class or event from the schedule.", {"title": S}, ["title"]),
     _fn("my_schedule", "The schedule for a day.", {"day": {"type": "string", "description": "today, tomorrow or a weekday"}}),
+    _fn("pomodoro", "Start or stop Pomodoro focus sessions (25 min work, 5 min break).",
+        {"action": {"type": "string", "enum": ["start", "stop"]}, "work_minutes": I, "break_minutes": I}, ["action"]),
+    _fn("stopwatch", "Stopwatch.", {"action": {"type": "string", "enum": ["start", "lap", "stop", "check"]}}, ["action"]),
+    _fn("chance", "Flip a coin, roll a die or pick a random number.",
+        {"kind": {"type": "string", "enum": ["coin", "dice", "number"]}, "low": I, "high": I}, ["kind"]),
+    _fn("convert", "Convert units (km, miles, kg, pounds, celsius, liters, GB...) or currencies (rupees, dollars, euros...).",
+        {"amount": {"type": "number"}, "from_unit": S, "to_unit": S}, ["amount", "from_unit", "to_unit"]),
+    _fn("news", "Latest news headlines, optionally on a topic.", {"topic": S}),
+    _fn("define", "Dictionary definition of a word.", {"word": S}, ["word"]),
+    _fn("internet_check", "Check the internet connection / public IP."),
     _fn("voice_style", "Change Scar's voice (male, female, british, deep, butler...) or speaking speed (faster/slower/normal).",
         {"voice": S, "speed": {"type": "string", "enum": ["faster", "slower", "normal"]}}),
 ]
@@ -155,7 +165,7 @@ IGNORE_TOOL = _fn("ignore", "The message was not meant for you (background talk,
 # Tools that return information for the LLM to phrase, instead of speaking a fixed confirmation.
 DATA_TOOLS = {"list_windows", "read_screen", "system_status", "list_reminders", "read_notes", "list_todos", "weather",
               "wikipedia", "clipboard", "briefing", "look_at_screen", "web_research", "now_playing", "recall", "my_activity",
-              "search_my_files", "ask_file", "list_routines", "my_schedule"}
+              "search_my_files", "ask_file", "list_routines", "my_schedule", "news", "define"}
 
 
 class Tools:
@@ -924,6 +934,56 @@ class Tools:
     async def t_my_schedule(self, day="today", from_router=False):
         from jarvis.skills import schedule
         return schedule.describe_day(day or "today")
+
+    # ------------------------------------------------------------ extras
+    async def t_pomodoro(self, action="start", work_minutes=25, break_minutes=5, from_router=False):
+        if action == "stop":
+            n = self.scheduler.cancel("timer")
+            await self.speak("Pomodoro stopped." if n else "No Pomodoro running.")
+            return "done"
+        work, rest = int(work_minutes or 25), int(break_minutes or 5)
+        t = time.time()
+        for i in range(4):   # four work/break rounds, the classic set
+            t += work * 60
+            self.scheduler.add(f"Focus session {i + 1} done. Take a {rest} minute break" if i < 3 else
+                               "That's four focus sessions. Take a long break, you earned it", t, "timer")
+            if i < 3:
+                t += rest * 60
+                self.scheduler.add(f"Break's over. Focus session {i + 2}, go", t, "timer")
+        await self.speak(f"Pomodoro started: {work} minutes of focus, then a {rest} minute break. I'll keep time.")
+        return "done"
+
+    async def t_stopwatch(self, action="check", from_router=False):
+        from jarvis.skills import extras
+        await self.speak(extras.stopwatch(action))
+        return "done"
+
+    async def t_chance(self, kind="coin", low=1, high=100, from_router=False):
+        from jarvis.skills import extras
+        await self.speak(extras.chance(kind, int(low or 1), int(high or 100)))
+        return "done"
+
+    async def t_convert(self, amount, from_unit, to_unit, from_router=False):
+        from jarvis.skills import extras
+        await self.speak(await extras.convert(float(amount), from_unit, to_unit))
+        return "done"
+
+    async def t_news(self, topic=None, from_router=False):
+        from jarvis.skills import extras
+        items = await extras.headlines(topic)
+        if not items:
+            return "The news service didn't respond. Suggest trying again in a moment."
+        return f"Top headlines{' about ' + topic if topic else ''}: " + " | ".join(items)
+
+    async def t_define(self, word, from_router=False):
+        from jarvis.skills import extras
+        d = await extras.define(word)
+        return f"{word}: {d}" if d else f"No dictionary entry for {word}; explain it from your own knowledge."
+
+    async def t_internet_check(self, from_router=False):
+        from jarvis.skills import extras
+        await self.speak(await extras.internet_check())
+        return "done"
 
     async def t_smalltalk(self, kind, from_router=False):
         await self.speak("Anytime.")

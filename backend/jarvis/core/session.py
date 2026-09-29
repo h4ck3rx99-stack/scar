@@ -84,6 +84,8 @@ class Session:
         self.aec = self.aec_ref = None  # echo canceller + what the speaker played (set up by __main__)
         self.aec_saved = time.monotonic()
         self.enrolling = 0            # enrollment lines still to be read ("learn my voice")
+        self.always_listen = config.ALWAYS_LISTEN   # act on requests without the name (not in standby)
+        self.mic_on = True            # privacy switch: off = ignore the mic except click / hotkey turns
         self.dictating = False        # every utterance is typed out until "stop dictation"
         vp = runtime.voiceprint
         self.voice_filter = bool(vp is not None and vp.enrolled and config.ONLY_MY_VOICE)
@@ -172,6 +174,19 @@ class Session:
             from jarvis.core.proactive import prefs
             prefs.save({"suggestions": name == "suggestions_on"})
             await say("Suggestions back on." if name == "suggestions_on" else "Okay, no more suggestions unless you ask.")
+        elif name in ("listen_always", "listen_on_call"):
+            self.always_listen = name == "listen_always"
+            await say("Okay, I'm always listening. No need to say my name." if self.always_listen
+                      else f"Okay, I'll only respond when you say {config.NAME}.")
+        elif name in ("mic_off", "mic_on"):
+            self.mic_on = name == "mic_on"
+            await self.ui.send("say", text="🎙 Mic on" if self.mic_on else "🔇 Mic off: click me or press Ctrl+Shift+Space to talk")
+            await say("Mic's on." if self.mic_on else "Mic off. Click me or press Control Shift Space when you need me.")
+        elif name == "place":
+            spot = (args or {}).get("spot", "here")
+            await self.ui.send("place", spot=spot, park=spot != "roam")
+            await say(random.choice(["On my way.", "Sure.", "Moving."]) if spot not in ("here", "roam") else
+                      ("I'll stay right here." if spot == "here" else "Free to roam!"))
         elif name in ("phone_on", "phone_off"):
             phone = runtime.phone
             if phone is None:
@@ -227,6 +242,8 @@ class Session:
 
     async def _process(self, block):
         now = time.monotonic()
+        if not self.mic_on and not (self.state == State.LISTENING and self.timings.get("trigger") in ("click", "continue")):
+            return   # mic switched off: only an explicit click / hotkey turn is heard
         if self.aec is not None:
             # Remove Scar's own voice (what the speaker is playing) before anything listens to the mic.
             block = self.aec.process(block, self.aec_ref.take(len(block)))
@@ -333,6 +350,36 @@ class Session:
             audio = np.concatenate(blocks)
             self.spot_task = asyncio.get_running_loop().create_task(self._check_name(audio))
 
+    async def _maybe_ambient_command(self, text, audio, t_end):
+        """Always-listening mode: act on speech that wasn't prefixed with the name, but only if it's clearly
+        addressed to Scar (yes/no LLM check), loud enough to be the user, and the user's voice if enrolled."""
+        words = text.split()
+        norm = re.sub(r"[^\w\s']", "", text.lower()).strip()
+        if len(words) < 2 or len(words) > 25 or norm in _JUNK:
+            return
+        loop = asyncio.get_running_loop()
+        if self.user_level:
+            blocks = audio[: len(audio) // config.BLOCK * config.BLOCK].reshape(-1, config.BLOCK)
+            level = float(np.sqrt(np.percentile(np.mean(blocks ** 2, axis=1), 75))) if len(blocks) else 0.0
+            if level < self.user_level * config.FOLLOW_UP_MIN_LEVEL:
+                return
+        vp = runtime.voiceprint
+        if vp is not None:
+            if await loop.run_in_executor(None, vp.is_self, audio):
+                return
+            if self.voice_filter and vp.enrolled and await loop.run_in_executor(None, vp.is_user, audio) is False:
+                return
+        if not await self.agent._is_directed(text):
+            return
+        if self.state not in (State.IDLE, State.SLEEPING):   # something else started meanwhile
+            return
+        log.info("always-listening: acting on %r", text)
+        if self.state == State.SLEEPING:
+            await self.ui.send("summon", entry=random.randint(0, 3), reason="wake")
+        self.timings = {"trigger": "ambient", "t_end_speech": t_end, "t_stt": time.perf_counter()}
+        await self._set(State.THINKING)
+        self.turn_task = loop.create_task(self._turn(text=text))
+
     async def _check_name(self, audio):
         t_end = time.perf_counter()
         text = await asyncio.get_running_loop().run_in_executor(None, self.stt.transcribe, audio)
@@ -350,6 +397,8 @@ class Session:
             return
         rest = name_call(text)
         if rest is None:
+            if not busy and self.state != State.STANDBY and self.always_listen:
+                await self._maybe_ambient_command(text, audio, t_end)
             return
         log.info("name call%s: %r", " (barge-in)" if busy else "", text)
         vp = runtime.voiceprint

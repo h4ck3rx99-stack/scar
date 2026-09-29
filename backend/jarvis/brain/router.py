@@ -133,6 +133,110 @@ def _switch_tab(m):
     return "browser_tab", {"action": "switch", "query": m["q"]}
 
 
+# --- where Scar is: parking and placement -------------------------------------------
+_SPOTS = {"top left": "top_left", "top right": "top_right", "bottom left": "bottom_left", "bottom right": "bottom_right",
+          "upper left": "top_left", "upper right": "top_right", "lower left": "bottom_left", "lower right": "bottom_right",
+          "left": "left", "right": "right", "top": "top", "bottom": "bottom", "center": "center", "centre": "center",
+          "middle": "center"}
+_SPOT_RE = "|".join(sorted(map(re.escape, _SPOTS), key=len, reverse=True))
+
+
+@rule(r"^(?:stay|stay (?:here|there|put|right there|right here)|don't move|do not move|park (?:here|there|yourself)|stop (?:roaming|moving|wandering)|sit still)$")
+def _stay(m):
+    return "place", {"spot": "here"}
+
+
+@rule(r"^(?:come here|come to me|come closer|come over here)$")
+def _come(m):
+    return "place", {"spot": "cursor"}
+
+
+@rule(r"^(?:roam|roam around|go roam|start roaming|you can (?:roam|move|move around|go)|feel free to (?:roam|move)|move around|wander|go wander|free roam)$")
+def _roam(m):
+    return "place", {"spot": "roam"}
+
+
+@rule(rf"^(?:go|move|fly|sit|stay|hover|park)(?: yourself| over)? (?:to |in |at |on |over )?(?:the )?(?P<s>{_SPOT_RE})(?: corner| side| of the screen| edge)?$")
+def _go_spot(m):
+    return "place", {"spot": _SPOTS[m["s"]]}
+
+
+# --- extras: pomodoro, stopwatch, chance, conversion, news, dictionary, internet ------
+@rule(r"^(?:start |begin )?(?:a )?pomodoro(?: timer| session| mode)?$")
+def _pomo(m):
+    return "pomodoro", {"action": "start"}
+
+
+@rule(r"^(?:stop|cancel|end) (?:the )?pomodoro$")
+def _pomo_stop(m):
+    return "pomodoro", {"action": "stop"}
+
+
+@rule(r"^(?P<a>start|stop|lap|check|reset|pause) (?:the |my )?stopwatch$|^(?:how long has it been|stopwatch(?: time| status)?)$"
+      r"|^how (?:long|much time) (?:on|is on|has|is) (?:the |my )?stopwatch(?: been)?(?: running| going| at)?$"
+      r"|^what(?:'s| is) (?:the |my )?stopwatch(?: at| time| saying)?$|^lap$")
+def _stopwatch(m):
+    a = {"reset": "start", "pause": "stop"}.get(m["a"], m["a"])
+    return "stopwatch", {"action": a or ("lap" if m.string == "lap" else "check")}
+
+
+@rule(r"^(?:flip|toss) a coin$|^heads or tails$")
+def _coin(m):
+    return "chance", {"kind": "coin"}
+
+
+@rule(r"^roll (?:a |the )?(?:dice|die)$")
+def _dice(m):
+    return "chance", {"kind": "dice"}
+
+
+@rule(r"^(?:pick|give me|choose) a (?:random )?number(?: between (?P<a>\d+) and (?P<b>\d+))?$")
+def _rand(m):
+    return "chance", {"kind": "number", "low": int(m["a"] or 1), "high": int(m["b"] or 100)}
+
+
+@rule(r"^(?:convert |what(?:'s| is) |how much is |how many )?(?P<n>\d+(?:\.\d+)?) ?(?P<f>[a-z/°]+(?: [a-z]+)?) (?:in|to|into) (?P<t>[a-z/°]+(?: [a-z]+)?)$")
+def _convert(m):
+    return "convert", {"amount": float(m["n"]), "from_unit": m["f"].replace("°", ""), "to_unit": m["t"].replace("°", "")}
+
+
+@rule(r"^(?:what(?:'s| is) the |tell me the |read me the |give me the |any )?(?:latest |top |today's )?(?:news|headlines)(?: today)?(?: (?:about|on) (?P<t>.+))?$")
+def _news(m):
+    return "news", {"topic": m["t"]}
+
+
+@rule(r"^(?:define|what does (?P<w2>[a-z\-]+) mean|meaning of|what is the meaning of) ?(?P<w>[a-z\-]+)?$")
+def _define(m):
+    w = m["w2"] or m["w"]
+    return ("define", {"word": w}) if w else None
+
+
+@rule(r"^(?:am i (?:online|connected)|is (?:the |my )?internet (?:working|on)|check (?:the |my )?internet|what(?:'s| is) my ip(?: address)?)$")
+def _net(m):
+    return "internet_check", {}
+
+
+# --- how Scar listens: always-on, mic, voice ID, dictation, suggestions, phone --------
+@rule(r"^(?:always listen|listen all the time|always be listening|you don't need your name|no need to say your name|stay listening)$")
+def _always(m):
+    return "listen_always", {}
+
+
+@rule(r"^(?:only (?:listen|respond|reply) when (?:i )?(?:call|say) (?:you|your name)|wait for your name|only when i call you)$")
+def _on_call(m):
+    return "listen_on_call", {}
+
+
+@rule(r"^(?:mute|turn off|switch off|disable|stop) (?:the |your )?(?:mic|microphone)$|^(?:mic|microphone) off$|^stop listening(?: to me)?$")
+def _mic_off(m):
+    return "mic_off", {}
+
+
+@rule(r"^(?:unmute|turn on|switch on|enable) (?:the |your )?(?:mic|microphone)$|^(?:mic|microphone) on$")
+def _mic_on(m):
+    return "mic_on", {}
+
+
 # --- how Scar listens: voice ID, dictation, suggestions, phone -----------------------
 @rule(r"^(?:learn|remember|recognize|register|enroll) my voice$|^(?:set up|setup) (?:voice (?:id|recognition)|my voice)$")
 def _learn_voice(m):

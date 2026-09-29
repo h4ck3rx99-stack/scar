@@ -24,6 +24,8 @@
     "theme": {"properties": {"event": {"const": "theme"}, "mode": {"enum": ["dark", "light"]}}, "required": ["mode"]},
     "hud": {"properties": {"event": {"const": "hud"}, "kind": {"enum": ["volume", "brightness", "flash"]}, "value": {"type": "integer"}}, "required": ["kind"]},
     "alert": {"properties": {"event": {"const": "alert"}, "text": {"type": "string"}, "kind": {"enum": ["timer", "reminder", "battery"]}}, "required": ["text"]},
+    "place": {"properties": {"event": {"const": "place"}, "spot": {"enum": ["top_left", "top_right", "bottom_left", "bottom_right", "left", "right", "top", "bottom", "center", "here", "cursor", "roam"]}, "park": {"type": "boolean"}}, "required": ["spot"]},
+    "mic": {"properties": {"event": {"const": "mic"}, "on": {"type": "boolean"}}, "required": ["on"]},
 
     "hello": {"properties": {"event": {"const": "hello"}, "token": {"type": "string"}, "screens": {"type": "array"}}, "required": ["token"]},
     "destination_reached": {"properties": {"event": {"const": "destination_reached"}, "reply_to": {"type": "string"}}, "required": ["reply_to"]},
@@ -36,12 +38,12 @@
   "allOf": [{"$ref": "#/$defs/base"}],
   "oneOf": [
     {"$ref": "#/$defs/voice_state"}, {"$ref": "#/$defs/say"}, {"$ref": "#/$defs/level"}, {"$ref": "#/$defs/summon"},
-    {"$ref": "#/$defs/fly_to"}, {"$ref": "#/$defs/proxy_start"}, {"$ref": "#/$defs/proxy_end"}, {"$ref": "#/$defs/theme"}, {"$ref": "#/$defs/hud"}, {"$ref": "#/$defs/alert"},
+    {"$ref": "#/$defs/fly_to"}, {"$ref": "#/$defs/proxy_start"}, {"$ref": "#/$defs/proxy_end"}, {"$ref": "#/$defs/theme"}, {"$ref": "#/$defs/hud"}, {"$ref": "#/$defs/alert"}, {"$ref": "#/$defs/place"}, {"$ref": "#/$defs/mic"},
     {"$ref": "#/$defs/hello"}, {"$ref": "#/$defs/destination_reached"}, {"$ref": "#/$defs/proxy_ready"}, {"$ref": "#/$defs/proxy_arrived"},
     {"$ref": "#/$defs/avatar_clicked"}, {"$ref": "#/$defs/text_command"}, {"$ref": "#/$defs/user_activity"}
   ],
   "x-direction": {
-    "backend_to_frontend": ["voice_state", "say", "level", "summon", "fly_to", "proxy_start", "proxy_end", "theme", "hud", "alert"],
-    "frontend_to_backend": ["hello", "destination_reached", "proxy_ready", "proxy_arrived", "avatar_clicked", "text_command", "user_activity"]
+    "backend_to_frontend": ["voice_state", "say", "level", "summon", "fly_to", "proxy_start", "proxy_end", "theme", "hud", "alert", "place"],
+    "frontend_to_backend": ["hello", "destination_reached", "proxy_ready", "proxy_arrived", "avatar_clicked", "text_command", "user_activity", "mic"]
   }
 }

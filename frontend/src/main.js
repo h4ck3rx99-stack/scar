@@ -102,7 +102,10 @@ function updateRoamBounds() {
   const { w, h } = space.visibleSize(0);
   const mx = 0.9 * state.baseScale * 1.2;
   const my = 1.0 * state.baseScale * 1.2;
-  roamEngine.updateBounds({ minX: -(w / 2 - mx), maxX: w / 2 - mx, minY: -(h / 2 - my), maxY: h / 2 - my, minZ: 0, maxZ: 0 });
+  // Keep waypoints above the Windows taskbar, not behind it.
+  const gap = window.screen.height - window.screen.availHeight;
+  const taskbar = (gap > 0 && gap < 200 ? gap : 48) / space.pxPerWorld(0);
+  roamEngine.updateBounds({ minX: -(w / 2 - mx), maxX: w / 2 - mx, minY: -(h / 2 - my) + taskbar, maxY: h / 2 - my, minZ: 0, maxZ: 0 });
 }
 
 const gltfLoader = new GLTFLoader();
@@ -265,6 +268,16 @@ function setupContextMenu() {
     } else if (e.key === 'Escape') hide();
   };
   document.getElementById('ctx-sleep-btn').onclick = () => { controller.goSleep(); hide(); };
+  document.getElementById('ctx-roam-btn').onclick = () => { controller.place('roam'); hide(); };
+  const micBtn = document.getElementById('ctx-mic-btn');
+  let micOn = true;
+  micBtn.onclick = () => {
+    micOn = !micOn;
+    bridge.send('mic', { on: micOn });
+    micBtn.textContent = micOn ? '🎙 Mic: ON' : '🔇 Mic: OFF (click me or Ctrl+Shift+Space to talk)';
+    showToast(micOn ? 'Microphone on' : 'Microphone off: Scar hears nothing until you turn it back on');
+    hide();
+  };
   document.getElementById('ctx-rest-btn').onclick = () => { wellnessEngine.triggerRandomReminder(); hide(); };
   document.getElementById('ctx-quit-btn').onclick = () => {
     speechBubble.stopAllSpeech();
@@ -318,6 +331,8 @@ window.addEventListener('pointermove', (e) => {
   if (isMouseDownOnRobot) {
     if (Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y) > 6 && !dragController.isDragging) {
       dragController.startDrag(e.screenX, e.screenY, e.clientX, e.clientY, camera);
+      controller.dragging = true;
+      controller.kill();
       bridge.send('user_activity');
     }
     if (dragController.isDragging) dragController.updateDrag(e.screenX, e.screenY, e.clientX, e.clientY, camera);
@@ -327,7 +342,12 @@ window.addEventListener('pointermove', (e) => {
 
 window.addEventListener('pointerup', (e) => {
   if (dragController.isDragging) {
+    // Dropped: stay exactly here (parked) until told to roam again.
+    dragController.wasRoaming = false;
     dragController.endDrag();
+    controller.dragging = false;
+    controller.parked = true;
+    setTimeout(() => { controller.hold(); if (!controller.busy) controller.mode = 'attentive'; }, 700);
     isMouseDownOnRobot = false;
     controller.noteActivity();
     checkPointerPassthrough(e);

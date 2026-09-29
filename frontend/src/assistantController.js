@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import gsap from 'gsap';
 import { ClothCard } from './clothProxy.js';
+import { EntryDirector } from './entries.js';
+import { IdleLife } from './idleLife.js';
 import { soundEngine } from './soundEngine.js';
 
 const LOCAL_SLEEP_MS = 180000; // used only while the brain is offline; otherwise the brain decides
@@ -38,11 +40,14 @@ export class AssistantController {
     this.breathTween = null;
     this.lastLocalActivity = performance.now();
     this.idleTimer = null;
+    this.parked = false;   // true: stay where you were put (drag or "stay there") instead of roaming
+    this.entries = new EntryDirector({ avatarRoot: this.avatarRoot, scene: this.scene, space: this.space, animController: this.animController });
+    this.idleLife = new IdleLife(this);
   }
 
   /** True while this controller owns the avatar's transform (roam/mischief must not move it). */
   get busy() {
-    return ['entry', 'flying', 'tapping', 'carrying', 'to_sleep', 'sleeping', 'waking', 'standby'].includes(this.mode);
+    return ['entry', 'flying', 'tapping', 'carrying', 'to_sleep', 'sleeping', 'waking', 'standby', 'fidget', 'placing'].includes(this.mode);
   }
 
   get frameRate() {
@@ -68,6 +73,7 @@ export class AssistantController {
     b.on('proxy_start', (m) => this.proxyStart(m));
     b.on('proxy_end', (m) => this.proxyEnd(m));
     b.on('theme', (m) => this.setTheme(m.mode));
+    b.on('place', (m) => this.place(m.spot, m.park !== false));
     b.on('_connected', () => this.statusRing.set(this.voice));
     b.on('_disconnected', () => { this.voice = 'idle'; this.statusRing.set('offline'); });
     this.statusRing.set('offline');
@@ -100,7 +106,7 @@ export class AssistantController {
     clearTimeout(this.resumeTimer);
     this.resumeTimer = setTimeout(() => {
       if (this.busy) return;
-      if (!['idle'].includes(this.voice)) { this.mode = 'attentive'; return; }
+      if (!['idle'].includes(this.voice) || this.parked) { this.hold(); this.mode = 'attentive'; return; }
       this.mode = 'roam';
       this.eyeVisor.setExpression('normal');
       this.roamEngine.currentPos.copy(this.avatarRoot.position);
@@ -118,20 +124,20 @@ export class AssistantController {
   }
 
   // ------------------------------------------------------------ entries/sleep
-  playRandomEntry(index) {
-    const entries = ['playEntry1', 'playEntry2', 'playEntry3', 'playEntry4'];
-    const pick = Number.isInteger(index) ? index % 4 : Math.floor(Math.random() * 4);
+  /** One of 15 entrances, chosen at random (never one of the last few). */
+  playRandomEntry() {
     this.kill();
     this.pauseRoam();
     this.mode = 'entry';
-    this.animController[entries[pick]](() => {
+    this.eyeVisor.setExpression('happy');
+    const name = this.entries.play(() => {
       this.avatarRoot.position.z = 0;
       this.hold();
       this.mode = 'attentive';
-      this.eyeVisor.setExpression('happy');
       soundEngine.playHappy();
       this.resumeRoam(this.voice === 'idle' ? 1200 : 0);
     });
+    this.lastEntry = name;
   }
 
   summon(m) {
@@ -157,13 +163,8 @@ export class AssistantController {
     this.pauseRoam();
     this.mode = 'to_sleep';
     this.eyeVisor.setExpression('sleepy');
-    const c = this.space.worldToClient(this.avatarRoot.position);
-    const up = this.space.clientToWorld(c.x, -this.avatarHeightPx() * 1.5, 0);
-    const tl = gsap.timeline({ onComplete: () => { this.mode = 'standby'; this.avatarRoot.visible = false; } });
-    tl.to(this.avatarRoot.position, { y: this.avatarRoot.position.y - 0.15, duration: 0.25, ease: 'power2.out' });
-    tl.to(this.avatarRoot.rotation, { x: -0.4, duration: 0.25 }, '<');
-    tl.to(this.avatarRoot.position, { x: up.x, y: up.y, duration: 0.7, ease: 'power3.in' });
-    tl.to(this.avatarRoot.scale, { x: 0.6, y: 0.6, z: 0.6, duration: 0.7, ease: 'power2.in' }, '<');
+    // A random way out: up, down, dash sideways, shrink-spin or collapse like a portal.
+    this.entries.exit(() => { this.mode = 'standby'; this.avatarRoot.visible = false; });
   }
 
   goSleep() {
@@ -336,6 +337,57 @@ export class AssistantController {
     try { ipc()?.send('raise-overlay'); } catch {}
   }
 
+  /** Park somewhere and stay ("go to the top right corner", "come here", "stay there"); spot 'roam' releases it. */
+  place(spot, park = true) {
+    if (spot === 'roam') {
+      this.parked = false;
+      this.resumeRoam(200);
+      return;
+    }
+    if (this.mode === 'standby') return;
+    const h = this.avatarHeightPx();
+    const W = window.innerWidth, H = window.innerHeight - this.taskbarPx();
+    const m = h * 0.75;
+    const c = this.space.worldToClient(this.avatarRoot.position);
+    const spots = {
+      top_left: [m, m], top_right: [W - m, m], bottom_left: [m, H - m], bottom_right: [W - m, H - m],
+      left: [m, H / 2], right: [W - m, H / 2], top: [W / 2, m], bottom: [W / 2, H - m], center: [W / 2, H / 2],
+      here: [c.x, c.y], cursor: [THREE.MathUtils.clamp(this.idleLife.mouse.x * W + h * 0.8, m, W - m), THREE.MathUtils.clamp(this.idleLife.mouse.y * window.innerHeight, m, H - m)],
+    };
+    const [x, y] = spots[spot] || spots.here;
+    this.parked = park;
+    this.kill();
+    this.pauseRoam();
+    this.mode = 'placing';
+    const dest = this.space.clientToWorld(x, y, 0);
+    this.flyPath(dest, 0.9, () => { this.hold(); this.mode = 'attentive'; this.faceUser(0.4); if (!park) this.resumeRoam(1500); });
+  }
+
+  /** While free (roaming, hovering, fidgeting, pranks), never let any part of the robot leave the screen or
+   * sink behind the taskbar: anything outside is pulled back in smoothly. */
+  keepOnScreen() {
+    if (!['roam', 'attentive', 'fidget'].includes(this.mode) || this.dragging) return;
+    const p = this.avatarRoot.position;
+    if (Math.abs(p.z) > 1.2) return;           // screen-tap prank: deliberately up against the glass
+    const h = this.avatarHeightPx();
+    const halfW = h * 0.42, halfH = h * 0.55;
+    const c = this.space.worldToClient(p);
+    const W = window.innerWidth, H = window.innerHeight - this.taskbarPx();
+    const x = THREE.MathUtils.clamp(c.x, halfW, W - halfW);
+    const y = THREE.MathUtils.clamp(c.y, halfH, H - halfH);
+    if (x === c.x && y === c.y) return;
+    const target = this.space.clientToWorld(x, y, p.z);
+    p.x += (target.x - p.x) * 0.25;
+    p.y += (target.y - p.y) * 0.25;
+    if (this.roamEngine.enabled) this.roamEngine.currentPos.set(p.x, p.y, p.z);
+  }
+
+  /** Height of the Windows taskbar at the bottom of this display, in CSS px (the robot shouldn't hide behind it). */
+  taskbarPx() {
+    const gap = window.screen.height - window.screen.availHeight;
+    return gap > 0 && gap < 200 ? gap : 48;
+  }
+
   /** The overlay just moved to another monitor (following the cursor, or for a target there). */
   onDisplayChanged(reason) {
     if (reason === 'target' || this.mode === 'standby') return;
@@ -481,6 +533,8 @@ export class AssistantController {
   update(delta, time) {
     // Speaking: the mouth follows the voice loudness.
     this.eyeVisor.setTalk(this.voice === 'speaking' ? this.level : 0);
+    this.idleLife.tick(performance.now());
+    this.keepOnScreen();
     // Only follow the cursor to other monitors while idly roaming, never mid-action.
     const follow = this.mode === 'roam' && this.voice === 'idle';
     if (follow !== this._following) {

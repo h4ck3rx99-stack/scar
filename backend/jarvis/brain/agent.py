@@ -60,7 +60,8 @@ MAX_TOOL_CALLS = 3
 MAX_STEPS = 8
 # Router intents handled by the session itself (they change how Scar listens, not the PC).
 CONTROLS = {"stop", "go_to_sleep", "standby", "learn_voice", "forget_voice", "only_me", "everyone", "dictation",
-            "suggestions_on", "suggestions_off", "phone_on", "phone_off"}
+            "suggestions_on", "suggestions_off", "phone_on", "phone_off", "listen_always", "listen_on_call",
+            "mic_on", "mic_off", "place"}
 # Requests that obviously need several steps ("X and then Y", "research ... and put it in a note").
 _MULTI = re.compile(r"\b(and then|then|after that|afterwards|and also|and (?:open|search|play|click|type|put|save|send|write|close|tell|read|summari[sz]e|find|make|add|note))\b|,\s*(?:then|and)\b|\bresearch\b|\bcompare\b|\bstep by step\b", re.I)
 _FAIL_PREFIXES = ("error", "No open", "Bad", "Unknown", "not found", "no ", "I can't", "Couldn't", "Wikipedia had no", "Web search for")
@@ -125,7 +126,7 @@ class Agent:
             if name in DATA_TOOLS or isinstance(result, dict):
                 await self._answer_from(text, name, args, result, timings)
             else:
-                self.memory.add(text, f"[{name} {args}] {result}")
+                self.memory.add(text, str(result))   # plain words: a "[tool {args}]" tag here gets parroted aloud by the LLM
             return "end" if name == "smalltalk" else None
         text = fix(text)
         if follow_up and len(text.split()) > 30:

@@ -53,6 +53,8 @@ ECHO_CANCEL = _bool(_env("JARVIS_ECHO_CANCEL", "true"))   # subtract Scar's own 
 # The assistant's name doubles as a wake word: "Scar" / "Hey Scar" / "Scar, open YouTube".
 NAME = _env("JARVIS_NAME", "Scar")
 NAME_WAKE = _bool(_env("JARVIS_NAME_WAKE", "true"))   # listen for the name (Whisper keyword spotting)
+# Always listening: outside standby, requests clearly meant for Scar work without saying its name.
+ALWAYS_LISTEN = _bool(_env("JARVIS_ALWAYS_LISTEN", "true"))
 
 # --- Voice FSM timings (ms) ----------------------------------------------------
 VAD_ON = _env("JARVIS_VAD_ON", 0.6, float)

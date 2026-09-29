@@ -61,6 +61,17 @@ async function startBackend() {
   });
 }
 
+// Restart the brain if it's gone (crashed, or the port was still held by a dying copy at launch).
+// Three misses in a row (30 s) so a manually started backend that is still loading models isn't doubled.
+let backendMisses = 0;
+function watchBackend() {
+  setInterval(async () => {
+    if (quitting || backendProc) { backendMisses = 0; return; }
+    backendMisses = (await portOpen(WS_PORT)) ? 0 : backendMisses + 1;
+    if (backendMisses >= 3) { backendMisses = 0; startBackend(); }
+  }, 10000);
+}
+
 function stopBackend() {
   if (!backendProc) return;
   // Kill only the tree we started (pythonw + its llama-server child), never other apps.
@@ -202,6 +213,7 @@ function quit() {
 
 app.whenReady().then(async () => {
   await startBackend();
+  watchBackend();
   createWindow();
   createTray();
   const refit = () => {

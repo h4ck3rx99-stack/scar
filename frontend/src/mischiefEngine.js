@@ -17,7 +17,7 @@ export class MischiefEngine {
 
     this.isBusy = false;
     this.enabled = true;
-    this.allowed = false; // the dock's "Playful" switch; off by default
+    this.allowed = true;  // the dock's "Playful" switch
     this.mischiefTimer = null;
     this.mouseScreenPos = { x: 0, y: 0 };
 
@@ -35,7 +35,7 @@ export class MischiefEngine {
 
   startScheduler() {
     this.stopScheduler();
-    const nextInterval = () => 240000 + Math.random() * 240000; // every 4-8 minutes: a rare treat, not a distraction
+    const nextInterval = () => 90000 + Math.random() * 150000; // every 1.5-4 minutes, never on a fixed beat
 
     const scheduleNext = () => {
       this.mischiefTimer = setTimeout(() => {
@@ -58,14 +58,13 @@ export class MischiefEngine {
 
   triggerRandomMischief() {
     if (this.isBusy) return;
-    // Only the gentle ones; the flips, spins, fake power-downs and screen shakes felt broken, not playful.
+    // All ten originals, in random order (the on-screen guard in main.js keeps them inside the screen).
     const actions = [
-      'screenTap',
-      'cursorStalker',
-      'sneakPeek',
-      'tabSpySnicker'
-    ];
+      'screenTap', 'cursorStalker', 'upsideDownAcrobat', 'sneakPeek', 'jetpackHiccup',
+      'dizzyDonuts', 'fakePowerDown', 'laserScannerPrank', 'screenShakeQuake', 'tabSpySnicker',
+    ].filter((a) => a !== this.lastAction);
     const picked = actions[Math.floor(Math.random() * actions.length)];
+    this.lastAction = picked;
     this.playMischief(picked);
   }
 

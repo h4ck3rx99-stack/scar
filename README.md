@@ -24,6 +24,9 @@ Weather uses your internet location. On slow Wi-Fi you can pin a city in `backen
 | **"Go on standby"** | flies off-screen and stays silent until you say "Scar" |
 | "Go to sleep" / 3 min idle | naps peeking from the screen edge |
 | "Stop" / "never mind" | stops talking |
+| Just talk (mic always on) | when it isn't on standby, a clear command said to it runs even without the name. It checks that the command was meant for it, loud enough, and not its own voice |
+| "Always listen" / "only respond when I call you" | switches that on or off |
+| "Mute the mic" / right-click → **Mic** | ignores everything until "turn on the microphone" or a click |
 
 ## What it can do
 
@@ -37,6 +40,9 @@ Weather uses your internet location. On slow Wi-Fi you can pin a city in `backen
 - **Notes & lists:** "take a note: …", "read my notes", "add eggs to my shopping list", "what's on my list?", "check off eggs".
 - **Memory:** "remember that my name is Avi", "forget that…". Remembered facts are used in every conversation.
 - **Info:** anything general (local model), "what's the weather?", "weather in Mumbai", "who was Nikola Tesla?", exact maths ("17 percent of 2340"), "good morning" briefing, time and date.
+- **Where it sits:** drag it anywhere and it stays there. "Stay there", "come here" (to your mouse), "go to the top right corner" / "left side" / "centre", and "roam around" (or right-click → **Roam**) to free it again. It never wanders off-screen or behind the taskbar.
+- **Unpredictable:** 15 entrances (the 8 originals: quantum warp, orbital drop, diagonal dash, holo unfold, side sprints, top dive, rocket up; plus portal, bouncy drop, spiral, glitch teleport, peekaboo, cartwheel, zoom past) and 5 exits, never the same few in a row. It also has idle moves (looks around, spins, hops, waves, stretches, nods, glances at your cursor, yawns, dances, floats) and 10 playful pranks every few minutes. Turn the pranks off with the **Playful** button.
+- **Extras:** "start a pomodoro", "start / check / stop the stopwatch", "flip a coin", "roll a dice", "pick a number between 1 and 50", "convert 5 km to miles" / "100 dollars in rupees", "what's the news" / "news about cricket", "define serendipity", "am I online?".
 - **Look:** dark/light theme follows Windows ("light mode" to switch); size slider in the top-left dock; expressive face with lip-sync.
 
 ## Advanced
@@ -73,6 +79,7 @@ JARVIS_VOICE_MATCH=0.45             # how closely a voice must match yours (afte
 JARVIS_ONLY_MY_VOICE=true           # after enrolling, ignore other people
 JARVIS_ECHO_CANCEL=true             # remove Scar's own voice from the microphone
 JARVIS_FOLLOW_UP_MIN_LEVEL=0.5      # follow-up speech quieter than this share of your voice is ignored
+JARVIS_ALWAYS_LISTEN=true           # act on clear commands without the name (never while on standby)
 
 # Optional cloud brain (OpenAI-compatible, e.g. Groq / Gemini / OpenRouter free tiers).
 # Falls back to the local model if it fails. Your speech text is sent to that provider.

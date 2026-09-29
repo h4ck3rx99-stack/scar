@@ -218,6 +218,11 @@ async def main(text_only=False):
     async def _text(msg):
         await session.text_command(str(msg.get("text", ""))[:500])
 
+    @ui.on("mic")
+    async def _mic(msg):
+        session.mic_on = bool(msg.get("on", True))
+        log.info("microphone %s (from the menu)", "on" if session.mic_on else "off")
+
     @ui.on("user_activity")
     async def _activity(msg):
         session.last_activity = time.monotonic()
