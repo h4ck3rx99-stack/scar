@@ -244,10 +244,8 @@ export class AssistantController {
 
   flyTo(m) {
     this.noteActivity();
-    if (this.mode === 'sleeping' || this.mode === 'to_sleep') {
-      this.kill();
-      this.avatarRoot.rotation.set(0, 0, 0);
-    }
+    this.raise();
+    if (this.mode === 'sleeping' || this.mode === 'to_sleep') this.avatarRoot.rotation.set(0, 0, 0);
     this.kill();
     this.pauseRoam();
     this.mode = 'flying';
@@ -256,7 +254,8 @@ export class AssistantController {
     const dest = this.space.clientToWorld(s.x, s.y, 0.3);
     const targetWorld = this.space.clientToWorld(t.x, t.y, 0.3);
     this.eyeVisor.setExpression('curious');
-    this.flyPath(dest, Math.max(0.3, (m.duration_ms || 550) / 1000), () => {
+    this.lookAt(t.x, t.y);
+    this.flyPath(dest, Math.max(0.3, (m.duration_ms || 650) / 1000), () => {
       if (m.purpose === 'grab') {
         this.mode = 'carrying';
         this.bridge.send('destination_reached', { reply_to: m.id });
@@ -264,30 +263,94 @@ export class AssistantController {
         this.carryTimeout = setTimeout(() => { if (this.mode === 'carrying' && !this.card) this.finishAction(); }, 2500);
         return;
       }
-      this.tap(targetWorld, () => this.bridge.send('destination_reached', { reply_to: m.id }));
+      if (m.purpose === 'present' || m.purpose === 'focus') {
+        this.present(() => this.bridge.send('destination_reached', { reply_to: m.id }));
+        return;
+      }
+      const btn = m.button ? this.buttonHighlight(m.button, m.purpose) : null;
+      this.press(targetWorld, btn, () => this.bridge.send('destination_reached', { reply_to: m.id }));
     });
   }
 
-  tap(targetWorld, onContact) {
+  raise() {
+    try { if (window.require) window.require('electron').ipcRenderer.send('raise-overlay'); } catch {}
+  }
+
+  /** Point the eyes at a client-space spot. */
+  lookAt(cx, cy) {
+    this.eyeVisor.setGaze((cx / window.innerWidth) * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
+  }
+
+  /** Draws the button's own hover state over the real caption button (red for close), like a cursor is on it. */
+  buttonHighlight(b, purpose) {
+    const tl = this.space.physToClient(b.x, b.y);
+    const br = this.space.physToClient(b.x + b.width, b.y + b.height);
+    const el = document.createElement('div');
+    el.className = `button-hover ${purpose === 'close' ? 'close' : ''}`;
+    Object.assign(el.style, { left: `${tl.x}px`, top: `${tl.y}px`, width: `${br.x - tl.x}px`, height: `${br.y - tl.y}px` });
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('visible'));
+    return {
+      el,
+      center: { x: (tl.x + br.x) / 2, y: (tl.y + br.y) / 2 },
+      press: () => el.classList.add('pressed'),
+      remove: (delay = 0) => setTimeout(() => { el.classList.remove('visible'); setTimeout(() => el.remove(), 200); }, delay),
+    };
+  }
+
+  ripple(cx, cy) {
+    const r = document.createElement('div');
+    r.className = 'click-ripple';
+    Object.assign(r.style, { left: `${cx}px`, top: `${cy}px` });
+    document.body.appendChild(r);
+    setTimeout(() => r.remove(), 600);
+  }
+
+  /** Hover over the button for a beat, wind up, poke it, recoil. onContact fires at the moment of the poke. */
+  press(targetWorld, btn, onContact) {
     this.mode = 'tapping';
     const p = this.avatarRoot.position.clone();
-    const toward = targetWorld.clone().sub(p).multiplyScalar(0.35);
-    const tl = gsap.timeline({ onComplete: () => this.finishAction(650) });
-    tl.to(this.avatarRoot.rotation, { z: -Math.sign(toward.x) * 0.35, x: -0.2, duration: 0.1, ease: 'power2.out' }, 0);
+    const dir = targetWorld.clone().sub(p);
+    const lean = -Math.sign(dir.x || 1);
+    const tl = gsap.timeline({ onComplete: () => this.finishAction(700) });
+    // 1. Aim: settle and hover, eyes on the button.
+    tl.to(this.avatarRoot.position, { y: p.y + 0.03, duration: 0.2, ease: 'sine.inOut', yoyo: true, repeat: 1 });
+    tl.to(this.avatarRoot.rotation, { z: lean * 0.12, x: -0.08, duration: 0.25, ease: 'power2.out' }, 0);
+    // 2. Wind up: pull back away from the button.
+    tl.to(this.avatarRoot.position, { x: p.x - dir.x * 0.12, y: p.y - dir.y * 0.12, duration: 0.14, ease: 'power2.out' });
+    tl.to(this.avatarRoot.rotation, { z: -lean * 0.15, x: 0.12, duration: 0.14, ease: 'power2.out' }, '<');
+    // 3. Poke.
     tl.to(this.avatarRoot.position, {
-      x: p.x + toward.x, y: p.y + toward.y, duration: 0.11, ease: 'power3.in',
-      onComplete: () => { soundEngine.playGlassTap(); onContact(); },
-    }, 0);
-    tl.to(this.avatarRoot.position, { x: p.x, y: p.y, duration: 0.25, ease: 'back.out(2)' });
-    tl.to(this.avatarRoot.rotation, { x: 0, z: 0, duration: 0.3, ease: 'elastic.out(1, 0.5)' }, '<');
+      x: p.x + dir.x * 0.4, y: p.y + dir.y * 0.4, duration: 0.09, ease: 'power3.in',
+      onComplete: () => {
+        soundEngine.playGlassTap();
+        if (btn) { btn.press(); this.ripple(btn.center.x, btn.center.y); btn.remove(260); }
+        onContact();
+      },
+    });
+    tl.to(this.avatarRoot.rotation, { z: lean * 0.4, x: -0.25, duration: 0.09, ease: 'power3.in' }, '<');
+    // 4. Recoil and watch.
+    tl.to(this.avatarRoot.position, { x: p.x, y: p.y, duration: 0.3, ease: 'back.out(2)' });
+    tl.to(this.avatarRoot.rotation, { x: 0, z: 0, duration: 0.35, ease: 'elastic.out(1, 0.5)' }, '<');
+  }
+
+  /** "Here it is": a little spin next to a window that just opened or was focused. */
+  present(onDone) {
+    this.mode = 'tapping';
+    this.eyeVisor.setExpression('happy');
+    soundEngine.playHappy();
+    const tl = gsap.timeline({ onComplete: () => { onDone(); this.finishAction(900); } });
+    tl.to(this.avatarRoot.rotation, { y: '+=' + Math.PI * 2, duration: 0.6, ease: 'power2.inOut' });
+    tl.to(this.avatarRoot.position, { y: '+=0.08', duration: 0.3, ease: 'sine.out', yoyo: true, repeat: 1 }, 0);
   }
 
   finishAction(delay = 0) {
     this.hold();
     this.mode = 'attentive';
     this.eyeVisor.setExpression('happy');
-    // Drift away from the button so the user can see the result, then carry on.
-    setTimeout(() => {
+    // Back off from the button so the user can see the result, then carry on.
+    clearTimeout(this.finishTimer);
+    this.finishTimer = setTimeout(() => {
       if (this.mode !== 'attentive') return;
       const c = this.space.worldToClient(this.avatarRoot.position);
       const h = this.avatarHeightPx();
@@ -304,9 +367,13 @@ export class AssistantController {
   // ------------------------------------------------------------ cloth proxy
   async proxyStart(m) {
     clearTimeout(this.carryTimeout);
-    this.kill();
-    this.pauseRoam();
-    this.mode = 'carrying';
+    this.raise();
+    const effect = m.effect || 'move';
+    if (effect === 'move') {
+      this.kill();
+      this.pauseRoam();
+      this.mode = 'carrying';
+    }
     let texture;
     try {
       texture = await new THREE.TextureLoader().loadAsync(m.texture_url);
@@ -316,10 +383,16 @@ export class AssistantController {
       return;
     }
     if (this.card) this.card.dispose();
-    const card = new ClothCard(this.scene, this.space, texture, m.bounds, m.grab);
+    const card = new ClothCard(this.scene, this.space, texture, m.bounds, m.grab, effect);
     this.card = card;
     this.bridge.send('proxy_ready', { window_id: m.window_id });
-    this.eyeVisor.setExpression('happy');
+    if (effect === 'move') this.eyeVisor.setExpression('happy');
+    else {
+      // Watch the window react to the press.
+      const c = this.space.physToClient(m.target.x + m.target.width / 2, m.target.y + m.target.height / 2);
+      this.lookAt(c.x, c.y);
+      this.eyeVisor.setExpression(effect === 'close' ? 'curious' : 'happy');
+    }
     // Give the brain a frame to hide the real window before the card starts to move.
     await new Promise((r) => setTimeout(r, 60));
     await card.moveTo(m.target, m.duration_ms || 900);
@@ -329,8 +402,10 @@ export class AssistantController {
   proxyEnd(m) {
     const card = this.card;
     this.card = null;
-    if (card) card.fadeOut();
-    this.finishAction(150);
+    if (!card) return;
+    const wasMove = card.effect === 'move';
+    card.fadeOut();
+    if (wasMove) this.finishAction(150);
   }
 
   // ------------------------------------------------------------------ per frame

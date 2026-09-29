@@ -36,10 +36,10 @@ def backend_messages():
         await ui.send("level", value=0.42)
         await ui.send("summon", entry=2, reason="wake")
         await ui.send("proxy_start", window_id="0x1a", texture_url="http://127.0.0.1:8765/cap/a.webp", bounds=b, target=b,
-                      grab={"x": 5, "y": 6}, duration_ms=900)
+                      grab={"x": 5, "y": 6}, duration_ms=900, effect="close")
         await ui.send("proxy_end", window_id="0x1a", final_bounds=b)
         await ui.send("theme", mode="light")
-        await ui.send("fly_to", target={"x": 1800, "y": 12}, purpose="minimize", duration_ms=550)
+        await ui.send("fly_to", target={"x": 1800, "y": 12}, purpose="minimize", duration_ms=550, button=b)
         return ws.sent
     return asyncio.run(run())
 

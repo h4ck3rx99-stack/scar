@@ -78,18 +78,26 @@ def _dwm_caption_bounds(w: Window):
     return Rect(wr.left + r.left, wr.top + r.top, wr.left + r.right, wr.top + r.bottom)
 
 
-async def caption_button_point(w: Window, action: str):
-    """Screen point of a window's minimize/maximize/close button: UIA first, then DWM, then geometry."""
+async def caption_button(w: Window, action: str):
+    """Screen rect of a window's minimize/maximize/close button: UIA first, then DWM, then geometry.
+    Returns (rect, how)."""
     rect = await run(_find_button, w.hwnd, action)
     if rect:
-        return (rect.left + rect.width // 2, rect.top + rect.height // 2), "uia"
+        return rect, "uia"
     idx = {"close": 0, "maximize": 1, "restore": 1, "minimize": 2}[action]
     cap = _dwm_caption_bounds(w)
     if cap and cap.width > 60:
         bw = cap.width / 3
-        return (int(cap.right - bw * idx - bw / 2), cap.top + cap.height // 2), "dwm"
+        right = cap.right - bw * idx
+        return Rect(int(right - bw), cap.top, int(right), cap.bottom), "dwm"
     s, f = w.dpi_scale, w.frame
-    return (int(f.right - (23 + 46 * idx) * s), int(f.top + 16 * s)), "geometry"
+    right = f.right - 46 * idx * s
+    return Rect(int(right - 46 * s), f.top, int(right), int(f.top + 32 * s)), "geometry"
+
+
+async def caption_button_point(w: Window, action: str):
+    rect, how = await caption_button(w, action)
+    return (rect.left + rect.width // 2, rect.top + rect.height // 2), how
 
 
 # ----------------------------------------------------------------- browser tabs

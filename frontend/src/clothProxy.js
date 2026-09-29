@@ -4,7 +4,7 @@ import gsap from 'gsap';
 const SX = 24;          // segments across
 const SY = 16;          // segments down
 const K_GRAB = 1400;    // spring stiffness at the grab point (nearly pinned)
-const K_FAR = 70;       // stiffness at the far corner: low = more lag/stretch
+const K_FAR = { move: 70, close: 38, minimize: 34, maximize: 90 }; // far-corner stiffness: low = more lag/stretch
 const ZETA = 0.32;      // damping ratio < 1 gives the wobble when it stops
 const MAX_STRETCH = 0.14; // max vertex lag as a fraction of the card's shorter side
 const LIFT_SCALE = 0.04;  // card grows 4% when "picked up"
@@ -30,8 +30,9 @@ function shadowTexture() {
  * so the swap between the real window and the card is invisible.
  */
 export class ClothCard {
-  constructor(scene, space, texture, bounds, grab, z = -0.25) {
+  constructor(scene, space, texture, bounds, grab, effect = 'move', z = -0.25) {
     this.scene = scene;
+    this.effect = effect;
     this.space = space;
     this.z = z;
     this.lift = 0;
@@ -40,6 +41,8 @@ export class ClothCard {
 
     const r = space.boundsToWorld(bounds, z);
     this.rect = { cx: r.center.x, cy: r.center.y, w: r.width, h: r.height };
+    // Lag limit from the starting size, so the card stays rubbery even while it shrinks to a dot.
+    this.maxLag = MAX_STRETCH * Math.min(r.width, r.height) * (effect === 'move' ? 1 : 1.6);
     this.prevRect = { ...this.rect };
     this.rectVel = new THREE.Vector2();
     this.gu = THREE.MathUtils.clamp((grab.x - bounds.x) / bounds.width, 0, 1);
@@ -62,7 +65,7 @@ export class ClothCard {
       this.v[i] = uv.getY(i);
       const d = Math.hypot(this.u[i] - this.gu, this.v[i] - this.gv) / maxD;
       const s = d * d * (3 - 2 * d); // smoothstep
-      this.k[i] = K_GRAB + (K_FAR - K_GRAB) * s;
+      this.k[i] = K_GRAB + ((K_FAR[effect] || K_FAR.move) - K_GRAB) * s;
       this.c[i] = 2 * Math.sqrt(this.k[i]) * ZETA;
     }
     this._restTargets(this.pos);
@@ -102,16 +105,37 @@ export class ClothCard {
     return new THREE.Vector3(cx + (this.gu - 0.5) * w, cy + (this.gv - 0.5) * h, this.z);
   }
 
-  /** Animate from current bounds to target physical bounds. Resolves when the card has settled. */
+  /**
+   * Animate to target physical bounds. Resolves when the effect is finished.
+   *  move:     lift, carry, drop with an elastic settle
+   *  close:    a quick flinch, then sucked into the close button (grab point) and gone
+   *  minimize: sags, then drops into the taskbar like a genie
+   *  maximize: springs out to fill the screen
+   */
   moveTo(targetBounds, durationMs = 900) {
     const t = this.space.boundsToWorld(targetBounds, this.z);
+    const to = { cx: t.center.x, cy: t.center.y, w: t.width, h: t.height };
+    const d = Math.max(0.3, durationMs / 1000);
     return new Promise((resolve) => {
       const tl = gsap.timeline({ onComplete: resolve });
-      tl.to(this, { lift: 1, duration: 0.14, ease: 'power2.out' });
-      tl.to(this.rect, { cx: t.center.x, cy: t.center.y, w: t.width, h: t.height,
-        duration: Math.max(0.35, durationMs / 1000), ease: 'power2.inOut' });
-      tl.to(this, { lift: 0, duration: 0.45, ease: 'elastic.out(1, 0.45)' });
-      tl.to({}, { duration: 0.15 }); // let the last wobble die down
+      if (this.effect === 'close') {
+        tl.to(this, { lift: 1, duration: 0.09, ease: 'power2.out' });
+        tl.to(this.rect, { ...to, duration: d, ease: 'power3.in' });
+        tl.to(this, { opacity: 0, duration: d * 0.35, ease: 'power1.in' }, `-=${d * 0.35}`);
+      } else if (this.effect === 'minimize') {
+        tl.to(this, { lift: 0.6, duration: 0.1, ease: 'power2.out' });
+        tl.to(this.rect, { ...to, duration: d, ease: 'power2.in' });
+        tl.to(this, { opacity: 0, duration: d * 0.25, ease: 'power1.in' }, `-=${d * 0.25}`);
+      } else if (this.effect === 'maximize') {
+        tl.to(this, { lift: 1, duration: 0.1, ease: 'power2.out' });
+        tl.to(this.rect, { ...to, duration: d, ease: 'back.out(1.2)' });
+        tl.to(this, { lift: 0, duration: 0.3, ease: 'power2.out' });
+      } else {
+        tl.to(this, { lift: 1, duration: 0.14, ease: 'power2.out' });
+        tl.to(this.rect, { ...to, duration: d, ease: 'power2.inOut' });
+        tl.to(this, { lift: 0, duration: 0.45, ease: 'elastic.out(1, 0.45)' });
+        tl.to({}, { duration: 0.15 }); // let the last wobble die down
+      }
       this.timeline = tl;
     });
   }
@@ -132,7 +156,7 @@ export class ClothCard {
 
     const target = new Float32Array(this.pos.length);
     this._restTargets(target);
-    const maxLag = MAX_STRETCH * Math.min(this.rect.w, this.rect.h);
+    const maxLag = this.maxLag;
     const steps = Math.max(1, Math.ceil(dt / SUBSTEP));
     const h = dt / steps;
     for (let s = 0; s < steps; s++) {

@@ -12,7 +12,7 @@ from jarvis import config
 from jarvis.hands import actions as A
 from jarvis.hands import capture as C
 from jarvis.hands import uia
-from jarvis.hands.windows import Window, find_window, list_windows
+from jarvis.hands.windows import Rect, Window, find_window, list_windows
 
 log = logging.getLogger("tools")
 FALLTHROUGH = object()
@@ -107,18 +107,40 @@ class Tools:
             self.memory.last_window = w
         return w
 
-    async def _fly_and_tap(self, w: Window, button: str, purpose: str):
-        point, how = await uia.caption_button_point(w, button)
-        log.info("%s %s button at %s (%s)", purpose, w.spoken_name, point, how)
-        arrived = await self.ui.fly_to(*point, purpose=purpose)
-        if arrived and config.REAL_CLICK:
-            A.real_click(*point)
-            return True
-        return False
-
     async def _grab_point(self, w: Window):
         f = w.frame
         return f.left + f.width // 2, f.top + max(12, int(16 * w.dpi_scale))
+
+    async def _proxy(self, w: Window, target, grab, effect, duration_ms, finalize):
+        """Swap the real window for a rubbery card, animate the card (move / close / minimize / maximize),
+        run `finalize` (the real OS action) while the window is invisible, then reveal it and drop the card."""
+        loop = asyncio.get_running_loop()
+        name, bounds = await loop.run_in_executor(None, C.snapshot, w)
+        ready, arrived = loop.create_future(), loop.create_future()
+        self.ui.proxy_waiters[(w.hwnd, "ready")] = ready
+        self.ui.proxy_waiters[(w.hwnd, "arrived")] = arrived
+        hidden = False
+        try:
+            await self.ui.send("proxy_start", window_id=hex(w.hwnd), texture_url=f"http://127.0.0.1:{config.WS_PORT}/cap/{name}",
+                               bounds=bounds, target=target.as_dict(), grab={"x": int(grab[0]), "y": int(grab[1])},
+                               effect=effect, duration_ms=duration_ms)
+            try:
+                # Hide the real window only once the card is on screen, so the swap never flashes.
+                await asyncio.wait_for(ready, 1.5)
+                C.hide(w)
+                hidden = True
+                await asyncio.wait_for(arrived, duration_ms / 1000 + 2.5)
+            except asyncio.TimeoutError:
+                log.warning("cloth proxy handshake timed out")
+            finalize(w)
+            await asyncio.sleep(0.12 if effect != "move" else 0.05)
+        finally:
+            self.ui.proxy_waiters.pop((w.hwnd, "ready"), None)
+            self.ui.proxy_waiters.pop((w.hwnd, "arrived"), None)
+            if hidden:
+                C.reveal(w.hwnd)
+            await self.ui.send("proxy_end", window_id=hex(w.hwnd),
+                               final_bounds=(w.frame.as_dict() if w.alive else bounds))
 
     async def _cloth_move(self, w: Window, target):
         """Animate the window as a rubbery card from its current frame to `target`, then place the real window."""
@@ -128,33 +150,55 @@ class Tools:
         if w.maximized:
             A.restore(w)
             await asyncio.sleep(0.15)
-        gx, gy = await self._grab_point(w)
-        await self.ui.fly_to(gx, gy, purpose="grab", duration_ms=500)
-        loop = asyncio.get_running_loop()
-        name, bounds = await loop.run_in_executor(None, C.snapshot, w)
-        ready, arrived = loop.create_future(), loop.create_future()
-        self.ui.proxy_waiters[(w.hwnd, "ready")] = ready
-        self.ui.proxy_waiters[(w.hwnd, "arrived")] = arrived
-        hidden = False
-        try:
-            await self.ui.send("proxy_start", window_id=hex(w.hwnd), texture_url=f"http://127.0.0.1:{config.WS_PORT}/cap/{name}",
-                               bounds=bounds, target=target.as_dict(), grab={"x": gx, "y": gy}, duration_ms=900)
-            try:
-                # Hide the real window only once the card is on screen, so the swap never flashes.
-                await asyncio.wait_for(ready, 1.5)
-                C.hide(w)
-                hidden = True
-                await asyncio.wait_for(arrived, 900 / 1000 + 2.5)  # lift + move + settle ≈ 1.7 s at 60 fps
-            except asyncio.TimeoutError:
-                log.warning("cloth proxy handshake timed out")
-            A.set_frame(w, target)
-            await asyncio.sleep(0.05)
-        finally:
-            self.ui.proxy_waiters.pop((w.hwnd, "ready"), None)
-            self.ui.proxy_waiters.pop((w.hwnd, "arrived"), None)
-            if hidden:
-                C.reveal(w.hwnd)
-            await self.ui.send("proxy_end", window_id=hex(w.hwnd), final_bounds=w.frame.as_dict())
+        grab = await self._grab_point(w)
+        await self.ui.fly_to(*grab, purpose="grab", duration_ms=500)
+        await self._proxy(w, target, grab, "move", 900, lambda win: A.set_frame(win, target))
+
+    async def _press_button(self, w: Window, action: str):
+        """The physical version of minimize / maximize / close: fly to the real caption button, hover it,
+        poke it, then play the window's reaction as a card before the real action happens underneath."""
+        do = {"minimize": A.minimize, "maximize": A.maximize, "close": A.close}[action]
+        if not self.ui.clients:
+            do(w)
+            return
+        button = "restore" if action == "maximize" and w.maximized else action
+        rect, how = await uia.caption_button(w, button)
+        point = (rect.left + rect.width // 2, rect.top + rect.height // 2)
+        log.info("%s %s button at %s (%s)", action, w.spoken_name, point, how)
+        arrived = await self.ui.fly_to(*point, purpose=action, button=rect.as_dict())
+        if arrived and config.REAL_CLICK:
+            A.real_click(*point)
+            return
+        if action == "maximize" and w.maximized:
+            A.restore(w)  # pressing maximize on a maximized window restores it; no card needed
+            return
+        f = w.frame
+        if action == "close":
+            target = Rect(point[0] - 8, point[1] - 5, point[0] + 8, point[1] + 5)
+            grab, ms = point, 520
+        elif action == "minimize":
+            area = A.work_area(w)
+            cx = (f.left + f.right) // 2
+            target = Rect(cx - f.width // 16, area.bottom - f.height // 16, cx + f.width // 16, area.bottom)
+            grab, ms = (cx, f.bottom), 560
+        else:
+            target = A.work_area(w)
+            grab, ms = point, 520
+        await self._proxy(w, target, grab, action, ms, do)
+
+    async def _present(self, before: set):
+        """After launching an app, wait for its window and fly over to show it off."""
+        for _ in range(40):
+            await asyncio.sleep(0.1)
+            new = [w for w in list_windows() if w.hwnd not in before]
+            if new:
+                w = new[0]
+                self.memory.last_window = w
+                await asyncio.sleep(0.35)  # let it finish its own opening animation
+                gx, gy = await self._grab_point(w)
+                await self.ui.fly_to(gx, gy, purpose="present")
+                return w
+        return None
 
     async def _not_found(self, app, from_router):
         if from_router:
@@ -172,9 +216,8 @@ class Tools:
         name = w.spoken_name
         if action == "close" and A.looks_unsaved(w):
             async def do_close():
-                await self._fly_and_tap(w, "close", "close")
-                A.close(w)
-                await self.speak(f"Closed {name}.")
+                await self.speak(f"Closing {name}.")
+                await self._press_button(w, "close")
             self.pending_confirm = do_close
             await self.speak(f"{name} has unsaved changes. Close it anyway?")
             return "asked for confirmation"
@@ -192,10 +235,7 @@ class Tools:
             if w.minimized and action != "close":
                 A.restore(w)
                 await asyncio.sleep(0.2)
-            button = "maximize" if action == "maximize" and not w.maximized else ("restore" if action == "maximize" else action)
-            clicked = await self._fly_and_tap(w, button, action)
-            if not clicked:
-                {"minimize": A.minimize, "maximize": A.maximize, "close": A.close}[action](w)
+            await self._press_button(w, action)
         log.info("%s %s -> minimized=%s maximized=%s alive=%s", action, name, w.minimized, w.maximized, w.alive)
         return f"{action} {name}: done"
 
@@ -252,9 +292,12 @@ class Tools:
             A.open_url(url)
             return f"opened {url}"
         loop = asyncio.get_running_loop()
+        before = {w.hwnd for w in list_windows()}
         resolved = await loop.run_in_executor(None, A.open_app, key)
         if resolved:
             await self.speak(f"Opening {name}.")
+            if self.ui.clients:
+                await self._present(before)
             return f"opened {resolved}"
         if from_router:
             return FALLTHROUGH

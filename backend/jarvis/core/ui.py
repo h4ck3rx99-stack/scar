@@ -49,7 +49,7 @@ class UiLink:
         """Fire-and-forget send from sync code."""
         asyncio.get_running_loop().create_task(self.send(event, **payload))
 
-    async def fly_to(self, x, y, purpose, duration_ms=550):
+    async def fly_to(self, x, y, purpose, duration_ms=650, button=None):
         """Ask the avatar to fly to physical screen pixel (x, y). Returns when it arrives, or after a
         timeout. The OS action never depends on the animation, it only waits for it."""
         if not self.clients:
@@ -57,9 +57,10 @@ class UiLink:
         mid = uuid.uuid4().hex[:12]
         fut = asyncio.get_running_loop().create_future()
         self._pending[mid] = fut
-        await self.send("fly_to", id=mid, target={"x": int(x), "y": int(y)}, purpose=purpose, duration_ms=duration_ms)
+        extra = {"button": button} if button else {}
+        await self.send("fly_to", id=mid, target={"x": int(x), "y": int(y)}, purpose=purpose, duration_ms=duration_ms, **extra)
         try:
-            await asyncio.wait_for(fut, duration_ms / 1000 + config.DESTINATION_TIMEOUT_S)
+            await asyncio.wait_for(fut, duration_ms / 1000 + 0.6 + config.DESTINATION_TIMEOUT_S)
             return True
         except asyncio.TimeoutError:
             log.warning("destination_reached timeout for %s", purpose)

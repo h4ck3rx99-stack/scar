@@ -102,6 +102,16 @@ function createWindow() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     try { mainWindow.setIgnoreMouseEvents(Boolean(ignore), options || { forward: true }); } catch {}
   });
+  // Windows silently drops the topmost flag when other apps open or grab focus, which let
+  // new windows (e.g. Paint) cover the robot. Re-assert it on blur, on request, and every second.
+  const keepOnTop = () => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    mainWindow.moveTop();
+  };
+  mainWindow.on('blur', keepOnTop);
+  setInterval(keepOnTop, 1000);
+  ipcMain.on('raise-overlay', keepOnTop);
   ipcMain.on('focus-overlay', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus(); });
   ipcMain.on('close-app', () => quit());
   ipcMain.handle('get-config', () => ({

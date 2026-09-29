@@ -568,3 +568,33 @@ body.theme-light {
   --text-main: #0f1720;
   --text-dim: #52606d;
 }
+
+/* Hover/press state drawn over a real caption button while the robot presses it */
+.button-hover {
+  position: fixed;
+  z-index: 2;
+  pointer-events: none;
+  background: rgba(128, 128, 128, 0.28);
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.08s ease;
+}
+.button-hover.visible { opacity: 1; }
+.button-hover.pressed { background: rgba(128, 128, 128, 0.45); }
+.button-hover.close { background: #c42b1c; }
+.button-hover.close.pressed { background: #b22a1d; }
+
+.click-ripple {
+  position: fixed;
+  z-index: 3;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 212, 255, 0.9);
+  pointer-events: none;
+  animation: click-ripple 0.5s ease-out forwards;
+}
+@keyframes click-ripple {
+  from { transform: scale(0.6); opacity: 1; }
+  to { transform: scale(5); opacity: 0; }
+}
