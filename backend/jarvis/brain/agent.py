@@ -122,7 +122,7 @@ class Agent:
                 buf += data
                 parts = _SENT.split(buf)
                 for sentence in parts[:-1]:
-                    if sentence.strip():
+                    if sentence.strip() and not _is_filler(sentence):
                         spoken.append(sentence.strip())
                         await self.speak(sentence.strip())
                 buf = parts[-1]
@@ -201,4 +201,6 @@ class Agent:
 
 
 def _is_filler(s):
-    return s.strip().lower().strip(".!") in ("", "done", "ok", "okay")
+    t = s.strip().lower().strip(".!")
+    # Small models sometimes write the tool name as text ("[look_at_screen]") instead of calling it.
+    return t in ("", "done", "ok", "okay") or re.fullmatch(r"[\[(<{]?\s*[a-z_]+\s*[\])>}]?", t) is not None and "_" in t

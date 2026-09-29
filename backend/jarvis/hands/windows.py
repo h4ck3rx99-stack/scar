@@ -104,7 +104,10 @@ class Window:
 
     @property
     def spoken_name(self):
-        return FRIENDLY.get(self.exe) or (os.path.splitext(self.exe)[0].title() if self.exe else self.title[:30])
+        if self.exe in ("applicationframehost.exe", "") or not self.exe:
+            # Store apps (Settings, Calculator, Photos...) all live in ApplicationFrameHost: use the title.
+            return self.title.split(" - ")[-1][:30] or "that window"
+        return FRIENDLY.get(self.exe) or os.path.splitext(self.exe)[0].title()
 
     def to_dict(self):
         return {"hwnd": hex(self.hwnd), "title": self.title, "app": self.spoken_name, "exe": self.exe,

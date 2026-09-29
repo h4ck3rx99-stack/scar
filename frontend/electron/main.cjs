@@ -1,6 +1,6 @@
 // Jarvis body: a transparent, click-through, always-on-top overlay covering the primary display.
 // Also starts the Python brain (backend/) if it isn't already running, and stops it on quit.
-const { app, BrowserWindow, screen, ipcMain, nativeTheme, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, nativeTheme, Tray, Menu, nativeImage, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -113,6 +113,10 @@ function createWindow() {
   setInterval(keepOnTop, 1000);
   ipcMain.on('raise-overlay', keepOnTop);
   ipcMain.on('focus-overlay', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus(); });
+  // Push-to-talk from anywhere: interrupts Scar if it's talking and starts listening.
+  globalShortcut.register('Control+Shift+Space', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('hotkey-talk');
+  });
   ipcMain.on('close-app', () => quit());
   ipcMain.handle('get-config', () => ({
     token: readToken(),

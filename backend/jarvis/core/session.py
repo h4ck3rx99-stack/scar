@@ -35,6 +35,8 @@ _JUNK = {"", "you", "thank you", "thanks", "bye", "thank you for watching", "tha
 _WAKE_PREFIX = re.compile(r"^\W*(?:(?:hey|hi|ok|okay|a|yo)\W+)?(?:jarvis|jervis|jarvi|jarves|travis|vis|scar|skar|scarr|scaar)\b\W*", re.I)
 _GREETING = {"hey", "hi", "ok", "okay", "yo", "hello", "a"}
 _NOT_NAME = {"oscar", "scare", "scared", "scary", "scarf", "scars", "scarce"}
+# Said over Scar's voice, these cut it off.
+_INTERRUPT = re.compile(r"^\W*(?:ok(?:ay)?\W+)?(?:stop|wait|shut up|enough|quiet|be quiet|cancel|hold on|never ?mind|pause|that's enough)\b", re.I)
 
 
 def name_call(text: str):
@@ -221,16 +223,20 @@ class Session:
                 self.last_follow_emit = now
                 await self.ui.send("voice_state", status="follow_up", follow_up_ms_left=int(left))
 
-        elif st in (State.THINKING, State.SPEAKING) and woke:
-            log.info("barge-in")
-            await self.start_listening("wake", preroll_blocks=int(0.8 * 1000 / BLOCK_MS))
+        elif st in (State.THINKING, State.SPEAKING):
+            if woke:
+                log.info("barge-in")
+                await self.start_listening("wake", preroll_blocks=int(0.8 * 1000 / BLOCK_MS))
+            elif config.NAME_WAKE and self.stt is not None:
+                # Listen for "Scar ..." / "stop" over our own voice; short segments keep it snappy.
+                self._spot(block, prob, max_ms=3500)
 
     # ------------------------------------------------------------ name spotting
     def _reset_spot(self):
         self.spot_blocks = []
         self.spot_speech_ms = self.spot_silence_ms = 0
 
-    def _spot(self, block, prob):
+    def _spot(self, block, prob, max_ms=7000):
         """Collect short speech bursts; when one ends, transcribe it and check whether it starts with the name."""
         if prob >= config.VAD_ON:
             if not self.spot_blocks:
@@ -243,7 +249,7 @@ class Session:
             return
         self.spot_blocks.append(block)
         dur_ms = len(self.spot_blocks) * BLOCK_MS
-        if self.spot_silence_ms >= 400 or dur_ms >= 7000:
+        if self.spot_silence_ms >= 400 or dur_ms >= max_ms:
             blocks, speech_ms = self.spot_blocks, self.spot_speech_ms
             self._reset_spot()
             if speech_ms < 200 or (self.spot_task and not self.spot_task.done()):
@@ -254,12 +260,30 @@ class Session:
     async def _check_name(self, audio):
         t_end = time.perf_counter()
         text = await asyncio.get_running_loop().run_in_executor(None, self.stt.transcribe, audio)
-        if self.state not in (State.IDLE, State.SLEEPING, State.STANDBY):
+        busy = self.state in (State.THINKING, State.SPEAKING)
+        if not busy and self.state not in (State.IDLE, State.SLEEPING, State.STANDBY):
+            return
+        if busy and _INTERRUPT.match(text.strip()):
+            # "Stop" / "wait" / "shut up" while it's talking.
+            log.info("interrupted: %r", text)
+            if self.turn_task and not self.turn_task.done():
+                self.turn_task.cancel()
+            self.speech.cancel()
+            self.last_activity = time.monotonic()
+            await self._set(State.IDLE)
             return
         rest = name_call(text)
         if rest is None:
             return
-        log.info("name call: %r", text)
+        log.info("name call%s: %r", " (barge-in)" if busy else "", text)
+        if busy:
+            if self.turn_task and not self.turn_task.done():
+                self.turn_task.cancel()
+            self.speech.cancel()
+            if _INTERRUPT.match(rest):
+                self.last_activity = time.monotonic()
+                await self._set(State.IDLE)
+                return
         if len(rest.split()) >= 2:
             # "Scar, open YouTube" in one breath: run it straight away.
             if self.state in (State.SLEEPING, State.STANDBY):

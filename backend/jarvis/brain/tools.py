@@ -12,7 +12,7 @@ import time
 from jarvis import config
 from jarvis.hands import actions as A
 from jarvis.hands import capture as C
-from jarvis.hands import uia
+from jarvis.hands import keys, uia
 from jarvis.hands.windows import Rect, Window, find_window, foreground_window, list_windows
 from jarvis.skills import calc, files, reminders, screen, store, system, web
 
@@ -115,6 +115,15 @@ SCHEMA += [
     _fn("lock_pc", "Lock the computer."),
     _fn("arrange_windows", "Put the two most recent windows side by side.", {}),
     _fn("briefing", "A short briefing: time, weather, battery, reminders and to-dos (e.g. for 'good morning')."),
+    _fn("click_element", "Click a button, link, tab or menu item by its visible name in the current (or named) window.",
+        {"name": S, "app": S}, ["name"]),
+    _fn("press_keys", "Do a keyboard action in the active app.", {
+        "action": {"type": "string", "enum": sorted(__import__("jarvis.hands.keys", fromlist=["ACTIONS"]).ACTIONS)},
+        "times": I}, ["action"]),
+    _fn("scroll", "Scroll the page up or down.", {"direction": {"type": "string", "enum": ["up", "down"]}, "amount": I}, ["direction"]),
+    _fn("open_settings", "Open a Windows Settings page (bluetooth, wifi, display, sound, battery, update...).", {"page": S}, ["page"]),
+    _fn("power", "Shut down, restart, sleep or sign out of the PC (asks to confirm first).",
+        {"action": {"type": "string", "enum": ["shutdown", "restart", "sleep", "sign_out"]}}, ["action"]),
 ]
 
 IGNORE_TOOL = _fn("ignore", "The message was not meant for you (background talk, video, someone else). Say nothing.")
@@ -655,6 +664,72 @@ class Tools:
         await self._cloth_move(wins[0], A.layout_rect(wins[0], "left"))
         await self._cloth_move(wins[1], A.layout_rect(wins[1], "right"))
         return "done"
+
+    # ------------------------------------------------- operating inside apps
+    async def t_click_element(self, name, app=None, from_router=False):
+        w = self._resolve(app) if app else foreground_window()
+        if not w:
+            await self.speak("Which window should I click in?")
+            return "no window"
+        if w.minimized:
+            A.restore(w)
+            await asyncio.sleep(0.3)
+        hit = await uia.find_element(w, name)
+        if not hit:
+            if from_router:
+                return FALLTHROUGH
+            await self.speak(f"I can't see a {name} button in {w.spoken_name}.")
+            return f"no element named {name}"
+        ctrl, rect = hit
+        await self.speak(f"Clicking {name}.")
+        point = (rect.left + rect.width // 2, rect.top + rect.height // 2)
+        await self.ui.fly_to(*point, purpose="click", button=rect.as_dict())
+        A.focus(w)
+        await uia.invoke(ctrl)
+        self.memory.last_window = w
+        return f"clicked {name}"
+
+    async def t_press_keys(self, action, times=1, from_router=False):
+        if action not in keys.ACTIONS:
+            return FALLTHROUGH if from_router else f"unknown key action {action}"
+        target = foreground_window()
+        loop = asyncio.get_running_loop()
+        if target and not action.startswith(("show_desktop", "task_view", "search", "run", "settings", "notifications",
+                                             "quick_settings", "file_explorer", "task_manager", "snip", "emoji",
+                                             "clipboard_history", "switch_window")):
+            A.focus(target)
+            await asyncio.sleep(0.12)
+        await loop.run_in_executor(None, keys.do_action, action, int(times or 1))
+        return "done"
+
+    async def t_scroll(self, direction="down", amount=5, from_router=False):
+        w = foreground_window()
+        if w and not w.minimized:
+            f = w.frame
+            A.user32.SetCursorPos((f.left + f.right) // 2, (f.top + f.bottom) // 2)
+        await asyncio.get_running_loop().run_in_executor(None, keys.scroll, direction, int(amount or 5))
+        return "done"
+
+    async def t_open_settings(self, page, from_router=False):
+        await self.speak(f"Opening {page} settings.")
+        keys.open_settings(page)
+        return "done"
+
+    async def t_power(self, action, from_router=False):
+        import subprocess
+        cmds = {"shutdown": ["shutdown", "/s", "/t", "5"], "restart": ["shutdown", "/r", "/t", "5"],
+                "sign_out": ["shutdown", "/l"],
+                "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]}
+        words = {"shutdown": "shut down", "restart": "restart", "sleep": "put the PC to sleep", "sign_out": "sign you out"}
+
+        async def do_it():
+            await self.speak("Okay.")
+            await asyncio.sleep(1.5)
+            subprocess.Popen(cmds[action], creationflags=subprocess.CREATE_NO_WINDOW)
+
+        self.pending_confirm = do_it
+        await self.speak(f"Should I {words[action]} now?")
+        return "asked for confirmation"
 
     async def t_smalltalk(self, kind, from_router=False):
         await self.speak("Anytime.")

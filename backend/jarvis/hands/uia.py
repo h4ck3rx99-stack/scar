@@ -150,3 +150,87 @@ async def list_tabs(w: Window):
 
 async def select_tab(w: Window, query: str):
     return await run(_select_tab, w.hwnd, query, timeout=3)
+
+
+# ------------------------------------------------------------ click by name
+_CLICKABLE = {"ButtonControl", "HyperlinkControl", "MenuItemControl", "TabItemControl", "ListItemControl",
+              "CheckBoxControl", "RadioButtonControl", "SplitButtonControl", "TreeItemControl", "ComboBoxControl",
+              "EditControl", "DataItemControl", "TextControl", "ImageControl"}
+_PREFERRED = {"ButtonControl": 12, "HyperlinkControl": 10, "MenuItemControl": 10, "TabItemControl": 8,
+              "CheckBoxControl": 8, "RadioButtonControl": 8, "SplitButtonControl": 8, "ListItemControl": 6,
+              "TreeItemControl": 6, "EditControl": 5, "ComboBoxControl": 5, "DataItemControl": 4, "TextControl": 0, "ImageControl": 0}
+
+
+def _find_element(hwnd, query, max_nodes=4000, budget_s=2.5):
+    """Breadth-first search of the window's accessibility tree for the best on-screen element named like `query`."""
+    import time
+    from rapidfuzz import fuzz
+    q = query.lower().strip()
+    root = _auto.ControlFromHandle(hwnd)
+    if root is None:
+        return None
+    wr = root.BoundingRectangle
+    queue, seen, best, best_score = [root], 0, None, 0
+    t0 = time.monotonic()
+    while queue and seen < max_nodes and time.monotonic() - t0 < budget_s:
+        ctrl = queue.pop(0)
+        seen += 1
+        try:
+            children = ctrl.GetChildren()
+        except Exception:  # noqa: BLE001 - elements vanish while we walk
+            continue
+        for c in children:
+            queue.append(c)
+            try:
+                kind, name = c.ControlTypeName, (c.Name or "").strip()
+            except Exception:  # noqa: BLE001
+                continue
+            if kind not in _CLICKABLE or not name or len(name) > 120:
+                continue
+            n = name.lower()
+            score = 100 if n == q else fuzz.ratio(q, n) if len(n) < len(q) * 2.5 else fuzz.partial_ratio(q, n) - 12
+            score += _PREFERRED.get(kind, 0)
+            if score > best_score:
+                r = c.BoundingRectangle
+                # Must be visible inside the window.
+                if r.width() > 2 and r.height() > 2 and r.left >= wr.left - 5 and r.top >= wr.top - 5 and r.right <= wr.right + 5 and r.bottom <= wr.bottom + 5:
+                    best, best_score = c, score
+    if best is None or best_score < 78:
+        return None
+    r = best.BoundingRectangle
+    return best, Rect(r.left, r.top, r.right, r.bottom)
+
+
+def _invoke(ctrl):
+    for getter in ("GetInvokePattern", "GetSelectionItemPattern", "GetTogglePattern", "GetExpandCollapsePattern"):
+        try:
+            pattern = getattr(ctrl, getter)()
+            if pattern is None:
+                continue
+            if getter == "GetInvokePattern":
+                pattern.Invoke()
+            elif getter == "GetSelectionItemPattern":
+                pattern.Select()
+            elif getter == "GetTogglePattern":
+                pattern.Toggle()
+            else:
+                pattern.Expand()
+            return True
+        except Exception:  # noqa: BLE001 - try the next way of pressing it
+            continue
+    ctrl.Click(simulateMove=False)
+    return True
+
+
+async def find_element(w: Window, query: str):
+    """Returns (control, rect) or None. Chromium browsers build their accessibility tree on first request,
+    so an empty first search is retried once."""
+    hit = await run(_find_element, w.hwnd, query, timeout=4)
+    if hit is None:
+        await asyncio.sleep(0.4)
+        hit = await run(_find_element, w.hwnd, query, timeout=4)
+    return hit
+
+
+async def invoke(ctrl):
+    return await run(_invoke, ctrl, timeout=3)

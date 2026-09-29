@@ -1,39 +1,28 @@
 import * as THREE from 'three';
 
 /**
- * Smooth 3D Roaming Engine
- * Generates organic wandering waypoints within full screen bounds.
- * Defaulted to gentle, relaxed, floaty pacing.
+ * Calm roaming: glide to a spot, slow down on arrival, hover there for a while, pick another spot.
+ *
+ * Everything is time-based (units per second), so it moves the same at 12, 40 or 144 fps. The robot stays
+ * at a constant depth (constant size), keeps facing the user, and only leans a little into its motion.
+ * Spots are chosen mostly around the edges of the screen, so it doesn't park over whatever you're working on.
  */
 export class RoamEngine {
   constructor(targetObject, options = {}) {
     this.targetObject = targetObject;
     this.options = {
-      bounds: {
-        minX: -3.8, maxX: 3.8,
-        minY: -2.0, maxY: 2.0,
-        minZ: -1.0, maxZ: 1.0
-      },
-      speed: 0.35, // Gentle, slow floating default!
-      damping: 0.03,
-      ...options
+      bounds: { minX: -3.8, maxX: 3.8, minY: -2.0, maxY: 2.0, minZ: 0, maxZ: 0 },
+      speed: 0.35,
+      ...options,
     };
-
     this.enabled = false;
-    this.currentPos = new THREE.Vector3(0, 0, 0);
-    this.targetPos = new THREE.Vector3(0, 0, 0);
-    this.velocity = new THREE.Vector3(0, 0, 0);
-    this.prevPos = new THREE.Vector3(0, 0, 0);
-
-    // Rotations
-    this.targetRotation = new THREE.Euler(0, 0, 0, 'YXZ');
-    this.currentRotation = new THREE.Euler(0, 0, 0, 'YXZ');
-
-    this.waypointTimer = 0;
-    this.waypointInterval = 5.0; // Slower interval between targets
-
-    // Seeded time for organic sinusoids
-    this.timeSeed = Math.random() * 1000;
+    this.currentPos = new THREE.Vector3();
+    this.targetPos = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.anchor = new THREE.Vector3();   // where it hovers when not roaming
+    this.dwell = 0;                      // seconds left hovering at the current spot
+    this.arrived = true;
+    this.seed = Math.random() * 1000;
   }
 
   updateBounds(bounds) {
@@ -46,89 +35,94 @@ export class RoamEngine {
 
   setEnabled(enable) {
     this.enabled = enable;
+    this.currentPos.copy(this.targetObject.position);
+    this.anchor.copy(this.targetObject.position);
+    this.velocity.set(0, 0, 0);
     if (enable) {
-      this.currentPos.copy(this.targetObject.position);
-      this.pickNewWaypoint();
-    } else {
-      // Rest gently in place where it currently is without jumping to center!
+      // Hover a moment where we are before setting off.
       this.targetPos.copy(this.targetObject.position);
-      this.currentPos.copy(this.targetObject.position);
-      this.velocity.set(0, 0, 0);
+      this.arrived = true;
+      this.dwell = 1.5 + Math.random() * 2;
+    } else {
+      this.targetPos.copy(this.targetObject.position);
     }
   }
 
+  /** Mostly around the edges (70%), sometimes anywhere. */
   pickNewWaypoint() {
     const b = this.options.bounds;
-    // Pick gentle wandering waypoints across the full screen
-    this.targetPos.set(
-      b.minX + Math.random() * (b.maxX - b.minX),
-      b.minY + Math.random() * (b.maxY - b.minY),
-      b.minZ + Math.random() * (b.maxZ - b.minZ)
-    );
-    // 5 to 9 seconds at gentle pacing
-    this.waypointInterval = 5.0 + Math.random() * 4.0;
-    this.waypointTimer = 0;
+    const w = b.maxX - b.minX;
+    const h = b.maxY - b.minY;
+    let x, y;
+    if (Math.random() < 0.7) {
+      const side = Math.floor(Math.random() * 4);
+      const edge = 0.18;
+      if (side === 0) { x = b.minX + Math.random() * w * edge; y = b.minY + Math.random() * h; }
+      else if (side === 1) { x = b.maxX - Math.random() * w * edge; y = b.minY + Math.random() * h; }
+      else if (side === 2) { x = b.minX + Math.random() * w; y = b.maxY - Math.random() * h * edge; }
+      else { x = b.minX + Math.random() * w; y = b.minY + Math.random() * h * edge; }
+    } else {
+      x = b.minX + Math.random() * w;
+      y = b.minY + Math.random() * h;
+    }
+    // Don't pick a spot right next to where we already are.
+    if (Math.hypot(x - this.currentPos.x, y - this.currentPos.y) < w * 0.15) {
+      x = THREE.MathUtils.clamp(this.currentPos.x + (x > this.currentPos.x ? 1 : -1) * w * 0.3, b.minX, b.maxX);
+    }
+    this.targetPos.set(x, y, 0);
+    this.arrived = false;
   }
 
   update(delta, time) {
-    if (!this.targetObject) return 1.0;
+    const obj = this.targetObject;
+    const t = time + this.seed;
+    const dt = Math.min(delta, 0.1);
+    // Gentle hover bob, always on.
+    const bobY = Math.sin(t * 1.6) * 0.035 + Math.sin(t * 0.7) * 0.015;
 
-    const t = time + this.timeSeed;
-    const speedMult = this.options.speed;
-
-    if (this.enabled) {
-      this.waypointTimer += delta;
-      if (this.waypointTimer >= this.waypointInterval) {
-        this.pickNewWaypoint();
-      }
-
-      // Gentle, calm breathing curves
-      const noiseX = Math.sin(t * 0.5) * 0.25 + Math.cos(t * 1.1) * 0.12;
-      const noiseY = Math.cos(t * 0.6) * 0.20 + Math.sin(t * 1.3) * 0.08;
-      const noiseZ = Math.sin(t * 0.4) * 0.15;
-
-      const dynamicTarget = new THREE.Vector3(
-        this.targetPos.x + noiseX,
-        this.targetPos.y + noiseY,
-        this.targetPos.z + noiseZ
-      );
-
-      // Spring-damped movement with slow speed scaling
-      const toTarget = new THREE.Vector3().subVectors(dynamicTarget, this.currentPos);
-      this.velocity.add(toTarget.multiplyScalar(this.options.damping * 0.22 * speedMult));
-      this.velocity.multiplyScalar(0.95); // High smoothness friction
-
-      this.prevPos.copy(this.currentPos);
-      this.currentPos.add(this.velocity);
-      this.targetObject.position.copy(this.currentPos);
-
-      // Gentle banking into flight turns
-      const targetRoll = -this.velocity.x * 0.35;
-      const targetPitch = this.velocity.y * 0.25;
-      const targetYaw = this.velocity.x * 0.18;
-
-      this.targetObject.rotation.z = THREE.MathUtils.lerp(this.targetObject.rotation.z, targetRoll, 0.06);
-      this.targetObject.rotation.x = THREE.MathUtils.lerp(this.targetObject.rotation.x, targetPitch, 0.06);
-      this.targetObject.rotation.y = THREE.MathUtils.lerp(this.targetObject.rotation.y, targetYaw, 0.06);
-
-      const speed = this.velocity.length() / Math.max(delta, 0.001);
-      const thrustIntensity = THREE.MathUtils.clamp(1.0 + speed * 0.25, 0.8, 2.0);
-      return thrustIntensity;
-    } else {
-      // Idle hovering breathing motion when resting in place
-      const idleFloatY = Math.sin(t * 1.8) * 0.05;
-      const idleFloatX = Math.cos(t * 1.1) * 0.02;
-      const idleTiltZ = Math.sin(t * 1.4) * 0.012;
-
-      this.targetObject.position.y = THREE.MathUtils.lerp(this.targetObject.position.y, this.targetPos.y + idleFloatY, 0.06);
-      this.targetObject.position.x = THREE.MathUtils.lerp(this.targetObject.position.x, this.targetPos.x + idleFloatX, 0.06);
-      this.targetObject.position.z = THREE.MathUtils.lerp(this.targetObject.position.z, this.targetPos.z, 0.06);
-
-      this.targetObject.rotation.z = THREE.MathUtils.lerp(this.targetObject.rotation.z, idleTiltZ, 0.05);
-      this.targetObject.rotation.x = THREE.MathUtils.lerp(this.targetObject.rotation.x, 0, 0.05);
-      this.targetObject.rotation.y = THREE.MathUtils.lerp(this.targetObject.rotation.y, 0, 0.05);
-
+    if (!this.enabled) {
+      obj.position.x = THREE.MathUtils.damp(obj.position.x, this.anchor.x, 4, dt);
+      obj.position.y = THREE.MathUtils.damp(obj.position.y, this.anchor.y + bobY, 4, dt);
+      obj.position.z = THREE.MathUtils.damp(obj.position.z, this.anchor.z, 4, dt);
+      this._settleRotation(dt, 0, t);
       return 1.0;
     }
+
+    if (this.arrived) {
+      this.dwell -= dt;
+      if (this.dwell <= 0) this.pickNewWaypoint();
+    }
+
+    // "Arrive" steering: accelerate towards the spot, cruise, brake smoothly near it.
+    const maxSpeed = this.options.speed * 2.2;          // world units per second
+    const toTarget = new THREE.Vector3().subVectors(this.targetPos, this.currentPos);
+    const dist = toTarget.length();
+    const slowRadius = 1.2;
+    const desiredSpeed = dist < slowRadius ? maxSpeed * (dist / slowRadius) : maxSpeed;
+    const desired = dist > 1e-4 ? toTarget.multiplyScalar(desiredSpeed / dist) : toTarget.set(0, 0, 0);
+    const steer = desired.sub(this.velocity);
+    const maxAccel = maxSpeed * 1.5;
+    if (steer.length() > maxAccel * dt) steer.setLength(maxAccel * dt);
+    this.velocity.add(steer);
+    this.currentPos.addScaledVector(this.velocity, dt);
+    this.currentPos.z = THREE.MathUtils.damp(this.currentPos.z, 0, 3, dt);
+
+    if (!this.arrived && dist < 0.05 && this.velocity.length() < 0.08) {
+      this.arrived = true;
+      this.dwell = 4 + Math.random() * 7;   // hover 4-11 s before moving on
+    }
+
+    obj.position.set(this.currentPos.x, this.currentPos.y + bobY, this.currentPos.z);
+    this._settleRotation(dt, this.velocity.x / Math.max(maxSpeed, 1e-3), t);
+    return 1.0 + this.velocity.length() / Math.max(maxSpeed, 1e-3);
+  }
+
+  /** Face the user; lean a little into horizontal motion. */
+  _settleRotation(dt, vxNorm, t) {
+    const obj = this.targetObject;
+    const lean = THREE.MathUtils.clamp(vxNorm, -1, 1);
+    obj.rotation.z = THREE.MathUtils.damp(obj.rotation.z, -lean * 0.14 + Math.sin(t * 1.1) * 0.012, 5, dt);
+    obj.rotation.y = THREE.MathUtils.damp(obj.rotation.y, lean * 0.22, 4, dt);
+    obj.rotation.x = THREE.MathUtils.damp(obj.rotation.x, Math.abs(lean) * 0.06, 4, dt);
   }
 }

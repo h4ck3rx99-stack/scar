@@ -1,6 +1,16 @@
 import pytest
 
-from jarvis.core.session import name_call
+from jarvis.core.session import _INTERRUPT, name_call
+
+
+@pytest.mark.parametrize("text", ["Stop.", "stop talking", "Wait!", "Okay stop", "shut up", "Hold on", "never mind", "enough"])
+def test_interrupt_words(text):
+    assert _INTERRUPT.match(text)
+
+
+@pytest.mark.parametrize("text", ["The weather today is sunny", "It stops raining tomorrow", "I'll wait for you there"])
+def test_scars_own_sentences_are_not_interrupts(text):
+    assert not _INTERRUPT.match(text)
 
 
 @pytest.mark.parametrize("text,rest", [

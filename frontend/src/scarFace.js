@@ -11,7 +11,7 @@ import * as THREE from 'three';
  * The mouth moves with the TTS loudness while talking (setTalk).
  */
 // Visor rectangle measured on the light model (fractions of the bounding box), for when detection fails.
-const VISOR_FALLBACK = { fx0: 0.345, fx1: 0.775, fy0: 0.47, fy1: 0.628 };
+const VISOR_FALLBACK = { fx0: 0.285, fx1: 0.82, fy0: 0.475, fy1: 0.632 };
 const W = 512;
 const H = 288;
 

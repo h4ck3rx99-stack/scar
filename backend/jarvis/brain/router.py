@@ -133,6 +133,80 @@ def _switch_tab(m):
     return "browser_tab", {"action": "switch", "query": m["q"]}
 
 
+# --- keyboard actions / clicking / scrolling / settings / power ----------------------
+_KEY_PHRASES = [
+    (r"copy(?: (?:that|this|it|the text))?", "copy"), (r"paste(?: (?:it|that|here))?", "paste"), (r"cut(?: (?:that|this|it))?", "cut"),
+    (r"undo(?: (?:that|it))?", "undo"), (r"redo(?: (?:that|it))?", "redo"), (r"select (?:all|everything)", "select_all"),
+    (r"save(?: (?:this|it|the file|the document|my work))?", "save"), (r"(?:find|search) (?:on |in )?(?:this|the) page", "find"),
+    (r"(?:refresh|reload)(?: (?:the |this )?page)?", "refresh"), (r"(?:go )?back(?: a page)?", "back"), (r"(?:go )?forward", "forward"),
+    (r"zoom in", "zoom_in"), (r"zoom out", "zoom_out"), (r"reset (?:the )?zoom", "zoom_reset"),
+    (r"(?:go |make it |enter |exit |leave )?full ?screen(?: mode)?", "fullscreen"),
+    (r"(?:switch|change) (?:windows?|apps?)|alt tab|next window", "switch_window"), (r"task view|show (?:all )?(?:my )?windows", "task_view"),
+    (r"(?:open |start )?(?:a )?new window", "new_window"), (r"reopen (?:the )?(?:last |closed )?tab", "reopen_tab"),
+    (r"(?:go to |switch to )?(?:the )?next tab", "next_tab"), (r"(?:go to |switch to )?(?:the )?previous tab", "previous_tab"),
+    (r"bookmark (?:this|it|this page)", "bookmark"), (r"(?:open |show )?(?:my )?(?:browser )?history", "history"),
+    (r"(?:go to |scroll to )?(?:the )?top(?: of the page)?", "top"), (r"(?:go to |scroll to )?(?:the )?bottom(?: of the page)?", "bottom"),
+    (r"page down", "page_down"), (r"page up", "page_up"), (r"(?:open )?(?:the )?clipboard history", "clipboard_history"),
+    (r"(?:open )?(?:the )?emoji(?: panel| picker)?", "emoji"), (r"(?:open )?task manager", "task_manager"),
+    (r"(?:open )?(?:the )?notifications?(?: panel| center)?", "notifications"), (r"(?:open )?quick settings", "quick_settings"),
+    (r"snip|(?:take a )?snip(?:ping)?(?: tool)?|screen snip", "snip"), (r"rename (?:it|this|that)", "rename"),
+]
+_KEY_RE = [(re.compile(rf"^{p}$"), a) for p, a in _KEY_PHRASES]
+
+
+@rule(r"^(?:press|hit|push|type) (?:the )?(?P<k>enter|return|escape|esc|space|spacebar|tab|backspace|delete)(?: key| button)?(?: (?P<n>\d+|two|three) times?| (?P<tw>twice))?$")
+def _press_key(m):
+    k = {"return": "enter", "esc": "escape", "spacebar": "space"}.get(m["k"], m["k"])
+    n = 2 if m["tw"] else {"two": 2, "three": 3}.get(m["n"], int(m["n"]) if m["n"] else 1)
+    return "press_keys", {"action": k, "times": n}
+
+
+@rule(r"^(?P<phrase>.+)$")
+def _named_key_action(m):
+    for rx, action in _KEY_RE:
+        if rx.match(m["phrase"]):
+            return "press_keys", {"action": action}
+    return None
+
+
+@rule(r"^scroll (?P<d>up|down)(?: (?P<amt>a lot|a bit|a little|more|all the way))?$|^scroll$")
+def _scroll(m):
+    amt = {"a lot": 15, "a bit": 3, "a little": 3, "more": 8, "all the way": 30}.get(m["amt"], 6)
+    return "scroll", {"direction": m["d"] or "down", "amount": amt}
+
+
+@rule(r"^(?:open |show |go to )?(?:the )?(?P<p>bluetooth|wi-?fi|network|display|sound|audio|battery|power|apps|windows update|update|privacy|notification|personalization|background|wallpaper|themes?|mouse|touchpad|keyboard|storage|about|date and time|time|language|microphone|camera|vpn|hotspot|night light|default apps|printers?|accounts?|focus|gaming) settings$")
+def _settings(m):
+    p = {"audio": "sound", "wallpaper": "background", "touchpad": "mouse", "notification": "notifications",
+         "date and time": "time", "theme": "themes", "printer": "printers", "account": "accounts"}.get(m["p"], m["p"])
+    return "open_settings", {"page": p}
+
+
+@rule(r"^(?:shut ?down|turn off|power off|switch off) (?:the |my )?(?:pc|computer|laptop|system)$|^shut ?down$")
+def _shutdown(m):
+    return "power", {"action": "shutdown"}
+
+
+@rule(r"^(?:restart|reboot) (?:the |my )?(?:pc|computer|laptop|system)$|^reboot$")
+def _restart(m):
+    return "power", {"action": "restart"}
+
+
+@rule(r"^(?:put )?(?:the |my )?(?:pc|computer|laptop) (?:to |in |into )?sleep$|^(?:put (?:the |my )?(?:pc|computer|laptop) to sleep)$")
+def _pc_sleep(m):
+    return "power", {"action": "sleep"}
+
+
+@rule(r"^(?:sign|log) (?:me )?out$")
+def _signout(m):
+    return "power", {"action": "sign_out"}
+
+
+@rule(r"^(?:click|tap|select|choose)(?: on)? (?:the )?(?P<n>.+?)(?: button| link| tab| option| icon| menu)?$|^press (?:the )?(?P<n2>.+?) button$")
+def _click(m):
+    return "click_element", {"name": m["n"] or m["n2"]}
+
+
 # --- screen / vision ---------------------------------------------------------------
 @rule(r"^(?:what(?:'s| is) (?:on )?(?:my|the|this) screen|what am i (?:looking at|seeing)|look at (?:my|the) screen|describe (?:my|the) screen|what do you see)$")
 def _look(m):

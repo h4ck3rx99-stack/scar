@@ -24,7 +24,7 @@ const state = {
   sizeMultiplier: 1.0,   // user preference on top of the automatic size
   baseScale: 0.5,
   roamSpeed: 0.35,
-  facingOffset: -Math.PI * 0.35, // 3/4 view showing the visor and jetpack
+  facingOffset: -Math.PI / 2, // the model's front is +x; this turns it to face the user head-on
   isCollapsed: true,
 };
 
@@ -96,7 +96,7 @@ function updateRoamBounds() {
   const { w, h } = space.visibleSize(0);
   const mx = 0.9 * state.baseScale * 1.2;
   const my = 1.0 * state.baseScale * 1.2;
-  roamEngine.updateBounds({ minX: -(w / 2 - mx), maxX: w / 2 - mx, minY: -(h / 2 - my), maxY: h / 2 - my, minZ: -0.8, maxZ: 0.8 });
+  roamEngine.updateBounds({ minX: -(w / 2 - mx), maxX: w / 2 - mx, minY: -(h / 2 - my), maxY: h / 2 - my, minZ: 0, maxZ: 0 });
 }
 
 const gltfLoader = new GLTFLoader();
@@ -207,6 +207,18 @@ function setupUI() {
     mischiefEngine.enabled = on;
     roamBtn.textContent = on ? '🌐 Roam: ON' : '🛑 Roam: OFF';
     roamBtn.classList.toggle('primary', on);
+  };
+  const playBtn = document.getElementById('playful-toggle-btn');
+  const showPlayful = () => {
+    playBtn.textContent = mischiefEngine.allowed ? '🎭 Playful pranks: ON' : '🎭 Playful pranks: OFF';
+    playBtn.classList.toggle('primary', mischiefEngine.allowed);
+  };
+  mischiefEngine.allowed = Boolean(state.playful);
+  showPlayful();
+  playBtn.onclick = () => {
+    mischiefEngine.allowed = !mischiefEngine.allowed;
+    showPlayful();
+    saveSettings({ playful: mischiefEngine.allowed });
   };
   document.getElementById('theme-toggle-btn').onclick = () => {
     const next = state.currentMode === 'dark' ? 'light' : 'dark';
@@ -394,6 +406,7 @@ async function boot() {
   const cfg = await bridge.loadConfig();
   if (cfg.display) space.setScale(cfg.display.scaleFactor);
   state.sizeMultiplier = cfg.settings?.sizeMultiplier || 1.0;
+  state.playful = Boolean(cfg.settings?.playful);
   setupUI();
   await setModelMode(cfg.osTheme || 'dark');
   // Standby: no wellness pop-ups or pranks until Scar is called again.
@@ -405,6 +418,10 @@ async function boot() {
   bridge.on('alert', (m) => { if (controller.mode === 'standby') showToast(m.text); });
   if (ipcRenderer) {
     ipcRenderer.on('os-theme', (_e, mode) => { state.themeOverride = null; setModelMode(mode); });
+    ipcRenderer.on('hotkey-talk', () => {
+      controller.noteActivity();
+      if (bridge.send('avatar_clicked')) soundEngine.playBoop();
+    });
   }
   avatarRoot.position.set(0, 0, -20); // off-stage until the entry animation
   bridge.connect();
