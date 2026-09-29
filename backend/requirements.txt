@@ -1,9 +1,21 @@
-websockets>=12.0
-asyncio
-# Full ML Voice Stack (to be installed in venv)
-# silero-vad
-# faster-whisper
-# openwakeword
-# kokoro-onnx
-# sounddevice
-# llama-cpp-python
+websockets>=13
+numpy
+sounddevice
+onnxruntime-gpu==1.24.4   # 1.25+ needs CUDA 13 DLLs that clash with CTranslate2 cuDNN
+openwakeword
+faster-whisper
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+nvidia-cuda-runtime-cu12
+nvidia-cufft-cu12
+nvidia-curand-cu12
+kokoro-onnx
+httpx
+rapidfuzz
+pywin32
+comtypes
+uiautomation
+pillow
+jsonschema
+python-dotenv
+pytest

@@ -485,3 +485,86 @@ input[type="range"]::-webkit-slider-thumb {
   border-color: #ff5566;
 }
 
+
+/* ---------------------------------------------------------------- Jarvis v2 */
+.ctx-command {
+  width: 100%;
+  margin: 4px 0 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--dock-border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text-main);
+  font: 13px var(--font-family);
+  outline: none;
+  user-select: text;
+}
+.ctx-command:focus { border-color: var(--accent-cyan); box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2); }
+
+/* Voice-state halo around the robot */
+.status-ring {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  --ring: var(--accent-cyan);
+  --progress: 360deg;
+}
+.status-ring.visible { opacity: 1; }
+.status-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  padding: 3px;
+  background: conic-gradient(var(--ring) var(--progress), transparent 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 6px var(--ring));
+}
+.status-ring[data-state="listening"]::before { animation: ring-pulse 1.1s ease-in-out infinite; }
+.status-ring[data-state="thinking"] { --ring: var(--accent-yellow); }
+.status-ring[data-state="thinking"]::before {
+  background: conic-gradient(var(--ring) 0 90deg, transparent 90deg 180deg, var(--ring) 180deg 270deg, transparent 270deg);
+  animation: ring-spin 0.9s linear infinite;
+}
+.status-ring[data-state="follow_up"]::before { transition: background 0.25s linear; }
+.status-ring[data-state="offline"] { --ring: #6b7785; }
+.status-ring[data-state="offline"]::before { opacity: 0.5; }
+
+@keyframes ring-pulse { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.06); opacity: 0.5; } }
+@keyframes ring-spin { to { transform: rotate(360deg); } }
+
+.status-label {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  max-width: 320px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--dock-bg);
+  border: 1px solid var(--dock-border);
+  color: var(--text-main);
+  font: 12px var(--font-family);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.status-label.visible { opacity: 1; }
+.status-label[data-state="offline"] { color: var(--text-dim); }
+
+body.theme-light {
+  --dock-bg: rgba(248, 250, 252, 0.92);
+  --dock-border: rgba(0, 120, 170, 0.35);
+  --text-main: #0f1720;
+  --text-dim: #52606d;
+}

@@ -6,13 +6,15 @@
     "dev": "vite --port 5173",
     "build": "vite build",
     "preview": "vite preview",
-    "desktop": "electron electron/main.cjs"
+    "desktop": "electron electron/main.cjs",
+    "build:avatar": "node tools/build-avatar.mjs && gltf-transform optimize public/models/dark/avatar.raw.glb public/models/dark/avatar.glb --compress meshopt --texture-compress webp --simplify false --join false --instance false && gltf-transform optimize public/models/light/avatar.raw.glb public/models/light/avatar.glb --compress meshopt --texture-compress webp --simplify false --join false --instance false && node -e \"for (const t of ['dark','light']) require('fs').rmSync('public/models/'+t+'/avatar.raw.glb')\""
   },
   "dependencies": {
     "gsap": "^3.15.0",
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.5.1",
     "electron": "^44.4.5",
     "vite": "^8.3.1"
   }

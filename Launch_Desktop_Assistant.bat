@@ -1,21 +1,7 @@
 @echo off
-title Jarvis 3D Desktop Assistant
-echo ====================================================
-echo     Launching Jarvis 3D Roaming Desktop Assistant
-echo ====================================================
-echo.
+title Jarvis
 cd /d "%~dp0frontend"
-
-:: Terminate any stale electron processes before launch to prevent duplicates or audio leaks
-taskkill /F /IM electron.exe >nul 2>&1
-
-:: Check if server is running on 5173
-netstat -ano | findstr :5173 >nul
-if %errorlevel% neq 0 (
-    echo Starting Assistant Engine in background...
-    start /b npx vite --port 5173 --host >nul 2>&1
-    timeout /t 2 /nobreak >nul
-)
-
-echo Activating Transparent Desktop Overlay Window...
-npx electron electron/main.cjs
+rem Build the UI once if it has never been built.
+if not exist "dist\index.html" call npx vite build
+rem Electron starts the Python brain (backend\.venv) itself and stops it on quit.
+start "" npx electron electron/main.cjs

@@ -14,6 +14,7 @@ export class SpeechBubble {
     this.avatarRoot = avatarRoot;
     this.container = null;
     this.timeout = null;
+    this.headOffset = 0.85; // world units above the robot's centre; main.js keeps it in sync with the robot's size
     this.ttsEnabled = false; // Strictly OFF by default - no robotic ghost voice!
     this.speechSynth = window.speechSynthesis || null;
     if (this.speechSynth) {
@@ -109,7 +110,7 @@ export class SpeechBubble {
     // Get avatar position in screen space
     const worldPos = new THREE.Vector3();
     this.avatarRoot.getWorldPosition(worldPos);
-    worldPos.y += 0.85; // Float right above the robot's head
+    worldPos.y += this.headOffset * this.avatarRoot.scale.y;
 
     const screenPos = worldPos.clone().project(this.camera);
 

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import gsap from 'gsap';
 
 import { HoverEngine } from './hoverEngine.js';
 import { RoamEngine } from './roamEngine.js';
@@ -12,222 +13,153 @@ import { MischiefEngine } from './mischiefEngine.js';
 import { soundEngine } from './soundEngine.js';
 import { EyeVisorSystem } from './eyeVisorSystem.js';
 import { DragController } from './dragController.js';
-import gsap from 'gsap';
+import { ScreenSpace } from './screenSpace.js';
+import { StatusRing } from './statusRing.js';
+import { AssistantController } from './assistantController.js';
+import { bridge, ipcRenderer } from './bridge.js';
 
-// Electron IPC Integration
-let ipcRenderer = null;
-try {
-  if (typeof window !== 'undefined' && window.require) {
-    const electron = window.require('electron');
-    ipcRenderer = electron.ipcRenderer;
-  }
-} catch (e) {}
-
-// Application State
 const state = {
   currentMode: 'dark',
-  windowMode: 'fullscreen', // Full desktop overlay: travels freely across entire monitor
-  baseScale: 0.5, // Natural scale for desktop roaming
-  roamSpeed: 0.35, // Gentle, relaxed slow floating pacing
-  isRoaming: true, // Start roaming automatically
-  facingOffset: -Math.PI * 0.35, // 3/4 perspective showing visor and jetpack
-  isCollapsed: true
+  themeOverride: null,   // set by voice ("light mode") until the OS theme changes
+  sizeMultiplier: 1.0,   // user preference on top of the automatic size
+  baseScale: 0.5,
+  roamSpeed: 0.35,
+  facingOffset: -Math.PI * 0.35, // 3/4 view showing the visor and jetpack
+  isCollapsed: true,
 };
 
-// Check if running in browser or Electron
-const isElectron = navigator.userAgent.toLowerCase().includes('electron');
-if (!isElectron) {
-  document.body.classList.add('in-browser');
-}
+if (!navigator.userAgent.toLowerCase().includes('electron')) document.body.classList.add('in-browser');
 
-// 1. Scene, Camera, Transparent WebGL Renderer Setup
+// 1. Renderer ---------------------------------------------------------------
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-
-const camera = new THREE.PerspectiveCamera(
-  45,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  100
-);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position.set(0, 0, 6.2);
 
-const renderer = new THREE.WebGLRenderer({
-  antialias: true,
-  alpha: true,
-  powerPreference: 'high-performance'
-});
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setClearColor(0x000000, 0); // 100% transparent background
+// A 15 cm robot doesn't need 2x pixels on a full-screen transparent overlay.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setClearColor(0x000000, 0);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.3;
+renderer.toneMappingExposure = 1.1;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enabled = false; // Disabled so clicks drag the robot without spinning camera
+// Metal needs something to reflect: a soft studio environment, baked once.
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.9;
 
-// 2. Cinematic Lighting
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
-scene.add(ambientLight);
-
-const keyLight = new THREE.DirectionalLight(0xddeeff, 2.5);
+const keyLight = new THREE.DirectionalLight(0xddeeff, 1.6);
 keyLight.position.set(5, 8, 6);
-scene.add(keyLight);
-
-const fillLight = new THREE.DirectionalLight(0x77aaff, 1.2);
-fillLight.position.set(-6, -2, 4);
-scene.add(fillLight);
-
-const rimLight = new THREE.DirectionalLight(0x77aacc, 1.3);
+const rimLight = new THREE.DirectionalLight(0x77aacc, 1.2);
 rimLight.position.set(0, 5, -8);
-scene.add(rimLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.25), keyLight, rimLight);
 
-// 3. Avatar Hierarchy
+const space = new ScreenSpace(camera);
+
+// 2. Avatar ------------------------------------------------------------------
 const avatarRoot = new THREE.Group();
-avatarRoot.name = "AvatarRoot";
+avatarRoot.name = 'AvatarRoot';
 scene.add(avatarRoot);
-
 const modelContainer = new THREE.Group();
-modelContainer.name = "ModelContainer";
 avatarRoot.add(modelContainer);
 
-// 4. Yellow Jetpack Hover Engine (Silent/Clean)
 const hoverEngine = new HoverEngine(avatarRoot);
-
-// 5. Gentle Roam Engine (Full Screen Wandering)
-const roamEngine = new RoamEngine(avatarRoot, {
-  speed: state.roamSpeed,
-  bounds: { minX: -3.8, maxX: 3.8, minY: -2.0, maxY: 2.0, minZ: -1.0, maxZ: 1.0 }
-});
-
-function updateRoamBounds() {
-  const aspect = window.innerWidth / window.innerHeight;
-  const dist = camera.position.z;
-  const vFOV = THREE.MathUtils.degToRad(camera.fov);
-  const visibleH = 2 * Math.tan(vFOV / 2) * dist;
-  const visibleW = visibleH * aspect;
-
-  const marginX = 0.9 * state.baseScale;
-  const marginY = 0.8 * state.baseScale;
-
-  roamEngine.updateBounds({
-    minX: -(visibleW / 2 - marginX),
-    maxX: (visibleW / 2 - marginX),
-    minY: -(visibleH / 2 - marginY),
-    maxY: (visibleH / 2 - marginY),
-    minZ: -0.8,
-    maxZ: 0.8
-  });
-}
-updateRoamBounds();
-
+const roamEngine = new RoamEngine(avatarRoot, { speed: state.roamSpeed });
 const animController = new AnimationController(avatarRoot, hoverEngine, roamEngine);
-
-// 6. Holographic Speech Bubble, Wellness Engine & Mischief Engine
 const speechBubble = new SpeechBubble(camera, avatarRoot);
 const wellnessEngine = new WellnessEngine(speechBubble, { intervalMinutes: 12 });
 const mischiefEngine = new MischiefEngine(avatarRoot, camera, hoverEngine, speechBubble, roamEngine);
-
-// 7. Expressive Digital Eye Visor System (Blinking, Expressions & Eye Movements)
 const eyeVisor = new EyeVisorSystem();
-
-// 8. Desktop Mate Drag & Dangling Physics Controller
 const dragController = new DragController(avatarRoot, eyeVisor, speechBubble, roamEngine, ipcRenderer);
+const statusRing = new StatusRing();
 
-// 9. 3D Model Loader
+const MODEL_HEIGHT = 2.0; // normalizeMesh scales the model's largest dimension (its height) to 2 units
+
+/** Robot height in client px: ~14% of the screen height, kept between 150 and 240 px, times the user's size. */
+function targetHeightPx() {
+  return THREE.MathUtils.clamp(window.innerHeight * 0.14, 150, 240) * state.sizeMultiplier;
+}
+function avatarHeightPx() {
+  return MODEL_HEIGHT * state.baseScale * space.pxPerWorld(avatarRoot.position.z);
+}
+function updateScale() {
+  if (!window.innerHeight) return;
+  state.baseScale = targetHeightPx() / (MODEL_HEIGHT * space.pxPerWorld(0));
+  modelContainer.scale.setScalar(state.baseScale);
+  speechBubble.headOffset = state.baseScale * 1.08;
+  updateRoamBounds();
+}
+function updateRoamBounds() {
+  const { w, h } = space.visibleSize(0);
+  const mx = 0.9 * state.baseScale * 1.2;
+  const my = 1.0 * state.baseScale * 1.2;
+  roamEngine.updateBounds({ minX: -(w / 2 - mx), maxX: w / 2 - mx, minY: -(h / 2 - my), maxY: h / 2 - my, minZ: -0.8, maxZ: 0.8 });
+}
+
 const gltfLoader = new GLTFLoader();
-const objLoader = new OBJLoader();
-const textureLoader = new THREE.TextureLoader();
-
+gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 const loadedModels = { dark: null, light: null };
 
 function normalizeMesh(object) {
   const box = new THREE.Box3().setFromObject(object);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const center = new THREE.Vector3();
-  box.getCenter(center);
-
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
   object.position.sub(center);
-
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const scale = 2.0 / maxDim;
-  object.scale.set(scale, scale, scale);
-
-  object.traverse(child => {
-    if (child.isMesh) {
-      if (child.material) {
-        child.material.roughness = 0.35;
-        child.material.metalness = 0.85;
-        child.material.needsUpdate = true;
-      }
-    }
-  });
-
+  const s = MODEL_HEIGHT / Math.max(size.x, size.y, size.z);
+  object.position.multiplyScalar(s);
+  object.scale.setScalar(s);
   const wrapper = new THREE.Group();
   wrapper.add(object);
   wrapper.rotation.y = state.facingOffset;
-  hoverEngine.attachTo(wrapper);
-  eyeVisor.attachTo(wrapper); // Attach expressive digital eyes to the front visor!
-
   return wrapper;
 }
 
 async function loadModel(mode) {
   if (loadedModels[mode]) return loadedModels[mode];
+  const gltf = await gltfLoader.loadAsync(`./models/${mode}/avatar.glb`);
+  loadedModels[mode] = normalizeMesh(gltf.scene);
+  return loadedModels[mode];
+}
 
-  return new Promise((resolve) => {
-    const glbPath = `/models/${mode}/model.glb`;
-    gltfLoader.load(
-      glbPath,
-      (gltf) => {
-        const normalized = normalizeMesh(gltf.scene);
-        loadedModels[mode] = normalized;
-        resolve(normalized);
-      },
-      undefined,
-      () => {
-        const basePath = `/models/${mode}/`;
-        const baseColorTex = textureLoader.load(`${basePath}basecolor_opt.jpg`);
-        const normalTex = textureLoader.load(`${basePath}normal_opt.jpg`);
-
-        objLoader.load(`${basePath}model_clean.obj`, (obj) => {
-          const mat = new THREE.MeshStandardMaterial({
-            map: baseColorTex,
-            normalMap: normalTex,
-            metalness: mode === 'dark' ? 0.9 : 0.6,
-            roughness: 0.35
-          });
-          obj.traverse(c => { if (c.isMesh) c.material = mat; });
-          const normalized = normalizeMesh(obj);
-          loadedModels[mode] = normalized;
-          resolve(normalized);
-        });
-      }
-    );
+function disposeModel(mode) {
+  const m = loadedModels[mode];
+  if (!m) return;
+  m.traverse((c) => {
+    if (c.isMesh) {
+      c.geometry.dispose();
+      for (const key of ['map', 'normalMap', 'metalnessMap', 'roughnessMap']) c.material[key]?.dispose();
+      c.material.dispose();
+    }
   });
+  loadedModels[mode] = null;
 }
 
 async function setModelMode(mode) {
+  if (mode === state.currentMode && modelContainer.children.length) return;
+  const previous = state.currentMode;
   state.currentMode = mode;
-  modelContainer.clear();
-
   const model = await loadModel(mode);
+  modelContainer.clear();
   modelContainer.add(model);
-
-  if (mode === 'dark') {
-    rimLight.color.set(0x77aacc);
-  } else {
-    rimLight.color.set(0xccddee);
-  }
-
+  hoverEngine.attachTo(model);
+  eyeVisor.attachTo(model);
+  rimLight.color.set(mode === 'dark' ? 0x77aacc : 0xccddee);
+  document.body.classList.toggle('theme-dark', mode === 'dark');
+  document.body.classList.toggle('theme-light', mode === 'light');
+  // Only the active theme stays in VRAM.
+  if (previous !== mode) disposeModel(previous);
   updateScale();
 }
 
-function updateScale() {
-  avatarRoot.scale.set(state.baseScale, state.baseScale, state.baseScale);
-}
+const controller = new AssistantController({
+  scene, camera, space, avatarRoot, roamEngine, animController, mischiefEngine, speechBubble, eyeVisor,
+  statusRing, bridge, avatarHeightPx,
+  setTheme: (mode) => { state.themeOverride = mode; setModelMode(mode); },
+});
+controller.bind();
 
 function showToast(text) {
   const toast = document.getElementById('toast');
@@ -238,162 +170,87 @@ function showToast(text) {
   toast._timeout = setTimeout(() => toast.classList.remove('visible'), 2400);
 }
 
-// 10. Bind Top-Right Aside Dock UI Elements (Only: Size, Mute, Rest, Roam Off)
+function saveSettings(patch) {
+  if (ipcRenderer) ipcRenderer.invoke('save-settings', patch);
+}
+
+// 3. Settings dock + context menu ------------------------------------------
 function setupUI() {
   const asideDock = document.getElementById('aside-column');
-  const asideTrigger = document.getElementById('aside-toggle-btn');
+  document.getElementById('aside-toggle-btn').onclick = () => {
+    state.isCollapsed = !state.isCollapsed;
+    asideDock.classList.toggle('collapsed', state.isCollapsed);
+  };
 
-  // Toggle Aside Column collapse/expand
-  if (asideTrigger && asideDock) {
-    asideTrigger.onclick = () => {
-      state.isCollapsed = !state.isCollapsed;
-      asideDock.classList.toggle('collapsed', state.isCollapsed);
-    };
-  }
-
-  // 1. Robot Size Slider
   const scaleSlider = document.getElementById('scale-slider');
   const scaleVal = document.getElementById('scale-val');
-  if (scaleSlider) {
-    scaleSlider.value = state.baseScale;
-    scaleSlider.oninput = (e) => {
-      state.baseScale = parseFloat(e.target.value);
-      if (scaleVal) scaleVal.textContent = `${state.baseScale.toFixed(2)}x`;
-      updateScale();
-      updateRoamBounds();
-    };
-  }
+  scaleSlider.value = state.sizeMultiplier;
+  scaleVal.textContent = `${state.sizeMultiplier.toFixed(2)}x`;
+  scaleSlider.oninput = (e) => {
+    state.sizeMultiplier = parseFloat(e.target.value);
+    scaleVal.textContent = `${state.sizeMultiplier.toFixed(2)}x`;
+    updateScale();
+  };
+  scaleSlider.onchange = () => saveSettings({ sizeMultiplier: state.sizeMultiplier });
 
-  // 2. Mute Toggle Button
   const audioBtn = document.getElementById('audio-toggle-btn');
-  if (audioBtn) {
-    audioBtn.onclick = () => {
-      soundEngine.muted = !soundEngine.muted;
-      audioBtn.textContent = soundEngine.muted ? "🔇 Sound: OFF (Muted)" : "🔊 Sound: ON";
-      showToast(soundEngine.muted ? "Sound Muted" : "Sound Enabled");
-    };
-  }
-
-  // 3. Rest Button (Take a Rest / Drink Water)
-  const restBtn = document.getElementById('btn-trigger-wellness');
-  if (restBtn) {
-    restBtn.onclick = () => {
-      wellnessEngine.triggerRandomReminder();
-    };
-  }
-
-  // 4. Roam Off / On Toggle Button
+  audioBtn.onclick = () => {
+    soundEngine.muted = !soundEngine.muted;
+    audioBtn.textContent = soundEngine.muted ? '🔇 Effects: OFF' : '🔊 Effects: ON';
+  };
+  document.getElementById('btn-trigger-wellness').onclick = () => wellnessEngine.triggerRandomReminder();
   const roamBtn = document.getElementById('roam-toggle-btn');
-  if (roamBtn) {
-    roamBtn.onclick = () => {
-      state.isRoaming = !state.isRoaming;
-      roamEngine.setEnabled(state.isRoaming);
-      roamBtn.textContent = state.isRoaming
-        ? "🌐 Roam: ON (Click for Roam Off)"
-        : "🛑 Roam: OFF (Click for Roam On)";
-      roamBtn.classList.toggle('primary', state.isRoaming);
-      showToast(state.isRoaming ? "Roaming: ON" : "Roam: OFF (Resting in place)");
-    };
-  }
-
-  // 5. Desktop Mate Right-Click Context Menu
+  roamBtn.onclick = () => {
+    const on = !roamEngine.enabled;
+    roamEngine.setEnabled(on);
+    mischiefEngine.enabled = on;
+    roamBtn.textContent = on ? '🌐 Roam: ON' : '🛑 Roam: OFF';
+    roamBtn.classList.toggle('primary', on);
+  };
+  document.getElementById('theme-toggle-btn').onclick = () => {
+    const next = state.currentMode === 'dark' ? 'light' : 'dark';
+    state.themeOverride = next;
+    setModelMode(next);
+  };
   setupContextMenu();
 }
 
 function setupContextMenu() {
   const menu = document.getElementById('character-context-menu');
-  const closeBtn = document.getElementById('menu-close-btn');
-
-  if (!menu) return;
-
-  const hideContextMenu = () => {
+  const hide = () => {
     menu.classList.remove('visible');
-    if (ipcRenderer) {
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
-      isMouseIgnored = true;
-    }
+    setPassthrough(true);
   };
+  document.getElementById('menu-close-btn').onclick = hide;
 
-  if (closeBtn) {
-    closeBtn.onclick = hideContextMenu;
-  }
-
-  // Mood buttons
-  document.querySelectorAll('.mood-btn').forEach(btn => {
+  document.querySelectorAll('.mood-btn').forEach((btn) => {
     btn.onclick = () => {
       const mood = btn.getAttribute('data-mood');
       eyeVisor.setExpression(mood);
-
-      if (mood === 'happy') soundEngine.playHappy();
-      else if (mood === 'scared') soundEngine.playScared();
-      else if (mood === 'angry') soundEngine.playAngry();
-      else if (mood === 'sad') soundEngine.playSad();
-      else if (mood === 'curious') soundEngine.playCurious();
-      else soundEngine.playBoop();
-
-      showToast(`Mood: ${mood.toUpperCase()}`);
-      hideContextMenu();
+      ({ happy: soundEngine.playHappy, scared: soundEngine.playScared, angry: soundEngine.playAngry,
+        sad: soundEngine.playSad, curious: soundEngine.playCurious }[mood] || soundEngine.playBoop).call(soundEngine);
+      hide();
     };
   });
 
-  // Roam Toggle
-  const ctxRoam = document.getElementById('ctx-roam-btn');
-  if (ctxRoam) {
-    ctxRoam.onclick = () => {
-      state.isRoaming = !state.isRoaming;
-      roamEngine.setEnabled(state.isRoaming);
-      ctxRoam.textContent = state.isRoaming ? "🌐 Roam: ON" : "🛑 Roam: OFF";
-      showToast(state.isRoaming ? "Roam: ON" : "Roam: OFF");
-      hideContextMenu();
-    };
-  }
-
-  // Rest
-  const ctxRest = document.getElementById('ctx-rest-btn');
-  if (ctxRest) {
-    ctxRest.onclick = () => {
-      wellnessEngine.triggerRandomReminder();
-      hideContextMenu();
-    };
-  }
-
-  // Sound
-  const ctxSound = document.getElementById('ctx-sound-btn');
-  if (ctxSound) {
-    ctxSound.onclick = () => {
-      soundEngine.muted = !soundEngine.muted;
-      ctxSound.textContent = soundEngine.muted ? "🔇 Sound: OFF" : "🔊 Sound: ON";
-      showToast(soundEngine.muted ? "Muted" : "Sound Enabled");
-      hideContextMenu();
-    };
-  }
-
-  // Quit
-  const ctxQuit = document.getElementById('ctx-quit-btn');
-  if (ctxQuit) {
-    ctxQuit.onclick = () => {
-      speechBubble.stopAllSpeech();
-      if (ipcRenderer) {
-        ipcRenderer.send('close-app');
-      } else {
-        window.close();
-      }
-    };
-  }
-
-  window.addEventListener('beforeunload', () => {
+  const input = document.getElementById('ctx-command');
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter' && input.value.trim()) {
+      if (!bridge.send('text_command', { text: input.value.trim() })) showToast('Brain offline');
+      input.value = '';
+      hide();
+    } else if (e.key === 'Escape') hide();
+  };
+  document.getElementById('ctx-sleep-btn').onclick = () => { controller.goSleep(); hide(); };
+  document.getElementById('ctx-rest-btn').onclick = () => { wellnessEngine.triggerRandomReminder(); hide(); };
+  document.getElementById('ctx-quit-btn').onclick = () => {
     speechBubble.stopAllSpeech();
-  });
-
-  // Close context menu on outside click
-  window.addEventListener('click', (e) => {
-    if (!e.target.closest('#character-context-menu')) {
-      hideContextMenu();
-    }
-  });
+    if (ipcRenderer) ipcRenderer.send('close-app'); else window.close();
+  };
+  window.addEventListener('click', (e) => { if (!e.target.closest('#character-context-menu')) hide(); });
 }
 
-// 11. Mouse Pass-Through Management (Zero Desktop Interference)
+// 4. Mouse: click-through except over the robot / UI -------------------------
 let isMouseIgnored = true;
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -401,114 +258,47 @@ let pointerDownTime = 0;
 let pointerDownPos = { x: 0, y: 0 };
 let isMouseDownOnRobot = false;
 
+function setPassthrough(ignore) {
+  if (!ipcRenderer || ignore === isMouseIgnored) return;
+  ipcRenderer.send('set-ignore-mouse-events', ignore, { forward: true });
+  isMouseIgnored = ignore;
+}
+
+function isOverRobot(clientX, clientY) {
+  if (!modelContainer.children.length) return false;
+  mouse.set((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(mouse, camera);
+  if (raycaster.intersectObjects(modelContainer.children, true).length) return true;
+  const c = space.worldToClient(avatarRoot.getWorldPosition(new THREE.Vector3()));
+  return Math.hypot(clientX - c.x, clientY - c.y) < avatarHeightPx() * 0.42;
+}
+
 function checkPointerPassthrough(e) {
-  if (!ipcRenderer) return;
-
-  // While dragging or mouse button held down on robot, ALWAYS capture mouse!
-  if (dragController.isDragging || isMouseDownOnRobot) {
-    if (isMouseIgnored) {
-      ipcRenderer.send('set-ignore-mouse-events', false);
-      isMouseIgnored = false;
-    }
-    return;
-  }
-
-  // Check if hovering over aside column or context menu or toast
-  const isOverUI = !!(
-    (e.target && e.target.closest && (
-      e.target.closest('#aside-column') ||
-      e.target.closest('#character-context-menu') ||
-      e.target.closest('#toast')
-    ))
-  );
-
-  // Check if context menu is currently visible
-  const menu = document.getElementById('character-context-menu');
-  const isMenuOpen = menu && menu.classList.contains('visible');
-
-  // Check if hovering over 3D robot
-  let isOverRobot = false;
-  if (!isOverUI && !isMenuOpen && modelContainer && modelContainer.children.length > 0) {
-    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-    const wrapper = modelContainer.children[0];
-    const hits = raycaster.intersectObjects(wrapper.children, true);
-
-    const worldPos = new THREE.Vector3();
-    avatarRoot.getWorldPosition(worldPos);
-    const screenPos = worldPos.project(camera);
-    const sx = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
-    const sy = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
-    const distPx = Math.hypot(e.clientX - sx, e.clientY - sy);
-    const hoverRadius = Math.max(90, 180 * state.baseScale);
-
-    isOverRobot = (hits.length > 0) || (distPx < hoverRadius);
-  }
-
-  const shouldCapture = isOverUI || isMenuOpen || isOverRobot;
-
-  if (shouldCapture && isMouseIgnored) {
-    ipcRenderer.send('set-ignore-mouse-events', false);
-    isMouseIgnored = false;
-  } else if (!shouldCapture && !isMouseIgnored) {
-    ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
-    isMouseIgnored = true;
-  }
+  if (dragController.isDragging || isMouseDownOnRobot) return setPassthrough(false);
+  const overUI = e.target?.closest?.('#aside-column, #character-context-menu, #toast');
+  const menuOpen = document.getElementById('character-context-menu').classList.contains('visible');
+  setPassthrough(!(overUI || menuOpen || isOverRobot(e.clientX, e.clientY)));
 }
 
 window.addEventListener('pointerdown', (e) => {
-  if (e.button === 2) return; // Right-click handled by contextmenu
-  if (e.target.closest('#aside-column') || e.target.closest('#character-context-menu')) return;
-
+  if (e.button === 2 || e.target.closest('#aside-column, #character-context-menu')) return;
   pointerDownTime = performance.now();
   pointerDownPos = { x: e.clientX, y: e.clientY };
-
-  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-
-  let isHit = false;
-  if (modelContainer.children.length > 0) {
-    const wrapper = modelContainer.children[0];
-    const intersects = raycaster.intersectObjects(wrapper.children, true);
-    isHit = intersects.length > 0;
-  }
-
-  const worldPos = new THREE.Vector3();
-  avatarRoot.getWorldPosition(worldPos);
-  const screenPos = worldPos.project(camera);
-  const sx = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
-  const sy = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
-  const distPx = Math.hypot(e.clientX - sx, e.clientY - sy);
-  const hitRadius = Math.max(80, 160 * state.baseScale);
-
-  if (isHit || distPx < hitRadius) {
+  if (isOverRobot(e.clientX, e.clientY) && !controller.busy) {
     isMouseDownOnRobot = true;
-    if (ipcRenderer && isMouseIgnored) {
-      ipcRenderer.send('set-ignore-mouse-events', false);
-      isMouseIgnored = false;
-    }
+    setPassthrough(false);
   }
 });
 
 window.addEventListener('pointermove', (e) => {
-  // Gaze Tracking: Eyes look at cursor!
-  const normX = (e.clientX / window.innerWidth) * 2 - 1;
-  const normY = -(e.clientY / window.innerHeight) * 2 + 1;
-  eyeVisor.setGaze(normX, normY);
-
-  // If holding mouse on robot and moving -> Enter Hand-Holding Dangling Drag!
+  eyeVisor.setGaze((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   if (isMouseDownOnRobot) {
-    const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-    if (dist > 6 && !dragController.isDragging) {
+    if (Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y) > 6 && !dragController.isDragging) {
       dragController.startDrag(e.screenX, e.screenY, e.clientX, e.clientY, camera);
+      bridge.send('user_activity');
     }
-    if (dragController.isDragging) {
-      dragController.updateDrag(e.screenX, e.screenY, e.clientX, e.clientY, camera);
-    }
+    if (dragController.isDragging) dragController.updateDrag(e.screenX, e.screenY, e.clientX, e.clientY, camera);
   }
-
   checkPointerPassthrough(e);
 });
 
@@ -516,140 +306,117 @@ window.addEventListener('pointerup', (e) => {
   if (dragController.isDragging) {
     dragController.endDrag();
     isMouseDownOnRobot = false;
+    controller.noteActivity();
     checkPointerPassthrough(e);
     return;
   }
-
   const wasOnRobot = isMouseDownOnRobot;
   isMouseDownOnRobot = false;
-
-  if (e.target.closest('#aside-column') || e.target.closest('#character-context-menu')) return;
-
-  const dt = performance.now() - pointerDownTime;
-  const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-  if (dt > 350 || dist > 8) {
-    checkPointerPassthrough(e);
-    return; // was a drag
+  if (e.target.closest('#aside-column, #character-context-menu')) return;
+  const quick = performance.now() - pointerDownTime < 350 && Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y) < 8;
+  if (wasOnRobot && quick) {
+    // A tap on the robot = "I want to talk to you" (same as the wake word).
+    controller.noteActivity();
+    if (bridge.send('avatar_clicked')) {
+      eyeVisor.setExpression('curious');
+      soundEngine.playBoop();
+      gsap.fromTo(avatarRoot.scale, { x: 0.92, y: 1.08, z: 0.92 }, { x: 1, y: 1, z: 1, duration: 0.5, ease: 'elastic.out(1, 0.4)' });
+    } else {
+      eyeVisor.setExpression('sad');
+      speechBubble.show("My brain is offline. Is the backend running?", { chime: false, duration: 3500 });
+    }
   }
-
-  // Short click on Robot -> Get Scared & Flinch reaction!
-  if (wasOnRobot) {
-    eyeVisor.setExpression('scared');
-    soundEngine.playScared();
-
-    gsap.to(avatarRoot.position, {
-      y: "+=0.2",
-      z: "-=0.25",
-      duration: 0.12,
-      yoyo: true,
-      repeat: 3,
-      ease: "power2.inOut"
-    });
-
-    const startledQuotes = [
-      "Eep! You startled me! 😲",
-      "Whoa! Don't sneak up like that! 🫣",
-      "Yikes! My circuits jumped! ⚡",
-      "Ah! Don't scare me! 😱",
-      "Bzzzt! Scared me for a second! 🤖"
-    ];
-    const quote = startledQuotes[Math.floor(Math.random() * startledQuotes.length)];
-    speechBubble.show(quote, { chime: false, type: 'mischief', duration: 2800 });
-
-    setTimeout(() => {
-      roamEngine.setEnabled(true);
-      roamEngine.pickNewWaypoint();
-      eyeVisor.setExpression('normal');
-    }, 1800);
-  }
-
   checkPointerPassthrough(e);
 });
 
-// Right-Click Context Menu Trigger (Desktop Mate Style)
 window.addEventListener('contextmenu', (e) => {
   e.preventDefault();
+  if (!isOverRobot(e.clientX, e.clientY)) return;
   const menu = document.getElementById('character-context-menu');
-  if (!menu) return;
-
-  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-
-  let isHit = false;
-  if (modelContainer.children.length > 0) {
-    const wrapper = modelContainer.children[0];
-    const intersects = raycaster.intersectObjects(wrapper.children, true);
-    isHit = intersects.length > 0;
-  }
-
-  const worldPos = new THREE.Vector3();
-  avatarRoot.getWorldPosition(worldPos);
-  const screenPos = worldPos.project(camera);
-  const sx = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
-  const sy = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
-  const distPx = Math.hypot(e.clientX - sx, e.clientY - sy);
-  const hitRadius = Math.max(90, 180 * state.baseScale);
-
-  if (isHit || distPx < hitRadius) {
-    const menuX = Math.min(window.innerWidth - 230, Math.max(10, e.clientX));
-    const menuY = Math.min(window.innerHeight - 260, Math.max(10, e.clientY));
-    menu.style.left = `${menuX}px`;
-    menu.style.top = `${menuY}px`;
-    menu.classList.add('visible');
-    soundEngine.playBoop();
-
-    if (ipcRenderer) {
-      ipcRenderer.send('set-ignore-mouse-events', false);
-      isMouseIgnored = false;
-    }
-  }
+  menu.style.left = `${Math.min(window.innerWidth - 250, Math.max(10, e.clientX))}px`;
+  menu.style.top = `${Math.min(window.innerHeight - 380, Math.max(10, e.clientY))}px`;
+  menu.classList.add('visible');
+  soundEngine.playBoop();
+  setPassthrough(false);
+  if (ipcRenderer) ipcRenderer.send('focus-overlay');
+  setTimeout(() => document.getElementById('ctx-command').focus(), 50);
 });
 
-// 12. Window Resize Handling
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  updateRoamBounds();
-});
+let viewW = 0;
+let viewH = 0;
+/** Keeps camera/renderer/scale in sync with the window. Returns false while the window has no size yet. */
+function syncViewport() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (!w || !h) return false;
+  if (w !== viewW || h !== viewH) {
+    viewW = w;
+    viewH = h;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    updateScale();
+  }
+  return true;
+}
+window.addEventListener('resize', syncViewport);
 
-// 13. Render Loop
-let lastTime = performance.now();
+// 5. Render loop: full rate only when something is happening -----------------
+let lastTick = performance.now();
+let lastRender = 0;
 const startTime = performance.now();
+const _tmp = new THREE.Vector3();
 
-function animate() {
-  requestAnimationFrame(animate);
-
-  const now = performance.now();
-  const delta = (now - lastTime) / 1000;
+function animate(now, manual = false) {
+  if (!manual) requestAnimationFrame(animate);
+  const frameInterval = 1000 / controller.frameRate;
+  if (now - lastRender < frameInterval - 1) return;
+  lastRender = now;
+  if (!syncViewport()) return;
+  const delta = Math.min((now - lastTick) / 1000, 0.1);
+  lastTick = now;
   const time = (now - startTime) / 1000;
-  lastTime = now;
 
-  // Update Roam Engine
-  let motionSpeed = 1.0;
-  if (!animController.isAnimating && !mischiefEngine.isBusy && !dragController.isDragging) {
-    motionSpeed = roamEngine.update(delta, time);
+  if (!controller.busy && !animController.isAnimating && !mischiefEngine.isBusy && !dragController.isDragging) {
+    roamEngine.update(delta, time);
   }
-
-  // Update Eye Visor System (Blinking, Expressions & Gaze)
+  controller.update(delta, time);
   eyeVisor.update(delta, time);
-
-  // Keep Speech Bubble anchored directly above robot's head in 3D
   speechBubble.updatePosition();
-
+  const c = space.worldToClient(avatarRoot.getWorldPosition(_tmp));
+  statusRing.place(c.x, c.y, avatarHeightPx());
   renderer.render(scene, camera);
 }
 
-// Boot
-setupUI();
-setModelMode('dark').then(() => {
-  setTimeout(() => {
-    animController.playEntry1(() => {
-      roamEngine.setEnabled(true);
-      speechBubble.show("Hello! I'm your desktop assistant. Roaming is active! 🚀", { type: 'normal' });
-    });
-  }, 500);
-});
+// 6. Boot ---------------------------------------------------------------------
+async function boot() {
+  const cfg = await bridge.loadConfig();
+  if (cfg.display) space.setScale(cfg.display.scaleFactor);
+  state.sizeMultiplier = cfg.settings?.sizeMultiplier || 1.0;
+  setupUI();
+  await setModelMode(cfg.osTheme || 'dark');
+  if (ipcRenderer) {
+    ipcRenderer.on('os-theme', (_e, mode) => { state.themeOverride = null; setModelMode(mode); });
+  }
+  avatarRoot.position.set(0, 0, -20); // off-stage until the entry animation
+  bridge.connect();
+  // If the brain is slow to start (models loading), make an entrance anyway.
+  setTimeout(() => { if (controller.mode === 'entry' && !animController.isAnimating) controller.playRandomEntry(); }, 1500);
+  requestAnimationFrame(animate);
+}
 
-animate();
+boot();
+
+// Test hooks (browser dev only): lets the harness drive and inspect the scene.
+if (!ipcRenderer) {
+  // step(ms): advance animations and render without requestAnimationFrame (hidden test browsers pause rAF).
+  const step = async (ms = 1000, fps = 30) => {
+    for (let t = 0; t < ms; t += 1000 / fps) {
+      await new Promise((r) => setTimeout(r, 1000 / fps));
+      gsap.ticker.tick();
+      lastRender = 0;
+      animate(performance.now(), true);
+    }
+  };
+  window.__jarvis = { controller, avatarRoot, space, state, bridge, camera, renderer, setModelMode, step, statusRing, updateScale };
+}

@@ -1,56 +1,43 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "JarvisLocalAssistantWebSocketProtocol",
-  "description": "Strict WebSocket JSON Data Contract between Python AI Backend, Rust/Tauri OS Shell, and React Three.js Frontend",
-  "definitions": {
-    "Coordinates": {
-      "type": "object",
-      "properties": {
-        "x": { "type": "integer" },
-        "y": { "type": "integer" }
-      },
-      "required": ["x", "y"]
-    },
-    "VoiceStateEvent": {
-      "type": "object",
-      "properties": {
-        "event": { "type": "string", "const": "voice_state" },
-        "status": {
-          "type": "string",
-          "enum": ["listening", "processing", "speaking"]
-        }
-      },
-      "required": ["event", "status"]
-    },
-    "OsCommandEvent": {
-      "type": "object",
-      "properties": {
-        "event": { "type": "string", "const": "os_command" },
-        "action": {
-          "type": "string",
-          "enum": ["minimize", "resize", "click"]
-        },
-        "target_window": { "type": "string" },
-        "coordinates": { "$ref": "#/definitions/Coordinates" }
-      },
-      "required": ["event", "action", "target_window", "coordinates"]
-    },
-    "UiAnimationEvent": {
-      "type": "object",
-      "properties": {
-        "event": { "type": "string", "const": "ui_animation" },
-        "type": {
-          "type": "string",
-          "enum": ["fly", "stretch", "idle"]
-        },
-        "target": { "$ref": "#/definitions/Coordinates" }
-      },
-      "required": ["event", "type", "target"]
-    }
+  "title": "Jarvis WebSocket protocol v2",
+  "description": "Messages between the Python brain (ws://127.0.0.1:8765) and the Electron body. Coordinates are physical screen pixels. Every message carries v, id, event.",
+  "$defs": {
+    "point": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]},
+    "bounds": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "width": {"type": "integer"}, "height": {"type": "integer"}}, "required": ["x", "y", "width", "height"]},
+    "base": {"type": "object", "properties": {"v": {"const": 2}, "id": {"type": "string"}, "event": {"type": "string"}}, "required": ["v", "id", "event"]},
+
+    "voice_state": {"properties": {"event": {"const": "voice_state"},
+      "status": {"enum": ["idle", "listening", "thinking", "speaking", "follow_up", "sleeping"]},
+      "transcript": {"type": "string"}, "follow_up_ms_left": {"type": "integer"}}, "required": ["status"]},
+    "say": {"properties": {"event": {"const": "say"}, "text": {"type": "string"}}, "required": ["text"]},
+    "level": {"properties": {"event": {"const": "level"}, "value": {"type": "number", "minimum": 0, "maximum": 1}}, "required": ["value"]},
+    "summon": {"properties": {"event": {"const": "summon"}, "entry": {"type": "integer", "minimum": 0, "maximum": 3}, "reason": {"type": "string"}}, "required": ["entry"]},
+    "fly_to": {"properties": {"event": {"const": "fly_to"}, "target": {"$ref": "#/$defs/point"},
+      "purpose": {"enum": ["minimize", "maximize", "restore", "close", "focus", "grab", "click"]}, "duration_ms": {"type": "integer"}}, "required": ["target", "purpose"]},
+    "proxy_start": {"properties": {"event": {"const": "proxy_start"}, "window_id": {"type": "string"}, "texture_url": {"type": "string"},
+      "bounds": {"$ref": "#/$defs/bounds"}, "target": {"$ref": "#/$defs/bounds"}, "grab": {"$ref": "#/$defs/point"}, "duration_ms": {"type": "integer"}},
+      "required": ["window_id", "texture_url", "bounds", "target", "grab"]},
+    "proxy_end": {"properties": {"event": {"const": "proxy_end"}, "window_id": {"type": "string"}, "final_bounds": {"$ref": "#/$defs/bounds"}}, "required": ["window_id"]},
+    "theme": {"properties": {"event": {"const": "theme"}, "mode": {"enum": ["dark", "light"]}}, "required": ["mode"]},
+
+    "hello": {"properties": {"event": {"const": "hello"}, "token": {"type": "string"}, "screens": {"type": "array"}}, "required": ["token"]},
+    "destination_reached": {"properties": {"event": {"const": "destination_reached"}, "reply_to": {"type": "string"}}, "required": ["reply_to"]},
+    "proxy_ready": {"properties": {"event": {"const": "proxy_ready"}, "window_id": {"type": "string"}}, "required": ["window_id"]},
+    "proxy_arrived": {"properties": {"event": {"const": "proxy_arrived"}, "window_id": {"type": "string"}}, "required": ["window_id"]},
+    "avatar_clicked": {"properties": {"event": {"const": "avatar_clicked"}}},
+    "text_command": {"properties": {"event": {"const": "text_command"}, "text": {"type": "string", "maxLength": 500}}, "required": ["text"]},
+    "user_activity": {"properties": {"event": {"const": "user_activity"}}}
   },
+  "allOf": [{"$ref": "#/$defs/base"}],
   "oneOf": [
-    { "$ref": "#/definitions/VoiceStateEvent" },
-    { "$ref": "#/definitions/OsCommandEvent" },
-    { "$ref": "#/definitions/UiAnimationEvent" }
-  ]
+    {"$ref": "#/$defs/voice_state"}, {"$ref": "#/$defs/say"}, {"$ref": "#/$defs/level"}, {"$ref": "#/$defs/summon"},
+    {"$ref": "#/$defs/fly_to"}, {"$ref": "#/$defs/proxy_start"}, {"$ref": "#/$defs/proxy_end"}, {"$ref": "#/$defs/theme"},
+    {"$ref": "#/$defs/hello"}, {"$ref": "#/$defs/destination_reached"}, {"$ref": "#/$defs/proxy_ready"}, {"$ref": "#/$defs/proxy_arrived"},
+    {"$ref": "#/$defs/avatar_clicked"}, {"$ref": "#/$defs/text_command"}, {"$ref": "#/$defs/user_activity"}
+  ],
+  "x-direction": {
+    "backend_to_frontend": ["voice_state", "say", "level", "summon", "fly_to", "proxy_start", "proxy_end", "theme"],
+    "frontend_to_backend": ["hello", "destination_reached", "proxy_ready", "proxy_arrived", "avatar_clicked", "text_command", "user_activity"]
+  }
 }
