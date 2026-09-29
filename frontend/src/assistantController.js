@@ -26,10 +26,11 @@ export class AssistantController {
 
   /** True while this controller owns the avatar's transform (roam/mischief must not move it). */
   get busy() {
-    return ['entry', 'flying', 'tapping', 'carrying', 'to_sleep', 'sleeping', 'waking'].includes(this.mode);
+    return ['entry', 'flying', 'tapping', 'carrying', 'to_sleep', 'sleeping', 'waking', 'standby'].includes(this.mode);
   }
 
   get frameRate() {
+    if (this.mode === 'standby') return 2;   // nothing on screen
     if (this.mode === 'sleeping') return 12;
     if (this.mode === 'roam' && this.voice === 'idle') return 40;
     return 60;
@@ -114,6 +115,11 @@ export class AssistantController {
   }
 
   summon(m) {
+    if (this.mode === 'standby') {
+      this.avatarRoot.visible = true;
+      this.playRandomEntry(m.entry);
+      return;
+    }
     if (this.mode === 'sleeping' || this.mode === 'to_sleep') this.wake();
     else if (this.mode === 'entry' && !this.animController.isAnimating) this.playRandomEntry(m.entry);
   }
@@ -122,6 +128,22 @@ export class AssistantController {
     const c = this.space.worldToClient(this.avatarRoot.position);
     const d = { left: c.x, right: window.innerWidth - c.x, top: c.y };
     return Object.entries(d).sort((a, b) => a[1] - b[1])[0][0];
+  }
+
+  /** Standby: fly up and off the screen entirely, and stay gone until called by name. */
+  goStandby() {
+    if (this.mode === 'standby') return;
+    this.kill();
+    this.pauseRoam();
+    this.mode = 'to_sleep';
+    this.eyeVisor.setExpression('sleepy');
+    const c = this.space.worldToClient(this.avatarRoot.position);
+    const up = this.space.clientToWorld(c.x, -this.avatarHeightPx() * 1.5, 0);
+    const tl = gsap.timeline({ onComplete: () => { this.mode = 'standby'; this.avatarRoot.visible = false; } });
+    tl.to(this.avatarRoot.position, { y: this.avatarRoot.position.y - 0.15, duration: 0.25, ease: 'power2.out' });
+    tl.to(this.avatarRoot.rotation, { x: -0.4, duration: 0.25 }, '<');
+    tl.to(this.avatarRoot.position, { x: up.x, y: up.y, duration: 0.7, ease: 'power3.in' });
+    tl.to(this.avatarRoot.scale, { x: 0.6, y: 0.6, z: 0.6, duration: 0.7, ease: 'power2.in' }, '<');
   }
 
   goSleep() {
@@ -144,6 +166,7 @@ export class AssistantController {
     const tl = gsap.timeline({
       onComplete: () => {
         this.mode = 'sleeping';
+        this.eyeVisor.setExpression('sleepy');
         // Slow "breathing" while asleep.
         this.breathTween = gsap.to(this.avatarRoot.scale, { x: 1.05, y: 1.05, z: 1.05, duration: 2.2, ease: 'sine.inOut', yoyo: true, repeat: -1 });
       },
@@ -174,35 +197,43 @@ export class AssistantController {
   onVoiceState(m) {
     const prev = this.voice;
     this.voice = m.status;
-    this.statusRing.set(m.status, { transcript: m.transcript, followLeft: m.follow_up_ms_left });
+    this.statusRing.set(m.status === 'standby' ? 'idle' : m.status, { transcript: m.transcript, followLeft: m.follow_up_ms_left });
+    if (m.status === 'standby') { this.goStandby(); return; }
+    if (this.mode === 'standby' && ['listening', 'thinking', 'speaking'].includes(m.status)) {
+      // Called by name while in standby: make an entrance first.
+      this.avatarRoot.visible = true;
+      this.avatarRoot.scale.setScalar(1);
+      this.playRandomEntry();
+    }
     if (m.status === prev && m.status !== 'thinking') return;
     const free = !['flying', 'tapping', 'carrying', 'entry'].includes(this.mode);
     switch (m.status) {
       case 'listening':
         if (this.mode === 'sleeping' || this.mode === 'to_sleep') this.wake();
-        if (free && this.mode !== 'waking') {
+        if (free && this.mode !== 'waking' && this.mode !== 'entry') {
           this.kill();
           this.pauseRoam();
           this.hold();
           this.mode = 'attentive';
           this.faceUser();
         }
-        this.eyeVisor.setExpression('curious');
+        this.eyeVisor.setExpression('listening');
         break;
       case 'thinking':
-        this.eyeVisor.setExpression('normal');
+        this.eyeVisor.setExpression('thinking');
         break;
       case 'speaking':
-        this.eyeVisor.setExpression('happy');
+        this.eyeVisor.setExpression('normal');
         break;
       case 'follow_up':
-        this.eyeVisor.setExpression('curious');
+        this.eyeVisor.setExpression('listening');
         break;
       case 'idle':
         this.eyeVisor.setExpression('normal');
         if (free && this.mode !== 'sleeping') this.resumeRoam(400);
         break;
       case 'sleeping':
+        this.eyeVisor.setExpression('sleepy');
         this.goSleep();
         break;
     }
@@ -410,10 +441,8 @@ export class AssistantController {
 
   // ------------------------------------------------------------------ per frame
   update(delta, time) {
-    // Speaking: visor pulses with the voice loudness.
-    const visor = this.eyeVisor.mesh;
-    const target = 1 + (this.voice === 'speaking' ? this.level * 0.35 : 0);
-    visor.scale.y = THREE.MathUtils.lerp(visor.scale.y, target, 0.35);
+    // Speaking: the mouth follows the voice loudness.
+    this.eyeVisor.setTalk(this.voice === 'speaking' ? this.level : 0);
 
     if (this.card) {
       this.card.update(delta);

@@ -39,6 +39,8 @@ def backend_messages():
                       grab={"x": 5, "y": 6}, duration_ms=900, effect="close")
         await ui.send("proxy_end", window_id="0x1a", final_bounds=b)
         await ui.send("theme", mode="light")
+        await ui.send("hud", kind="volume", value=40)
+        await ui.send("alert", text="Tea is ready", kind="timer")
         await ui.send("fly_to", target={"x": 1800, "y": 12}, purpose="minimize", duration_ms=550, button=b)
         return ws.sent
     return asyncio.run(run())

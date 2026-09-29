@@ -10,6 +10,7 @@ import logging
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import jarvis.hands.windows  # noqa: F401  (sets per-monitor DPI awareness before any window API use)
 from jarvis import config
@@ -36,8 +37,10 @@ async def ensure_llama_server(llm):
     if not config.MANAGE_LLAMA_SERVER:
         log.warning("llama-server not reachable and JARVIS_MANAGE_LLAMA_SERVER=false")
         return None
-    cmd = [config.LLAMA_SERVER, "-m", config.LLM_GGUF, "-ngl", "99", "-c", "8192", "--port", str(config.LLM_PORT),
+    cmd = [config.LLAMA_SERVER, "-m", config.LLM_GGUF, "-ngl", "99", "-c", "6144", "--port", str(config.LLM_PORT),
            "--host", "127.0.0.1", "--jinja", "-fa", "on", "--no-webui", "-np", "1"]
+    if Path(config.LLM_MMPROJ).is_file():
+        cmd += ["--mmproj", config.LLM_MMPROJ]  # lets the model see screenshots
     log.info("starting llama-server: %s", " ".join(cmd))
     out = open(config.LOG_DIR / "llama.txt", "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -50,6 +53,26 @@ async def ensure_llama_server(llm):
             raise RuntimeError("llama-server exited; see logs/llama.txt")
         await asyncio.sleep(0.5)
     raise RuntimeError("llama-server did not become ready in 2 minutes")
+
+
+async def battery_watch(session):
+    """Proactive: warn once when the battery drops to 20% and again at 10% while unplugged."""
+    from jarvis.skills import system
+    warned = set()
+    while True:
+        await asyncio.sleep(60)
+        b = system.battery()
+        if not b:
+            return
+        pct, plugged = b
+        if plugged:
+            warned.clear()
+            continue
+        for level in (20, 10):
+            if pct <= level and level not in warned:
+                warned.add(level)
+                await session.announce(f"Heads up, battery is at {pct} percent. You might want to plug in.", kind="battery")
+                break
 
 
 async def main(text_only=False):
@@ -109,7 +132,21 @@ async def main(text_only=False):
             pass
 
     mic = NoMic() if text_only else Microphone(loop)
-    session = Session(ui, mic, vad, wake, stt, speech, lambda control: Agent(ui, speech.say, control))
+    from jarvis.skills.reminders import Scheduler
+
+    async def fire(item):
+        if item["kind"] == "timer":
+            text = f"Time's up! Your {item['text']} is done." if "timer" in item["text"] else f"Time's up: {item['text']}."
+        elif item["text"] == "Alarm":
+            text = "Wake up! It's " + time.strftime("%I:%M").lstrip("0") + "."
+        else:
+            text = f"Reminder: {item['text']}."
+        await session.announce(text, kind="timer" if item["kind"] == "timer" else "reminder")
+
+    scheduler = Scheduler(fire)
+    session = Session(ui, mic, vad, wake, stt, speech, lambda control: Agent(ui, speech.say, control, scheduler))
+    loop.create_task(scheduler.run())
+    loop.create_task(battery_watch(session))
     booted = {"done": False}
 
     @ui.on("hello")
@@ -119,7 +156,7 @@ async def main(text_only=False):
             booted["done"] = True
             import random
             await ui.send("summon", entry=random.randint(0, 3), reason="boot")
-            await speech.say(random.choice(["Jarvis online.", "Hello! I'm here.", "Systems ready."]))
+            await speech.say(random.choice([f"{config.NAME} online.", "Hello! I'm here.", "Systems ready."]))
 
     @ui.on("avatar_clicked")
     async def _clicked(msg):

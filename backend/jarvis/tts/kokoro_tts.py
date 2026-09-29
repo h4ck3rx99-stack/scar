@@ -24,7 +24,11 @@ class KokoroTTS:
         import onnxruntime as ort
         from kokoro_onnx import Kokoro
 
-        providers = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider") if p in ort.get_available_providers()]
+        providers = []
+        if "CUDAExecutionProvider" in ort.get_available_providers():
+            # Cap the CUDA arena: by default it grows and never gives memory back.
+            providers.append(("CUDAExecutionProvider", {"gpu_mem_limit": 600 * 1024 * 1024, "arena_extend_strategy": "kSameAsRequested"}))
+        providers.append("CPUExecutionProvider")
         sess = ort.InferenceSession(str(config.KOKORO_MODEL), providers=providers)
         self.device = sess.get_providers()[0]
         log.info("kokoro on %s", self.device)

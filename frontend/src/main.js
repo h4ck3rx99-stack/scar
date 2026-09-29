@@ -11,7 +11,7 @@ import { SpeechBubble } from './speechBubble.js';
 import { WellnessEngine } from './wellnessEngine.js';
 import { MischiefEngine } from './mischiefEngine.js';
 import { soundEngine } from './soundEngine.js';
-import { EyeVisorSystem } from './eyeVisorSystem.js';
+import { ScarFace } from './scarFace.js';
 import { DragController } from './dragController.js';
 import { ScreenSpace } from './screenSpace.js';
 import { StatusRing } from './statusRing.js';
@@ -72,7 +72,7 @@ const animController = new AnimationController(avatarRoot, hoverEngine, roamEngi
 const speechBubble = new SpeechBubble(camera, avatarRoot);
 const wellnessEngine = new WellnessEngine(speechBubble, { intervalMinutes: 12 });
 const mischiefEngine = new MischiefEngine(avatarRoot, camera, hoverEngine, speechBubble, roamEngine);
-const eyeVisor = new EyeVisorSystem();
+const eyeVisor = new ScarFace(); // Scar's animated face on the visor
 const dragController = new DragController(avatarRoot, eyeVisor, speechBubble, roamEngine, ipcRenderer);
 const statusRing = new StatusRing();
 
@@ -146,6 +146,7 @@ async function setModelMode(mode) {
   modelContainer.add(model);
   hoverEngine.attachTo(model);
   eyeVisor.attachTo(model);
+  if (!eyeVisor.fitToModel(model, avatarRoot)) console.warn('could not locate the visor; face hidden');
   rimLight.color.set(mode === 'dark' ? 0x77aacc : 0xccddee);
   document.body.classList.toggle('theme-dark', mode === 'dark');
   document.body.classList.toggle('theme-light', mode === 'light');
@@ -381,7 +382,7 @@ function animate(now, manual = false) {
     roamEngine.update(delta, time);
   }
   controller.update(delta, time);
-  eyeVisor.update(delta, time);
+  eyeVisor.update(delta);
   speechBubble.updatePosition();
   const c = space.worldToClient(avatarRoot.getWorldPosition(_tmp));
   statusRing.place(c.x, c.y, avatarHeightPx());
@@ -395,6 +396,13 @@ async function boot() {
   state.sizeMultiplier = cfg.settings?.sizeMultiplier || 1.0;
   setupUI();
   await setModelMode(cfg.osTheme || 'dark');
+  // Standby: no wellness pop-ups or pranks until Scar is called again.
+  bridge.on('voice_state', (m) => {
+    const standby = m.status === 'standby';
+    wellnessEngine.setEnabled(!standby);
+    mischiefEngine.enabled = !standby && roamEngine.enabled;
+  });
+  bridge.on('alert', (m) => { if (controller.mode === 'standby') showToast(m.text); });
   if (ipcRenderer) {
     ipcRenderer.on('os-theme', (_e, mode) => { state.themeOverride = null; setModelMode(mode); });
   }

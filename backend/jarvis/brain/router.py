@@ -2,7 +2,7 @@
 Returns (tool_name, args) matching the tool schema in tools.py, or None to fall through to the LLM."""
 import re
 
-_PREFIX = re.compile(r"^(?:(?:hey|hi|ok|okay|yo)\s+)?(?:jarvis\W*\s*)?(?:(?:please|can you|could you|would you|will you|kindly|just|now|and|then|also)\s+)*")
+_PREFIX = re.compile(r"^(?:(?:hey|hi|ok|okay|yo)\s+)?(?:(?:jarvis|scar)\W*\s*)?(?:(?:please|can you|could you|would you|will you|kindly|just|now|and|then|also)\s+)*")
 _SUFFIX = re.compile(r"\s+(?:please|for me|now|right now|thanks|thank you)$")
 _NUM = {"one": "1", "two": "2", "three": "3", "four": "4", "nine": "9", "sixteen": "16", "twenty one": "21"}
 
@@ -42,6 +42,11 @@ def rule(pattern):
 @rule(r"^(?:stop|cancel|never ?mind|nevermind|shut up|be quiet|quiet|stop talking|that's enough|forget it)$")
 def _stop(m):
     return "stop", {}
+
+
+@rule(r"^(?:go |get |switch )?(?:on |to |into )?stand ?by(?: mode)?$|^(?:go )?offline$|^disappear$|^leave me alone$|^take a break$")
+def _standby(m):
+    return "standby", {}
 
 
 @rule(r"^(?:go to sleep|sleep|goodbye|good bye|bye|that's all|that is all|see you|dismiss|go away|hide)$")
@@ -126,6 +131,187 @@ def _new_tab(m):
 @rule(r"^(?:switch|go|jump|change) to (?:the )?(?P<q>.+?) tab$")
 def _switch_tab(m):
     return "browser_tab", {"action": "switch", "query": m["q"]}
+
+
+# --- screen / vision ---------------------------------------------------------------
+@rule(r"^(?:what(?:'s| is) (?:on )?(?:my|the|this) screen|what am i (?:looking at|seeing)|look at (?:my|the) screen|describe (?:my|the) screen|what do you see)$")
+def _look(m):
+    return "look_at_screen", {"question": "What's on my screen? Describe it briefly."}
+
+
+@rule(r"^(?:explain|what(?:'s| is)|what does|can you explain|help me with|fix|solve)\s+(?:this|that|the)\s+(?P<thing>error|code|page|question|problem|message|chart|graph|image|screen|mean|say)(?: mean| say)?$")
+def _explain_this(m):
+    return "look_at_screen", {"question": f"Explain the {m['thing']} on my screen and how to handle it."}
+
+
+@rule(r"^(?:read|read out|read me) (?:this|the screen|my screen|what's on (?:my|the) screen|this page)$")
+def _read(m):
+    return "read_screen", {}
+
+
+@rule(r"^(?:summari[sz]e|explain|translate|read) (?:my |the )?(?P<src>clipboard|selection|selected text|this text|what i copied)$")
+def _clip(m):
+    verb = m.string.split()[0]
+    action = "summarize" if verb.startswith("summar") else verb
+    source = "clipboard" if m["src"] in ("clipboard", "what i copied") else "selection"
+    return "clipboard", {"action": action, "source": source}
+
+
+# --- system -------------------------------------------------------------------------
+@rule(r"^(?:how(?:'s| is) (?:my |the )?(?:system|pc|computer|laptop)(?: doing)?|system status|status report|pc status|diagnostics)$")
+def _status(m):
+    return "system_status", {"what": "all"}
+
+
+@rule(r"^(?:how much )?(?:battery|charge)(?: left| level| status| percentage)?$|^(?:what(?:'s| is) (?:my |the )?battery(?: level| percentage| status)?|how much battery (?:do i have|is left))$")
+def _battery(m):
+    return "system_status", {"what": "battery"}
+
+
+@rule(r"^(?:what(?:'s| is) using (?:all )?(?:my |the )?(?:memory|ram)|what(?:'s| is) slowing (?:down )?(?:my |the )?(?:pc|computer|laptop))$")
+def _top(m):
+    return "system_status", {"what": "top_apps"}
+
+
+@rule(r"^(?:set |turn |put )?(?:the )?volume (?:to |at )?(?P<n>\d{1,3})(?: percent|%)?$")
+def _vol_set(m):
+    return "set_volume", {"level": int(m["n"])}
+
+
+@rule(r"^(?:set |turn |put )?(?:the )?(?:screen )?brightness (?:to |at )?(?P<n>\d{1,3})(?: percent|%)?$")
+def _bright_set(m):
+    return "set_brightness", {"level": int(m["n"])}
+
+
+@rule(r"^(?:increase|raise|turn up) (?:the )?(?:screen )?brightness$|^brightness up$|^brighter$")
+def _bright_up(m):
+    return "set_brightness", {"change": 20}
+
+
+@rule(r"^(?:decrease|lower|reduce|turn down|dim) (?:the )?(?:screen )?(?:brightness)?$|^brightness down$|^dimmer$|^dim the screen$")
+def _bright_down(m):
+    return "set_brightness", {"change": -20}
+
+
+@rule(r"^(?:take a |grab a )?screen ?shot$|^capture (?:my |the )?screen$")
+def _screenshot(m):
+    return "screenshot", {}
+
+
+@rule(r"^lock (?:my |the )?(?:pc|computer|laptop|screen)$")
+def _lock(m):
+    return "lock_pc", {}
+
+
+@rule(r"^(?:put |place |arrange |show )?(?:these |my |the )?(?:two )?windows side by side$|^split (?:the )?screen$|^tile (?:my )?windows$")
+def _arrange(m):
+    return "arrange_windows", {}
+
+
+# --- time keeping ---------------------------------------------------------------------
+@rule(r"^(?:set |start )?(?:a |the )?timer (?:for )?(?P<d>.+)$|^(?:set |start )?(?:a )?(?P<d2>.+?) timer$")
+def _timer(m):
+    return "set_timer", {"duration": m["d"] or m["d2"]}
+
+
+@rule(r"^remind me (?:to |about )?(?P<text>.+?) (?P<when>in .+|at .+|after .+)$")
+def _remind1(m):
+    return "set_reminder", {"text": m["text"], "when": m["when"]}
+
+
+@rule(r"^(?:in|after) (?P<when>.+?),? remind me (?:to |about )?(?P<text>.+)$")
+def _remind2(m):
+    return "set_reminder", {"text": m["text"], "when": "in " + m["when"]}
+
+
+@rule(r"^(?:set an alarm|wake me up|alarm) (?:for |at )?(?P<when>.+)$")
+def _alarm(m):
+    return "set_reminder", {"text": "Alarm", "when": ("at " + m["when"]) if not m["when"].startswith("in ") else m["when"]}
+
+
+@rule(r"^(?:what are my |any |list (?:my )?|show (?:my )?)(?:reminders|timers|alarms)\??$|^how much time (?:is )?left(?: on the timer)?$")
+def _list_rem(m):
+    return "list_reminders", {}
+
+
+@rule(r"^(?:cancel|stop|delete|clear) (?:the |my |all )?(?:all )?(?P<kind>timers?|reminders?|alarms?)$")
+def _cancel(m):
+    k = m["kind"].rstrip("s")
+    return "cancel_reminders", {"kind": "timer" if k == "timer" else "reminder" if k in ("reminder", "alarm") else "all"}
+
+
+# --- notes / todos / memory ---------------------------------------------------------------
+@rule(r"^(?:take a note|make a note|note down|note that|write down)(?: that)?[:,]?\s+(?P<t>.+)$")
+def _note(m):
+    return "take_note", {"text": m["t"]}
+
+
+@rule(r"^(?:read|show|what are) (?:me )?my notes$")
+def _notes(m):
+    return "read_notes", {}
+
+
+@rule(r"^add (?P<t>.+?) to (?:my |the )?(?:to ?do|todo|shopping|grocery)? ?list$")
+def _todo(m):
+    return "add_todo", {"item": m["t"]}
+
+
+@rule(r"^(?:what(?:'s| is) on my (?:to ?do |todo |shopping )?list|read (?:me )?my (?:to ?do |todo |shopping )?list|my to ?dos?)$")
+def _todos(m):
+    return "list_todos", {}
+
+
+@rule(r"^(?:mark|check off|cross off|tick off) (?P<t>.+?)(?: as done| off| from my list)?$|^i (?:finished|did|bought) (?P<t2>.+)$")
+def _done(m):
+    return "complete_todo", {"item": m["t"] or m["t2"]}
+
+
+@rule(r"^remember (?:that )?(?P<f>.+)$")
+def _remember(m):
+    return "remember", {"fact": m["f"]}
+
+
+@rule(r"^forget (?:that )?(?P<f>.+)$")
+def _forget(m):
+    return "forget", {"fact": m["f"]}
+
+
+# --- info ------------------------------------------------------------------------------
+@rule(r"^(?:what(?:'s| is) the |how(?:'s| is) the )?weather(?: like)?(?: today| now| tomorrow)?(?: in (?P<city>.+?))?(?: today| now| tomorrow)?$|^(?:is it|will it) (?:going to )?(?:rain|be hot|be cold)(?: today| tomorrow)?(?: in (?P<city2>.+))?$")
+def _weather(m):
+    return "weather", {"city": m["city"] or m["city2"]}
+
+
+@rule(r"^(?:good morning|morning briefing|daily briefing|brief me|what did i miss|give me a briefing)$")
+def _briefing(m):
+    return "briefing", {}
+
+
+@rule(r"^(?:calculate|compute|what(?:'s| is)|how much is)\s+(?P<e>[\d(][\d\s.,+\-*/()%x^]*(?:\s*(?:plus|minus|times|multiplied by|divided by|over|into|percent of|squared|cubed|to the power of)\s*[\d.,()]+)*[\d)%]?(?: squared| cubed)?)$|^(?:what(?:'s| is) )?(?:the )?square root of (?P<e2>[\d.]+)$|^(?:what(?:'s| is) )?(?P<e3>[\d.]+ ?(?:percent|%) of [\d.,]+)$")
+def _calc(m):
+    e = m["e"] or (f"square root of {m['e2']}" if m["e2"] else m["e3"])
+    return "calculate", {"expression": e}
+
+
+# --- files ---------------------------------------------------------------------------------
+@rule(r"^(?:open|show) (?:my |the )?(?P<f>downloads?|documents|desktop|pictures|photos|music|videos|screenshots)(?: folder)?$")
+def _folder(m):
+    return "open_folder", {"name": m["f"]}
+
+
+@rule(r"^(?:open|show) (?:my |the )?(?:latest|last|newest|most recent) download$")
+def _latest(m):
+    return "find_file", {"name": "latest download"}
+
+
+@rule(r"^(?:find|search for|locate|open) (?:the |my )?file (?:called |named )?(?P<n>.+)$")
+def _find(m):
+    return "find_file", {"name": m["n"]}
+
+
+@rule(r"^type (?:out )?(?P<t>.+)$")
+def _type(m):
+    return "type_text", {"text": m["t"]}
 
 
 # --- search / open ----------------------------------------------------------------

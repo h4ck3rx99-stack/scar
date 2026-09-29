@@ -73,3 +73,12 @@ def test_router_is_fast():
             route(text)
     per_call_ms = (time.perf_counter() - t) * 1000 / (20 * len(CASES))
     assert per_call_ms < 5
+
+
+@pytest.mark.parametrize("text", ["go on standby", "Scar, go on standby.", "standby mode", "stand by", "go into standby"])
+def test_standby(text):
+    assert route(text) == ("standby", {})
+
+
+def test_name_prefix_is_stripped():
+    assert route("Scar, minimize chrome") == ("window_action", {"app": "chrome", "action": "minimize"})

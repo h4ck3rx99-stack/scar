@@ -26,9 +26,10 @@ async def main(commands):
                     print(f"  (flying to {m['purpose']} button at {m['target']})")
                 elif m["event"] == "voice_state" and m["status"] == "thinking":
                     started = True
-                elif m["event"] == "voice_state" and m["status"] in ("follow_up", "idle") and started:
+                elif m["event"] == "voice_state" and m["status"] in ("follow_up", "idle", "standby") and started:
                     break
             await asyncio.sleep(2.5)
 
 
 asyncio.run(main(sys.argv[1:]))
+

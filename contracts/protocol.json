@@ -8,7 +8,7 @@
     "base": {"type": "object", "properties": {"v": {"const": 2}, "id": {"type": "string"}, "event": {"type": "string"}}, "required": ["v", "id", "event"]},
 
     "voice_state": {"properties": {"event": {"const": "voice_state"},
-      "status": {"enum": ["idle", "listening", "thinking", "speaking", "follow_up", "sleeping"]},
+      "status": {"enum": ["idle", "listening", "thinking", "speaking", "follow_up", "sleeping", "standby"]},
       "transcript": {"type": "string"}, "follow_up_ms_left": {"type": "integer"}}, "required": ["status"]},
     "say": {"properties": {"event": {"const": "say"}, "text": {"type": "string"}}, "required": ["text"]},
     "level": {"properties": {"event": {"const": "level"}, "value": {"type": "number", "minimum": 0, "maximum": 1}}, "required": ["value"]},
@@ -22,6 +22,8 @@
       "required": ["window_id", "texture_url", "bounds", "target", "grab"]},
     "proxy_end": {"properties": {"event": {"const": "proxy_end"}, "window_id": {"type": "string"}, "final_bounds": {"$ref": "#/$defs/bounds"}}, "required": ["window_id"]},
     "theme": {"properties": {"event": {"const": "theme"}, "mode": {"enum": ["dark", "light"]}}, "required": ["mode"]},
+    "hud": {"properties": {"event": {"const": "hud"}, "kind": {"enum": ["volume", "brightness", "flash"]}, "value": {"type": "integer"}}, "required": ["kind"]},
+    "alert": {"properties": {"event": {"const": "alert"}, "text": {"type": "string"}, "kind": {"enum": ["timer", "reminder", "battery"]}}, "required": ["text"]},
 
     "hello": {"properties": {"event": {"const": "hello"}, "token": {"type": "string"}, "screens": {"type": "array"}}, "required": ["token"]},
     "destination_reached": {"properties": {"event": {"const": "destination_reached"}, "reply_to": {"type": "string"}}, "required": ["reply_to"]},
@@ -34,12 +36,12 @@
   "allOf": [{"$ref": "#/$defs/base"}],
   "oneOf": [
     {"$ref": "#/$defs/voice_state"}, {"$ref": "#/$defs/say"}, {"$ref": "#/$defs/level"}, {"$ref": "#/$defs/summon"},
-    {"$ref": "#/$defs/fly_to"}, {"$ref": "#/$defs/proxy_start"}, {"$ref": "#/$defs/proxy_end"}, {"$ref": "#/$defs/theme"},
+    {"$ref": "#/$defs/fly_to"}, {"$ref": "#/$defs/proxy_start"}, {"$ref": "#/$defs/proxy_end"}, {"$ref": "#/$defs/theme"}, {"$ref": "#/$defs/hud"}, {"$ref": "#/$defs/alert"},
     {"$ref": "#/$defs/hello"}, {"$ref": "#/$defs/destination_reached"}, {"$ref": "#/$defs/proxy_ready"}, {"$ref": "#/$defs/proxy_arrived"},
     {"$ref": "#/$defs/avatar_clicked"}, {"$ref": "#/$defs/text_command"}, {"$ref": "#/$defs/user_activity"}
   ],
   "x-direction": {
-    "backend_to_frontend": ["voice_state", "say", "level", "summon", "fly_to", "proxy_start", "proxy_end", "theme"],
+    "backend_to_frontend": ["voice_state", "say", "level", "summon", "fly_to", "proxy_start", "proxy_end", "theme", "hud", "alert"],
     "frontend_to_backend": ["hello", "destination_reached", "proxy_ready", "proxy_arrived", "avatar_clicked", "text_command", "user_activity"]
   }
 }
