@@ -1,0 +1,19 @@
+{
+  "name": "jarvis-assistant-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "desktop": "electron electron/main.cjs"
+  },
+  "dependencies": {
+    "gsap": "^3.15.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "vite": "^8.3.1"
+  }
+}

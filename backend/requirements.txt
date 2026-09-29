@@ -1,0 +1,9 @@
+websockets>=12.0
+asyncio
+# Full ML Voice Stack (to be installed in venv)
+# silero-vad
+# faster-whisper
+# openwakeword
+# kokoro-onnx
+# sounddevice
+# llama-cpp-python

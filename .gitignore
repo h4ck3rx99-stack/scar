@@ -1,0 +1,14 @@
+node_modules/
+dist/
+release/
+.venv/
+__pycache__/
+*.pyc
+reference/
+backend/models/
+backend/bin/
+backend/logs/
+backend/captures/
+backend/.env
+*.blend1
+.antigravity/

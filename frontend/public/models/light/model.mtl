@@ -1,0 +1,6 @@
+newmtl Material_01
+map_Kd futuristic-robot-head-3d-model-aoomgkoejcj_Material_01_BaseColor.png
+map_Pr futuristic-robot-head-3d-model-aoomgkoejcj_Material_01_Roughness.png
+map_Pm futuristic-robot-head-3d-model-aoomgkoejcj_Material_01_Metallic.png
+bump futuristic-robot-head-3d-model-aoomgkoejcj_Material_01_Normal.png
+norm futuristic-robot-head-3d-model-aoomgkoejcj_Material_01_Normal.png

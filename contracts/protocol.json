@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JarvisLocalAssistantWebSocketProtocol",
+  "description": "Strict WebSocket JSON Data Contract between Python AI Backend, Rust/Tauri OS Shell, and React Three.js Frontend",
+  "definitions": {
+    "Coordinates": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "integer" },
+        "y": { "type": "integer" }
+      },
+      "required": ["x", "y"]
+    },
+    "VoiceStateEvent": {
+      "type": "object",
+      "properties": {
+        "event": { "type": "string", "const": "voice_state" },
+        "status": {
+          "type": "string",
+          "enum": ["listening", "processing", "speaking"]
+        }
+      },
+      "required": ["event", "status"]
+    },
+    "OsCommandEvent": {
+      "type": "object",
+      "properties": {
+        "event": { "type": "string", "const": "os_command" },
+        "action": {
+          "type": "string",
+          "enum": ["minimize", "resize", "click"]
+        },
+        "target_window": { "type": "string" },
+        "coordinates": { "$ref": "#/definitions/Coordinates" }
+      },
+      "required": ["event", "action", "target_window", "coordinates"]
+    },
+    "UiAnimationEvent": {
+      "type": "object",
+      "properties": {
+        "event": { "type": "string", "const": "ui_animation" },
+        "type": {
+          "type": "string",
+          "enum": ["fly", "stretch", "idle"]
+        },
+        "target": { "$ref": "#/definitions/Coordinates" }
+      },
+      "required": ["event", "type", "target"]
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/definitions/VoiceStateEvent" },
+    { "$ref": "#/definitions/OsCommandEvent" },
+    { "$ref": "#/definitions/UiAnimationEvent" }
+  ]
+}

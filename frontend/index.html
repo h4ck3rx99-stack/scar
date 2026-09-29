@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Desktop AI Companion - 3D Roaming Assistant</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body class="desktop-transparent theme-dark">
+  <div id="canvas-container"></div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast">Desktop Assistant Activated</div>
+
+  <!-- Minimal Top-Right Aside Column (Settings & Controls) -->
+  <aside id="aside-column" class="aside-dock collapsed">
+    <!-- Collapse / Expand Trigger Badge -->
+    <div id="aside-toggle-btn" class="aside-trigger" title="Click to expand/collapse controls">
+      <div class="aside-pulse-dot"></div>
+      <span class="aside-title-text">🤖 ASSISTANT</span>
+      <span class="aside-toggle-chevron">▼</span>
+    </div>
+
+    <!-- Clean Controls Body: Size, Mute, Rest, Roam Off -->
+    <div class="aside-content">
+      <!-- 1. Robot Size Slider -->
+      <div class="aside-section">
+        <div class="control-label-row">
+          <span>Robot Size</span>
+          <span id="scale-val">0.5x</span>
+        </div>
+        <input id="scale-slider" type="range" min="0.2" max="1.5" step="0.05" value="0.5">
+      </div>
+
+      <!-- 2. Mute Button -->
+      <button id="audio-toggle-btn" class="dock-btn" style="width: 100%;">
+        🔊 Sound: ON
+      </button>
+
+      <!-- 3. Rest Button -->
+      <button id="btn-trigger-wellness" class="dock-btn" style="width: 100%;">
+        💧 Take a Rest / Drink Water
+      </button>
+
+      <!-- 4. Roam Off / On Toggle -->
+      <button id="roam-toggle-btn" class="dock-btn primary" style="width: 100%;">
+        🌐 Roam: ON (Click for Roam Off)
+      </button>
+    </div>
+  </aside>
+
+  <!-- Desktop Mate Style Right-Click Context Menu -->
+  <div id="character-context-menu" class="context-menu">
+    <div class="menu-header">
+      <span>🤖 ROBOT ASSISTANT</span>
+      <button id="menu-close-btn" class="menu-close-x">✕</button>
+    </div>
+
+    <div class="menu-group-label">Expressions & Mood</div>
+    <div class="menu-mood-grid">
+      <button class="mood-btn" data-mood="happy">😊 Happy</button>
+      <button class="mood-btn" data-mood="scared">😱 Scared</button>
+      <button class="mood-btn" data-mood="angry">😠 Angry</button>
+      <button class="mood-btn" data-mood="sad">😢 Sad</button>
+      <button class="mood-btn" data-mood="curious">🤔 Curious</button>
+      <button class="mood-btn" data-mood="normal">🤖 Normal</button>
+    </div>
+
+    <div class="menu-divider"></div>
+
+    <button id="ctx-roam-btn" class="ctx-item">🌐 Toggle Roaming</button>
+    <button id="ctx-rest-btn" class="ctx-item">💧 Drink Water / Rest Alert</button>
+    <button id="ctx-sound-btn" class="ctx-item">🔊 Toggle Sound</button>
+
+    <div class="menu-divider"></div>
+    <button id="ctx-quit-btn" class="ctx-item danger">✕ Close Assistant</button>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
