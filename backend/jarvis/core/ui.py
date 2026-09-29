@@ -26,6 +26,7 @@ class UiLink:
         self.handlers = {}            # event name -> async fn(msg)
         self._pending = {}            # fly_to id -> Future
         self.proxy_waiters = {}       # (hwnd, "ready"|"arrived") -> Future for the cloth card handshake
+        self.listeners = []           # async fn(msg): also receive everything sent to the body (phone remote)
         self.screens = []
         self.connected = asyncio.Event()
 
@@ -44,6 +45,11 @@ class UiLink:
                 await ws.send(data)
             except Exception:  # noqa: BLE001 - dead socket; the connection handler cleans up
                 self.clients.discard(ws)
+        for listener in getattr(self, "listeners", []):
+            try:
+                await listener(msg)
+            except Exception:  # noqa: BLE001 - a listener must not break the body link
+                log.exception("ui listener failed")
         return msg["id"]
 
     def emit(self, event, **payload):

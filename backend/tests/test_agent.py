@@ -23,7 +23,7 @@ def make_agent(*scripts):
     async def speak(t):
         said.append(t)
 
-    async def control(n):
+    async def control(n, args=None):
         controls.append(n)
 
     a = Agent(ui=None, speak=speak, on_control=control)

@@ -25,7 +25,7 @@ import numpy as np
 
 from rapidfuzz import fuzz
 
-from jarvis import config
+from jarvis import config, runtime
 
 log = logging.getLogger("session")
 BLOCK_MS = config.BLOCK * 1000 // config.SAMPLE_RATE  # 32
@@ -35,6 +35,11 @@ _JUNK = {"", "you", "thank you", "thanks", "bye", "thank you for watching", "tha
 _WAKE_PREFIX = re.compile(r"^\W*(?:(?:hey|hi|ok|okay|a|yo)\W+)?(?:jarvis|jervis|jarvi|jarves|travis|vis|scar|skar|scarr|scaar)\b\W*", re.I)
 _GREETING = {"hey", "hi", "ok", "okay", "yo", "hello", "a"}
 _NOT_NAME = {"oscar", "scare", "scared", "scary", "scarf", "scars", "scarce"}
+ENROLL_LINES = [
+    "Please say: Scar, open my documents and check the weather for today.",
+    "Now say: The quick brown fox jumps over the lazy dog near the river bank.",
+    "Last one: I usually study in the evening and listen to music while I work.",
+]
 # Said over Scar's voice, these cut it off.
 _INTERRUPT = re.compile(r"^\W*(?:ok(?:ay)?\W+)?(?:stop|wait|shut up|enough|quiet|be quiet|cancel|hold on|never ?mind|pause|that's enough)\b", re.I)
 
@@ -76,6 +81,12 @@ class Session:
         self.follow_up_chain = 0      # consecutive follow-up turns without a wake word
         self.voiced_energy = []       # per-block energy of the current utterance's speech
         self.user_level = None        # typical loudness of the user's own voice (learned from name/click turns)
+        self.aec = self.aec_ref = None  # echo canceller + what the speaker played (set up by __main__)
+        self.aec_saved = time.monotonic()
+        self.enrolling = 0            # enrollment lines still to be read ("learn my voice")
+        self.dictating = False        # every utterance is typed out until "stop dictation"
+        vp = runtime.voiceprint
+        self.voice_filter = bool(vp is not None and vp.enrolled and config.ONLY_MY_VOICE)
         self.state = State.IDLE
         self.preroll = collections.deque(maxlen=int(config.PREROLL_S * 1000 / BLOCK_MS))
         self.utter = []
@@ -123,16 +134,55 @@ class Session:
             await self.ui.send("summon", entry=random.randint(0, 3), reason=reason)
         await self._set(State.LISTENING)
 
-    async def _control(self, name):
+    async def _control(self, name, args=None):
+        say = self.speech.say
+        vp = runtime.voiceprint
         if name == "stop":
             self.speech.cancel()
             self.timings["no_follow_up"] = True
         elif name == "standby":
-            await self.speech.say(f"Going on standby. Just say {config.NAME} when you need me.")
+            await say(f"Going on standby. Just say {config.NAME} when you need me.")
             self.timings["standby_after"] = True
         elif name == "go_to_sleep":
-            await self.speech.say(random.choice(["Going to sleep.", "Call me if you need me.", "I'll be around."]))
+            await say(random.choice(["Going to sleep.", "Call me if you need me.", "I'll be around."]))
             self.timings["sleep_after"] = True
+        elif name == "learn_voice":
+            if vp is None:
+                await say("Voice recognition isn't available on this setup.")
+                return
+            vp.samples = []
+            self.enrolling = len(ENROLL_LINES)
+            await say(f"Let's learn your voice. After each line, read it back to me. {ENROLL_LINES[0]}")
+            self.timings["keep_listening"] = True
+        elif name == "forget_voice":
+            if vp is not None:
+                vp.forget()
+            await say("Done. I'll listen to anyone again.")
+        elif name in ("only_me", "everyone"):
+            if name == "only_me" and (vp is None or not vp.enrolled):
+                await say("I need to learn your voice first. Say: learn my voice.")
+                return
+            self.voice_filter = name == "only_me"
+            await say("Okay, only you from now on." if self.voice_filter else "Okay, I'll listen to everyone.")
+        elif name == "dictation":
+            self.dictating = True
+            await say("Dictation on. I'll type what you say. Say stop dictation when you're done.")
+            self.timings["keep_listening"] = True
+        elif name in ("suggestions_on", "suggestions_off"):
+            from jarvis.core.proactive import prefs
+            prefs.save({"suggestions": name == "suggestions_on"})
+            await say("Suggestions back on." if name == "suggestions_on" else "Okay, no more suggestions unless you ask.")
+        elif name in ("phone_on", "phone_off"):
+            phone = runtime.phone
+            if phone is None:
+                await say("Phone control isn't available.")
+            elif name == "phone_off":
+                await phone.stop()
+                await say("Phone control is off.")
+            else:
+                url, pin = await phone.start()
+                await self.ui.send("say", text=f"📱 Open {url} on your phone · PIN {pin}")
+                await say(f"Phone control is on. Open the address on my bubble on your phone, same Wi-Fi, and enter the PIN {' '.join(pin)}.")
 
     async def announce(self, text, kind="reminder"):
         """Speak unprompted (timer done, reminder due). Opens the follow-up window afterwards."""
@@ -177,6 +227,12 @@ class Session:
 
     async def _process(self, block):
         now = time.monotonic()
+        if self.aec is not None:
+            # Remove Scar's own voice (what the speaker is playing) before anything listens to the mic.
+            block = self.aec.process(block, self.aec_ref.take(len(block)))
+            if now - self.aec_saved > 60:
+                self.aec_saved = now
+                self.aec.save(config.APPDATA_DIR / "aec_filter.npz")
         self.preroll.append(block)
         prob = self.vad(block)
         woke = False
@@ -218,9 +274,12 @@ class Session:
                     await self._set(State.IDLE)
                 else:
                     await self._finish_utterance()
-            elif not self.speech_started and elapsed_ms > config.NO_SPEECH_TIMEOUT_MS:
+            elif not self.speech_started and elapsed_ms > (20000 if self.timings.get("trigger") == "continue" else config.NO_SPEECH_TIMEOUT_MS):
                 log.info("no speech after trigger")
                 self.last_activity = now
+                if self.dictating or self.enrolling:
+                    self.dictating, self.enrolling = False, 0
+                    await self.speech.say("Stopping there.")
                 await self._set(State.IDLE)
 
         elif st == State.FOLLOW_UP:
@@ -293,6 +352,11 @@ class Session:
         if rest is None:
             return
         log.info("name call%s: %r", " (barge-in)" if busy else "", text)
+        vp = runtime.voiceprint
+        if not busy and self.voice_filter and vp is not None and vp.enrolled:
+            if await asyncio.get_running_loop().run_in_executor(None, vp.is_user, audio) is False:
+                log.info("name call ignored: not the enrolled user's voice")
+                return
         if not busy:  # (during barge-in the mic also hears Scar's own voice, so don't learn from it)
             blocks = audio[: len(audio) // config.BLOCK * config.BLOCK].reshape(-1, config.BLOCK)
             energy = np.mean(blocks ** 2, axis=1)
@@ -358,11 +422,26 @@ class Session:
                     await self._after_turn(empty=True)
                     return
                 loop = asyncio.get_running_loop()
+                vp, trigger = runtime.voiceprint, self.timings.get("trigger")
+                if self.enrolling:
+                    return await self._enroll_step(audio)
+                if vp is not None and trigger in ("follow_up", "wake") and not self.dictating:
+                    # Voice ID: Scar's own voice echoing back, or (if "only me" is on) someone else.
+                    if trigger == "follow_up" and await loop.run_in_executor(None, vp.is_self, audio):
+                        log.info("ignored: that was my own voice through the speakers")
+                        self.last_activity = time.monotonic()
+                        return await self._set(State.IDLE)
+                    if self.voice_filter and vp.enrolled and await loop.run_in_executor(None, vp.is_user, audio) is False:
+                        log.info("ignored: not the enrolled user's voice")
+                        self.last_activity = time.monotonic()
+                        return await self._set(State.IDLE)
                 text = await loop.run_in_executor(None, self.stt.transcribe, audio)
                 self.timings["t_stt"] = time.perf_counter()
             text = strip_wake(text)
             norm = re.sub(r"[^\w\s']", "", text.lower()).strip()
             log.info("heard: %r", text)
+            if self.dictating:
+                return await self._dictate(text)
             if norm in _JUNK:
                 await self._after_turn(empty=True)
                 return
@@ -389,8 +468,52 @@ class Session:
             await self.speech.wait_done()
             await self._after_turn()
 
+    # ------------------------------------------------- voice enrollment / dictation
+    async def _enroll_step(self, audio):
+        vp = runtime.voiceprint
+        ok = await asyncio.get_running_loop().run_in_executor(None, vp.add_sample, audio)
+        if not ok:
+            await self.speech.say("That was a bit short. Please read the whole line again.")
+        else:
+            self.enrolling -= 1
+        done = len(ENROLL_LINES) - self.enrolling
+        if self.enrolling > 0:
+            await self.speech.say(("Got it. " if ok else "") + ENROLL_LINES[done])
+            self.timings = {"trigger": "continue", "keep_listening": True}
+        else:
+            if vp.finish_enrollment():
+                self.voice_filter = config.ONLY_MY_VOICE
+                await self.speech.say("Perfect, I know your voice now. " +
+                                      ("I'll only respond to you. Say listen to everyone to change that." if self.voice_filter else ""))
+            else:
+                await self.speech.say("Hmm, that didn't work. Let's try again later.")
+            self.timings = {"trigger": "continue"}
+        await self.speech.wait_done()
+        await self._after_turn()
+
+    async def _dictate(self, text):
+        from jarvis.skills import screen
+        if re.match(r"^\W*(?:stop|end|finish|exit) (?:dictation|dictating|typing)\b", text, re.I) or text.lower().strip(" .!") in ("stop", "stop dictation"):
+            self.dictating = False
+            await self.speech.say("Dictation off.")
+            self.timings = {"trigger": "continue"}
+            await self.speech.wait_done()
+            return await self._after_turn()
+        # Spoken punctuation, then type it where the cursor is.
+        t = text.strip()
+        for word, mark in (("full stop", "."), ("period", "."), ("comma", ","), ("question mark", "?"),
+                           ("exclamation mark", "!"), ("new line", "\n"), ("next line", "\n"), ("new paragraph", "\n\n")):
+            t = re.sub(rf"\s*\b{word}\b\.?", mark, t, flags=re.I)
+        await asyncio.get_running_loop().run_in_executor(None, screen.type_text, t + " ", None)
+        await self.ui.send("say", text=f"✍ {t}")
+        self.timings = {"trigger": "continue", "keep_listening": True}
+        await self._after_turn(empty=True)
+
     async def _after_turn(self, empty=False):
         self.last_activity = time.monotonic()
+        if self.timings.get("keep_listening"):
+            # Enrollment / dictation: straight back to listening, no wake word and no follow-up timer.
+            return await self.start_listening("continue")
         self.follow_up_chain = self.follow_up_chain + 1 if self.timings.get("trigger") == "follow_up" else 0
         if self.follow_up_chain >= config.MAX_FOLLOW_UP_CHAIN:
             # A long run of wake-word-free turns: require the wake word again (Alexa does the same).

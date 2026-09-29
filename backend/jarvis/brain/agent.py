@@ -10,7 +10,7 @@ import logging
 import re
 import time
 
-from jarvis import config
+from jarvis import config, runtime
 from jarvis.brain.llm import LLM
 from jarvis.brain.normalize import fix
 from jarvis.brain.router import route_all
@@ -21,11 +21,15 @@ log = logging.getLogger("agent")
 
 SYSTEM = """You are {name}, a warm, witty voice assistant (in the spirit of Jarvis) living on the user's Windows PC as a small flying robot.
 Replies are spoken aloud: 1-3 short sentences unless asked for detail. No lists, markdown, emojis or URLs.
+Never end with filler like "anything else?" or "let me know if you need more"; just stop when the answer is complete.
 Use tools for anything on the PC: windows, apps, sites, search, media, volume, brightness, timers, reminders, notes, to-dos,
 system status, weather, files, reading or looking at the screen, clipboard and typing. Never claim an action without calling its tool.
 Action tools speak their own short confirmation, so after one say nothing more unless something needs explaining.
 Call at most 3 tools per reply. "Hide", "put away" or "get rid of for now" means minimize; only close when told close, quit or exit.
 For questions about what is on the screen, an error, a page or "this", call look_at_screen.
+For multi-step requests, do a step or two, check the results (read_screen / look_at_screen show what's there, e.g. exact
+names to click), then continue until the whole request is done, and finish with one short spoken summary.
+For current facts, prices, news or comparisons, call web_research. To write emails, messages or text into an app, call write_text.
 Answer general knowledge directly. For facts about people, places or events you're unsure of, call wikipedia. Today is {today}.{facts}"""
 
 FOLLOW_UP_RULE = """
@@ -38,7 +42,7 @@ NO: people talking to each other, a lecture, a video or song playing, fragments,
 When unsure, answer NO. Reply with exactly one word: YES or NO."""
 
 ANSWER_SYSTEM = """You are Scar, a voice assistant. Using the tool results, answer the user's request in 1-3 short spoken
-sentences. No lists, markdown or emojis. Round numbers sensibly. If a tool says a service could not be reached,
+sentences. No lists, markdown or emojis. Round numbers sensibly. Never ask "anything else?" or offer more help. If a tool says a service could not be reached,
 say that service didn't respond and suggest trying again; don't claim the whole PC is offline."""
 
 VISION_SYSTEM = """You are Scar, a voice assistant looking at a screenshot of the user's screen. Answer their question about it
@@ -51,6 +55,13 @@ _SENT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])|\n+")
 _CLAUSE = re.compile(r"(?<=[,;:])\s+")
 CLAUSE_MIN_CHARS = 60
 MAX_TOOL_CALLS = 3
+MAX_STEPS = 8
+# Router intents handled by the session itself (they change how Scar listens, not the PC).
+CONTROLS = {"stop", "go_to_sleep", "standby", "learn_voice", "forget_voice", "only_me", "everyone", "dictation",
+            "suggestions_on", "suggestions_off", "phone_on", "phone_off"}
+# Requests that obviously need several steps ("X and then Y", "research ... and put it in a note").
+_MULTI = re.compile(r"\b(and then|then|after that|afterwards|and also|and (?:open|search|play|click|type|put|save|send|write|close|tell|read|summari[sz]e|find|make|add|note))\b|,\s*(?:then|and)\b|\bresearch\b|\bcompare\b|\bstep by step\b", re.I)
+_FAIL_PREFIXES = ("error", "No open", "Bad", "Unknown", "not found", "no ", "I can't", "Couldn't", "Wikipedia had no", "Web search for")
 
 
 class Memory:
@@ -61,6 +72,8 @@ class Memory:
     def add(self, user, assistant):
         self.turns += [{"role": "user", "content": user}, {"role": "assistant", "content": assistant or "(done)"}]
         self.turns = self.turns[-config.HISTORY_TURNS * 2:]
+        if runtime.memory is not None:
+            runtime.memory.add("conversation", user[:120], f"User: {user}\nScar: {assistant or '(done)'}")
 
 
 class Agent:
@@ -88,15 +101,17 @@ class Agent:
         except Exception as e:  # noqa: BLE001 - warm-up is best effort
             log.warning("LLM warm-up failed: %s", e)
 
-    async def handle(self, text: str, timings: dict, follow_up=False):
-        """Returns "ignored" when a follow-up turn turned out not to be meant for Jarvis."""
+    async def handle(self, text: str, timings: dict, follow_up=False, quiet=False):
+        """Returns "ignored" when a follow-up turn turned out not to be meant for Scar."""
         text = text.strip()
         if not text:
             return None
-        for name, args in route_all(text):
+        # Obvious multi-step requests go to the planner; the router would swallow the whole sentence as one command.
+        hits = [] if _MULTI.search(text) and len(text.split()) > 5 else route_all(text)
+        for name, args in hits:
             timings["route"] = "router"
-            if name in ("stop", "go_to_sleep", "standby"):
-                await self.on_control(name)
+            if name in CONTROLS:
+                await self.on_control(name, args)
                 return None
             if follow_up and name == "confirm" and self.tools.pending_confirm is None:
                 return "ignored"          # a stray "yes" / "no" after an answer: nothing to do
@@ -169,34 +184,69 @@ class Agent:
 
     # -------------------------------------------------------------------- turns
     async def _llm_turn(self, text, timings, follow_up):
+        """Act -> observe -> continue. Single commands take one LLM round; multi-step requests
+        ("open YouTube, search lofi and play the first one") loop until done, up to MAX_STEPS."""
         system = self._system() + (FOLLOW_UP_RULE if follow_up else "")
         tools = SCHEMA + ([IGNORE_TOOL] if follow_up else [])
         messages = [{"role": "system", "content": system}, *self.memory.turns, {"role": "user", "content": text}]
-        spoken, calls = await self._stream_speech(messages, timings, tools=tools)
-        if not calls:
-            self.memory.add(text, " ".join(spoken))
-            return None
-        calls = calls[:MAX_TOOL_CALLS]
-        if any(c["name"] == "ignore" for c in calls):
-            log.info("LLM judged the follow-up as not addressed to Jarvis")
-            return "ignored"
-        timings.setdefault("first_token", time.perf_counter())
-        results = []
-        for c in calls:
-            log.info("llm tool -> %s %s", c["name"], c["arguments"])
-            result = await self.tools.call(c["name"], c["arguments"])
-            timings.setdefault("first_action", time.perf_counter())
-            results.append((c, result))
-        data = [(c, r) for c, r in results if c["name"] in DATA_TOOLS or isinstance(r, dict)]
-        if data:
-            c, r = data[0]
-            await self._answer_from(text, c["name"], c["arguments"], r, timings)
-            return None
-        failed = [(c, r) for c, r in results if str(r).startswith(("error", "No open", "Bad", "Unknown"))]
-        self.memory.add(text, " ".join(spoken) + " " + "; ".join(f"[{c['name']}] {r}" for c, r in results))
-        if failed and not spoken:
+        multi_step = bool(_MULTI.search(text))
+        said, trail = [], []
+        for step in range(MAX_STEPS):
+            spoken, calls = await self._stream_speech(messages, timings, tools=tools)
+            said += spoken
+            if not calls:
+                break
+            calls = calls[:MAX_TOOL_CALLS]
+            if step == 0 and any(c["name"] == "ignore" for c in calls):
+                log.info("LLM judged the follow-up as not addressed to Scar")
+                return "ignored"
+            timings.setdefault("first_token", time.perf_counter())
+            # Fast path: a lone screen question is answered straight from the image, spoken as it streams.
+            if step == 0 and not multi_step and len(calls) == 1 and calls[0]["name"] == "look_at_screen":
+                shot = await self.tools.call("look_at_screen", calls[0]["arguments"])
+                timings.setdefault("first_action", time.perf_counter())
+                if isinstance(shot, dict):
+                    return await self._vision_answer(text, shot, timings)
+            messages.append({"role": "assistant", "content": " ".join(spoken) or None, "tool_calls": [
+                {"id": c["id"], "type": "function", "function": {"name": c["name"], "arguments": c["raw"]}} for c in calls]})
+            need_more = multi_step
+            for c in calls:
+                log.info("llm tool (step %d) -> %s %s", step + 1, c["name"], c["arguments"])
+                result = await self.tools.call(c["name"], c["arguments"])
+                timings.setdefault("first_action", time.perf_counter())
+                if isinstance(result, dict) and "image" in result:
+                    result = "Screen shows: " + await self._describe(result)
+                result = str(result)
+                trail.append(f"[{c['name']}] {result[:120]}")
+                messages.append({"role": "tool", "tool_call_id": c["id"], "content": result[:3500]})
+                # Information has to be phrased for the user; failures need a reaction.
+                need_more |= c["name"] in DATA_TOOLS or result.startswith(_FAIL_PREFIXES)
+            if not need_more:
+                break
+        self.memory.add(text, " ".join(said) + (" " + "; ".join(trail) if trail else ""))
+        if not said and any(t.split("] ", 1)[1].startswith(_FAIL_PREFIXES) for t in trail):
             await self.speak("Sorry, I couldn't do that.")
         return None
+
+    async def _describe(self, shot) -> str:
+        """Vision model's description of a screenshot, as text for the next reasoning step (not spoken)."""
+        buf = io.BytesIO()
+        shot["image"].save(buf, "JPEG", quality=80)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        messages = [{"role": "system", "content": "Describe the screenshot precisely for an assistant that must act on it: "
+                                                  "the app, what is shown, and the exact visible names of buttons, links, results or errors."},
+                    {"role": "user", "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                        {"type": "text", "text": f"Focus: {shot.get('question', '')}\nOCR text:\n{(shot.get('ocr') or '')[:2000]}"}]}]
+        out = ""
+        try:
+            async for kind, data in self.llm.stream(messages, max_tokens=300):
+                if kind == "text":
+                    out += data
+        except Exception as e:  # noqa: BLE001 - fall back to the OCR text
+            log.warning("describe failed: %s", e)
+            out = (shot.get("ocr") or "")[:2000]
+        return out.strip() or "nothing readable"
 
     async def _answer_from(self, text, name, args, result, timings):
         """Second pass: the tool returned information; have the LLM say it naturally."""

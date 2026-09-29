@@ -14,7 +14,13 @@ from jarvis.hands import actions as A
 from jarvis.hands import capture as C
 from jarvis.hands import keys, uia
 from jarvis.hands.windows import Rect, Window, find_window, foreground_window, list_windows
+from jarvis import runtime
 from jarvis.skills import calc, files, reminders, screen, store, system, web
+
+
+def random_of(*options):
+    import random
+    return random.choice(options)
 
 log = logging.getLogger("tools")
 FALLTHROUGH = object()
@@ -124,13 +130,32 @@ SCHEMA += [
     _fn("open_settings", "Open a Windows Settings page (bluetooth, wifi, display, sound, battery, update...).", {"page": S}, ["page"]),
     _fn("power", "Shut down, restart, sleep or sign out of the PC (asks to confirm first).",
         {"action": {"type": "string", "enum": ["shutdown", "restart", "sleep", "sign_out"]}}, ["action"]),
+    _fn("web_research", "Search the web and read the top pages: current facts, prices, news, reviews, comparisons.", {"query": S}, ["query"]),
+    _fn("write_text", "Compose text (email, message, essay, code...) from instructions and type it into the active app.",
+        {"instructions": S}, ["instructions"]),
+    _fn("now_playing", "What song or video is playing right now."),
+    _fn("recall", "Search long-term memory: past conversations and things seen on screen.",
+        {"query": S, "when": {"type": "string", "description": "optional: today, yesterday, this morning, last week, monday..."}}, ["query"]),
+    _fn("my_activity", "Which apps and windows the user worked in, and for how long.", {"when": S}),
+    _fn("search_my_files", "Search inside the user's documents, PDFs, slides and notes for a topic.", {"query": S}, ["query"]),
+    _fn("ask_file", "Answer a question about (or summarize) one specific file by name.", {"file": S, "question": S}, ["file"]),
+    _fn("run_routine", "Run a saved routine (e.g. study mode, focus mode, good night).", {"name": S}, ["name"]),
+    _fn("create_routine", "Save a new routine: a name and the commands it runs, in order.", {"name": S, "steps": S}, ["name", "steps"]),
+    _fn("list_routines", "List saved routines."),
+    _fn("add_event", "Add a class or event to the schedule (one-off or weekly).",
+        {"title": S, "when": {"type": "string", "description": "e.g. 'every monday at 9 am', 'friday at 4:30 pm', 'tomorrow at 10'"}}, ["title", "when"]),
+    _fn("remove_event", "Remove a class or event from the schedule.", {"title": S}, ["title"]),
+    _fn("my_schedule", "The schedule for a day.", {"day": {"type": "string", "description": "today, tomorrow or a weekday"}}),
+    _fn("voice_style", "Change Scar's voice (male, female, british, deep, butler...) or speaking speed (faster/slower/normal).",
+        {"voice": S, "speed": {"type": "string", "enum": ["faster", "slower", "normal"]}}),
 ]
 
 IGNORE_TOOL = _fn("ignore", "The message was not meant for you (background talk, video, someone else). Say nothing.")
 
 # Tools that return information for the LLM to phrase, instead of speaking a fixed confirmation.
 DATA_TOOLS = {"list_windows", "read_screen", "system_status", "list_reminders", "read_notes", "list_todos", "weather",
-              "wikipedia", "clipboard", "briefing", "look_at_screen"}
+              "wikipedia", "clipboard", "briefing", "look_at_screen", "web_research", "now_playing", "recall", "my_activity",
+              "search_my_files", "ask_file", "list_routines", "my_schedule"}
 
 
 class Tools:
@@ -457,11 +482,16 @@ class Tools:
         # ~1280 px keeps the image around 1k vision tokens: detailed enough, still quick.
         if img.width > 1280:
             img = img.resize((1280, round(img.height * 1280 / img.width)))
+        if runtime.memory is not None and ocr.strip():
+            fw = w or foreground_window()
+            runtime.memory.add("screen", fw.title if fw else "screen", ocr)
         return {"image": img.convert("RGB"), "ocr": ocr, "question": question}
 
     async def t_read_screen(self, app=None, from_router=False):
         w = self._target_or_screen(app) or foreground_window()
         text = await screen.read_window(w)
+        if runtime.memory is not None and text.strip():
+            runtime.memory.add("screen", w.title if w else "screen", text)
         return f"Text on {w.spoken_name if w else 'the screen'}: {text[:3000]}" if text.strip() else "No readable text found."
 
     # ------------------------------------------------------------ the system
@@ -730,6 +760,155 @@ class Tools:
         self.pending_confirm = do_it
         await self.speak(f"Should I {words[action]} now?")
         return "asked for confirmation"
+
+    # ------------------------------------------------------ research & writing
+    async def t_web_research(self, query, from_router=False):
+        from jarvis.skills import research
+        await self.speak(random_of("Let me look that up.", "Searching the web.", "On it, checking online."))
+        text = await research.research(query)
+        if runtime.memory is not None:
+            runtime.memory.add("research", query, text[:3000])
+        return text
+
+    async def t_write_text(self, instructions, from_router=False):
+        from jarvis.brain.llm import LLM
+        await self.speak("Writing it now.")
+        llm = LLM()
+        messages = [{"role": "system", "content": "Write exactly the requested text, ready to paste: no preamble, no quotes, "
+                                                  "no markdown formatting. Match the tone asked for; keep it concise."},
+                    {"role": "user", "content": instructions}]
+        out = ""
+        try:
+            async for kind, data in llm.stream(messages, max_tokens=700):
+                if kind == "text":
+                    out += data
+        finally:
+            await llm.aclose()
+        out = out.strip()
+        if not out:
+            return "error: nothing was written"
+        target = foreground_window()
+        await asyncio.get_running_loop().run_in_executor(None, screen.type_text, out, None)
+        await self.speak("Done. Have a look.")
+        return f"typed {len(out)} characters into {target.spoken_name if target else 'the active window'}"
+
+    async def t_now_playing(self, from_router=False):
+        from jarvis.skills.media_info import now_playing
+        info = await now_playing()
+        if not info or not info.get("title"):
+            return "Nothing is playing right now."
+        return f"{info['status']}: '{info['title']}'" + (f" by {info['artist']}" if info.get("artist") else "") + f" in {info['app']}"
+
+    async def t_voice_style(self, voice=None, speed=None, from_router=False):
+        from jarvis.skills import voice_settings as vs
+        if voice:
+            v = vs.set_voice(voice)
+            if not v:
+                await self.speak("I don't have that voice. Try male, female, British, deep or butler.")
+                return "unknown voice"
+        if speed:
+            vs.change_speed(speed)
+        await self.speak("How's this?")
+        return "done"
+
+    # ------------------------------------------------------------ memory
+    async def t_recall(self, query, when=None, from_router=False):
+        if runtime.memory is None:
+            return "Memory is not available."
+        hits = runtime.memory.search(query, when=when, limit=6)
+        if not hits and when:
+            hits = runtime.memory.search(query, limit=6)
+        if not hits:
+            return f"Nothing in memory matches '{query}'" + (f" for {when}." if when else ".")
+        return "Memory: " + " || ".join(f"({h['when']}, {h['kind']}) {h['title']}: {h['text']}" for h in hits)
+
+    async def t_my_activity(self, when="today", from_router=False):
+        if runtime.memory is None:
+            return "Activity tracking is not available."
+        return runtime.memory.activity_summary(when or "today")
+
+    # ------------------------------------------------------------ your files
+    async def t_search_my_files(self, query, from_router=False):
+        if runtime.files is None:
+            return "The file index isn't ready yet."
+        hits = await asyncio.get_running_loop().run_in_executor(None, runtime.files.search, query, 5)
+        if not hits:
+            note = " (still indexing)" if runtime.files.busy else ""
+            return f"No file mentions '{query}'{note}."
+        return "Matches in your files: " + " || ".join(f"[{h['file']}] {h['text']}" for h in hits)
+
+    async def t_ask_file(self, file, question="Summarize it", from_router=False):
+        if runtime.files is None:
+            return "The file index isn't ready yet."
+        loop = asyncio.get_running_loop()
+        p = await loop.run_in_executor(None, runtime.files.find_file, file)
+        if p is None:
+            from jarvis.skills import files as F
+            hits = await loop.run_in_executor(None, F.find, file)
+            p = hits[0] if hits else None
+        if p is None:
+            return f"No file named like '{file}'."
+        await self.speak(f"Reading {p.name}.")
+        text = await loop.run_in_executor(None, runtime.files.file_text, p)
+        return f"File {p.name}. Question: {question}\nContent:\n{text}" if text else f"{p.name} has no readable text."
+
+    # ---------------------------------------------------------- routines
+    async def t_run_routine(self, name, from_router=False):
+        from jarvis.skills import routines
+        hit = routines.find(name)
+        if not hit:
+            if from_router:
+                return FALLTHROUGH
+            await self.speak(f"I don't have a routine called {name}.")
+            return "unknown routine"
+        rname, steps = hit
+        await self.speak(f"Starting {rname}.")
+        if runtime.session is None:
+            return "no session"
+        results = []
+        for step in steps:
+            log.info("routine %s: %s", rname, step)
+            out = await runtime.session.agent.handle(step, {}, quiet=True)
+            results.append(f"{step}: {out or 'ok'}")
+            await asyncio.sleep(0.3)
+        return f"ran {rname}: " + "; ".join(results)
+
+    async def t_create_routine(self, name, steps, from_router=False):
+        from jarvis.skills import routines
+        made = routines.create(name, steps)
+        if not made:
+            await self.speak("What should the routine do?")
+            return "no steps"
+        rname, parts = made
+        await self.speak(f"Saved {rname} with {len(parts)} steps. Just say {rname} to run it.")
+        return "done"
+
+    async def t_list_routines(self, from_router=False):
+        from jarvis.skills import routines
+        return "Routines: " + "; ".join(f"{n} ({', '.join(s)})" for n, s in routines.all_routines().items())
+
+    # ---------------------------------------------------------- schedule
+    async def t_add_event(self, title, when, from_router=False):
+        from jarvis.skills import schedule
+        items = schedule.add(title, when)
+        if not items:
+            await self.speak("When is it?")
+            return "no time"
+        weekly = items[0]["weekday"] is not None
+        days = ", ".join(schedule.DAYS[i["weekday"]].title() for i in items) if weekly else items[0]["date"]
+        t = datetime.datetime.strptime(items[0]["time"], "%H:%M").strftime("%I:%M %p").lstrip("0")
+        await self.speak(f"Added {title}, {'every ' if weekly else 'on '}{days} at {t}. I'll remind you ten minutes before.")
+        return "done"
+
+    async def t_remove_event(self, title, from_router=False):
+        from jarvis.skills import schedule
+        n = schedule.remove(title)
+        await self.speak(f"Removed {title}." if n else f"{title} isn't on your schedule.")
+        return "done"
+
+    async def t_my_schedule(self, day="today", from_router=False):
+        from jarvis.skills import schedule
+        return schedule.describe_day(day or "today")
 
     async def t_smalltalk(self, kind, from_router=False):
         await self.speak("Anytime.")

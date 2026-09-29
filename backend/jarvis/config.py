@@ -47,6 +47,7 @@ BLOCK = 512                      # 32 ms, Silero's native chunk
 INPUT_DEVICE = _env("JARVIS_INPUT_DEVICE", None)     # name substring or index
 OUTPUT_DEVICE = _env("JARVIS_OUTPUT_DEVICE", None)
 PREROLL_S = 1.5
+ECHO_CANCEL = _bool(_env("JARVIS_ECHO_CANCEL", "true"))   # subtract Scar's own voice from the mic
 
 # --- Identity ----------------------------------------------------------------
 # The assistant's name doubles as a wake word: "Scar" / "Hey Scar" / "Scar, open YouTube".
@@ -62,6 +63,9 @@ END_SILENCE_MS = _env("JARVIS_END_SILENCE_MS", 550, int)
 MAX_UTTERANCE_MS = 15000
 MAX_FOLLOW_UP_UTTERANCE_MS = 8000   # longer = somebody else talking / a video playing
 MAX_FOLLOW_UP_CHAIN = 4             # after this many wake-word-free turns, the wake word is needed again
+# Voice ID: cosine similarity to your enrolled voiceprint needed to count as you (after "learn my voice").
+VOICE_MATCH = _env("JARVIS_VOICE_MATCH", 0.45, float)
+ONLY_MY_VOICE = _bool(_env("JARVIS_ONLY_MY_VOICE", "true"))  # once enrolled, ignore other people's voices
 # Follow-up speech quieter than this fraction of your usual voice level is treated as someone else in the room.
 FOLLOW_UP_MIN_LEVEL = _env("JARVIS_FOLLOW_UP_MIN_LEVEL", 0.5, float)
 NO_SPEECH_TIMEOUT_MS = 4000      # after wake word, give up if nothing is said

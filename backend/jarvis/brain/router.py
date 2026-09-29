@@ -133,6 +133,144 @@ def _switch_tab(m):
     return "browser_tab", {"action": "switch", "query": m["q"]}
 
 
+# --- how Scar listens: voice ID, dictation, suggestions, phone -----------------------
+@rule(r"^(?:learn|remember|recognize|register|enroll) my voice$|^(?:set up|setup) (?:voice (?:id|recognition)|my voice)$")
+def _learn_voice(m):
+    return "learn_voice", {}
+
+
+@rule(r"^forget my voice$|^(?:delete|reset) my voice ?(?:print|profile)?$")
+def _forget_voice(m):
+    return "forget_voice", {}
+
+
+@rule(r"^(?:only (?:listen|respond|reply) to me|ignore (?:other people|everyone else|others))$")
+def _only_me(m):
+    return "only_me", {}
+
+
+@rule(r"^(?:listen to|respond to|reply to) (?:everyone|everybody|anyone|others)$")
+def _everyone(m):
+    return "everyone", {}
+
+
+@rule(r"^(?:start |begin |turn on )?dictation(?: mode)?$|^(?:take dictation|type (?:what|everything) i say)$")
+def _dictation(m):
+    return "dictation", {}
+
+
+@rule(r"^(?:stop|no more|turn off|disable) (?:the )?(?:suggestions|tips|break reminders|proactive (?:mode|help))$")
+def _sugg_off(m):
+    return "suggestions_off", {}
+
+
+@rule(r"^(?:turn on|enable|start) (?:the )?(?:suggestions|tips|break reminders|proactive (?:mode|help))$")
+def _sugg_on(m):
+    return "suggestions_on", {}
+
+
+@rule(r"^(?:enable|turn on|start|set up) (?:the )?phone (?:control|remote|access)$|^connect (?:my )?phone$")
+def _phone_on(m):
+    return "phone_on", {}
+
+
+@rule(r"^(?:disable|turn off|stop) (?:the )?phone (?:control|remote|access)$|^disconnect (?:my )?phone$")
+def _phone_off(m):
+    return "phone_off", {}
+
+
+# --- research, writing, media info, voice -----------------------------------------
+@rule(r"^(?:research|look up online|search (?:the )?(?:web|internet|online) (?:for|about)|find (?:out|online) (?:about )?|what(?:'s| is) the latest (?:news )?(?:on|about)) (?P<q>.+)$")
+def _research(m):
+    return "web_research", {"query": m["q"]}
+
+
+@rule(r"^(?:write|draft|compose|type out) (?:an? |the )?(?P<what>(?:email|mail|message|reply|letter|paragraph|essay|note|tweet|post|poem|summary|code|function|leave application|application).*)$")
+def _write(m):
+    return "write_text", {"instructions": "Write " + m["what"]}
+
+
+@rule(r"^(?:what(?:'s| is) (?:this |the )?(?:song|track|music|video)(?: (?:playing|called|name))?|what(?:'s| is) playing(?: now| right now)?|which song is (?:this|playing)|name (?:of )?(?:this|the) song)$")
+def _now_playing(m):
+    return "now_playing", {}
+
+
+@rule(r"^(?:change|switch|set|use) (?:your |the )?voice (?:to )?(?:an? )?(?P<v>.+?)(?: voice)?$|^(?:use|talk (?:in|with)) (?:an? )?(?P<v2>british|female|male|deep|butler|posh|american) (?:voice|accent)$")
+def _voice(m):
+    return "voice_style", {"voice": m["v"] or m["v2"]}
+
+
+@rule(r"^(?:talk|speak) (?P<s>faster|slower|normally|at normal speed)$|^(?:speed up|slow down)$")
+def _speed(m):
+    s = m["s"] or ("faster" if m.string.startswith("speed") else "slower")
+    return "voice_style", {"speed": "normal" if s.startswith(("normal", "at")) else s}
+
+
+# --- memory ------------------------------------------------------------------------
+@rule(r"^what (?:did|have) i (?:do|work on|been doing|been working on|spend (?:my )?time on)(?P<when> today| yesterday| this morning| this afternoon| last week| this week| on \w+day)?$|^how (?:long|much time) (?:did i spend|have i spent) (?:on (?:my )?)?(?:the )?(?:pc|computer|laptop|screen)(?P<when2> today| yesterday)?$")
+def _activity(m):
+    return "my_activity", {"when": ((m["when"] or m["when2"]) or "today").strip()}
+
+
+@rule(r"^(?:do you remember|remind me what|what did (?:we|you|i) (?:say|talk|discuss)|what was (?:that|the)) (?P<q>.+?)(?P<when> today| yesterday| this morning| last week| on \w+day)?$")
+def _recall(m):
+    return "recall", {"query": m["q"], "when": (m["when"] or "").strip() or None}
+
+
+# --- your files --------------------------------------------------------------------
+@rule(r"^(?:search|look in|check) (?:my |in my )?(?:files|documents|notes|pdfs?|slides) (?:for|about) (?P<q>.+)$|^find (?:my )?(?:notes|documents|files) (?:on|about) (?P<q2>.+)$")
+def _search_files(m):
+    return "search_my_files", {"query": m["q"] or m["q2"]}
+
+
+@rule(r"^(?:summari[sz]e|read|explain) (?:my |the )?(?:file |document |pdf )?(?P<f>[\w .\-]+?\.(?:pdf|docx|pptx|txt|md))$")
+def _summarize_file(m):
+    return "ask_file", {"file": m["f"], "question": "Summarize this file in a few spoken sentences."}
+
+
+@rule(r"^what does (?:my |the )?(?P<f>[\w .\-]+?) (?:say|mention) about (?P<q>.+)$")
+def _ask_file(m):
+    return "ask_file", {"file": m["f"], "question": f"What does it say about {m['q']}?"}
+
+
+# --- routines & schedule -----------------------------------------------------------
+@rule(r"^(?:create|make|add|save|set up) (?:a |new )?routine (?:called |named )?(?P<n>[\w ]+?)\s*(?::|that will|that|to|which) (?P<s>.+)$")
+def _create_routine(m):
+    return "create_routine", {"name": m["n"], "steps": m["s"]}
+
+
+@rule(r"^(?:what are my|list (?:my )?|show (?:my )?)routines$")
+def _list_routines(m):
+    return "list_routines", {}
+
+
+@rule(r"^(?:run|start|begin|activate|do|enable|switch to|go into|enter) (?:the |my )?(?P<n>[\w ]+?)(?: routine| mode)?$|^(?P<n2>study mode|focus mode|break time|good night)$")
+def _run_routine(m):
+    from jarvis.skills import routines
+    name = m["n"] or m["n2"]
+    return ("run_routine", {"name": name}) if routines.find(name) else None
+
+
+@rule(r"^(?:add|put|schedule|set) (?P<t>.+?) (?:to my schedule |in my schedule |on my calendar )?(?P<w>(?:every|each|on|at|tomorrow|today|this|next) .+)$")
+def _add_event(m):
+    t = re.sub(r"\b(?:to my (?:schedule|calendar)|class)\b", lambda x: "class" if x.group(0) == "class" else "", m["t"]).strip()
+    if not re.search(r"\d|noon|midnight", m["w"]):
+        return None
+    if re.search(r"\b(?:alarm|timer|reminder|volume|brightness|window|chrome|opera|notepad)\b", m["t"]):
+        return None      # "set an alarm at 7", "set volume at 40": other intents
+    return "add_event", {"title": t or m["t"], "when": m["w"]}
+
+
+@rule(r"^(?:remove|delete|cancel) (?P<t>.+?) (?:from my (?:schedule|calendar|timetable))$")
+def _remove_event(m):
+    return "remove_event", {"title": m["t"]}
+
+
+@rule(r"^(?:what(?:'s| is) (?:on )?my (?:schedule|timetable|calendar)|what (?:classes|lectures) do i have|what do i have)(?: for)?(?P<d> today| tomorrow| on \w+day| \w+day)?$")
+def _schedule(m):
+    return "my_schedule", {"day": (m["d"] or "today").strip()}
+
+
 # --- keyboard actions / clicking / scrolling / settings / power ----------------------
 _KEY_PHRASES = [
     (r"copy(?: (?:that|this|it|the text))?", "copy"), (r"paste(?: (?:it|that|here))?", "paste"), (r"cut(?: (?:that|this|it))?", "cut"),

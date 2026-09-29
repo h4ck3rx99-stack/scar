@@ -64,9 +64,10 @@ class Speaker:
 
     SR = 24000
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, on_level=None):
+    def __init__(self, loop: asyncio.AbstractEventLoop, on_level=None, reference=None):
         self.loop = loop
         self.on_level = on_level
+        self.reference = reference   # aec.ReferenceBuffer: gets exactly what is played, for echo cancellation
         self._chunks = collections.deque()
         self._lock = threading.Lock()
         self._idle = asyncio.Event()
@@ -97,6 +98,8 @@ class Speaker:
                     self._chunks[0] = c[n:]
             empty = not self._chunks
         out[filled:] = 0
+        if self.reference is not None:
+            self.reference.push(out.copy())
         if filled:
             self._draining = 3
             if self.on_level:

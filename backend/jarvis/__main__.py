@@ -26,8 +26,10 @@ def setup_logging():
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(config.LOG_DIR / "jarvis.log", encoding="utf-8"),
     ])
-    for noisy in ("httpx", "websockets", "faster_whisper", "phonemizer"):
+    for noisy in ("httpx", "websockets", "faster_whisper"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    for noisy in ("phonemizer", "pypdf", "pypdf._cmap", "pypdf._reader"):
+        logging.getLogger(noisy).setLevel(logging.ERROR)
 
 
 async def ensure_llama_server(llm):
@@ -120,7 +122,9 @@ async def main(text_only=False):
             last_level[0] = now
             ui.emit("level", value=round(level, 3))
 
-    speaker = Speaker(loop, on_level=on_level)
+    from jarvis.audio.aec import EchoCanceller, ReferenceBuffer
+    aec_ref = ReferenceBuffer(out_sr=Speaker.SR) if config.ECHO_CANCEL else None
+    speaker = Speaker(loop, on_level=on_level, reference=aec_ref)
     speech = SpeechOut(tts, speaker, ui)
     speech.start()
     speaker.start()
@@ -132,6 +136,42 @@ async def main(text_only=False):
             pass
 
     mic = NoMic() if text_only else Microphone(loop)
+
+    # --- long-term memory, file index, voice ID, saved voice style
+    from jarvis import runtime
+    from jarvis.skills import voice_settings
+    from jarvis.skills.docs import FileIndex
+    from jarvis.skills.memory import MemoryDB
+    runtime.tts = tts
+    voice_settings.apply_saved()
+    runtime.memory = MemoryDB()
+    runtime.files = FileIndex()
+
+    def index_forever():
+        while True:
+            try:
+                runtime.files.scan()
+            except Exception:  # noqa: BLE001 - indexing is best effort
+                log.exception("file indexing failed")
+            time.sleep(30 * 60)
+
+    import threading
+    threading.Thread(target=index_forever, daemon=True, name="file-index").start()
+
+    def load_voiceprint():
+        try:
+            from jarvis.audio.speaker import VoicePrint
+            vp = VoicePrint()
+            vp.learn_self(tts)
+            return vp
+        except Exception as e:  # noqa: BLE001 - voice ID is optional
+            log.warning("voice ID unavailable: %s", e)
+            return None
+
+    runtime.voiceprint = await loop.run_in_executor(None, load_voiceprint)
+    if runtime.voiceprint:
+        log.info("voice ID ready (%s)", "enrolled" if runtime.voiceprint.enrolled else "not enrolled yet")
+
     from jarvis.skills.reminders import Scheduler
 
     async def fire(item):
@@ -145,8 +185,20 @@ async def main(text_only=False):
 
     scheduler = Scheduler(fire)
     session = Session(ui, mic, vad, wake, stt, speech, lambda control: Agent(ui, speech.say, control, scheduler))
+    runtime.session = session
+    if aec_ref is not None:
+        session.aec, session.aec_ref = EchoCanceller(), aec_ref
+        session.aec.load(config.APPDATA_DIR / "aec_filter.npz")
+        log.info("echo cancellation on (starting at %.0f dB)", session.aec.erle_db)
     loop.create_task(scheduler.run())
     loop.create_task(battery_watch(session))
+    from jarvis.core.proactive import Proactive
+    loop.create_task(Proactive(session).run())
+    try:
+        from jarvis.core.phone import PhoneRemote
+        runtime.phone = PhoneRemote(session)
+    except Exception as e:  # noqa: BLE001
+        log.warning("phone remote unavailable: %s", e)
     booted = {"done": False}
 
     @ui.on("hello")
