@@ -10,8 +10,6 @@ import * as THREE from 'three';
  * Expressions: normal, happy, sad, angry, scared, curious, dizzy, love, listening, thinking, sleepy.
  * The mouth moves with the TTS loudness while talking (setTalk).
  */
-// Visor rectangle measured on the light model (fractions of the bounding box), for when detection fails.
-const VISOR_FALLBACK = { fx0: 0.285, fx1: 0.82, fy0: 0.475, fy1: 0.632 };
 const W = 512;
 const H = 288;
 
@@ -83,8 +81,8 @@ export class ScarFace {
    * @param viewRoot  the avatar root whose local -Z is "towards the viewer"
    */
   fitToModel(wrapper, viewRoot) {
-    if (wrapper.userData.faceGeometry) {
-      this._useGeometry(wrapper.userData.faceGeometry);
+    if (wrapper.userData.faceFit) {
+      this._useFit(wrapper.userData.faceFit);
       return true;
     }
     const saved = { p: viewRoot.position.clone(), r: viewRoot.rotation.clone(), s: viewRoot.scale.clone() };
@@ -95,8 +93,9 @@ export class ScarFace {
     try {
       const geo = this._fit(wrapper);
       if (!geo) return false;
-      wrapper.userData.faceGeometry = geo;
-      this._useGeometry(geo);
+      const fit = { geo, mask: this.maskCanvas, W: this.W, H: this.H };
+      wrapper.userData.faceFit = fit;   // each theme's model keeps its own fit
+      this._useFit(fit);
       return true;
     } finally {
       viewRoot.position.copy(saved.p);
@@ -106,13 +105,53 @@ export class ScarFace {
     }
   }
 
-  _useGeometry(geo) {
-    this.mesh.geometry.dispose();
+  _useFit({ geo, mask, W: w, H: h }) {
+    this.maskCanvas = mask;
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+      // A resized canvas needs a fresh texture object.
+      this.texture.dispose();
+      this.texture = new THREE.CanvasTexture(this.canvas);
+      this.texture.colorSpace = THREE.SRGBColorSpace;
+      this.texture.anisotropy = 4;
+      this.material.map = this.texture;
+    }
+    this.W = w;
+    this.H = h;
     this.mesh.geometry = geo;
     this.mesh.position.set(0, 0, 0);
     this.mesh.rotation.set(0, 0, 0);
     this.mesh.scale.set(1, 1, 1);
     this.mesh.visible = true;
+  }
+
+  /** Visor-shaped alpha mask at the face canvas's resolution, with soft edges. mask rows run bottom-up. */
+  _buildMask(mask, mx, my) {
+    this.W = 512;
+    this.H = Math.max(140, Math.min(420, Math.round(512 * my / mx)));
+    const small = document.createElement('canvas');
+    small.width = mx;
+    small.height = my;
+    const sg = small.getContext('2d');
+    const img = sg.createImageData(mx, my);
+    for (let j = 0; j < my; j++) {
+      for (let i = 0; i < mx; i++) {
+        const a = mask[j * mx + i] ? 255 : 0;
+        const o = ((my - 1 - j) * mx + i) * 4;          // flip: canvas rows run top-down
+        img.data[o] = img.data[o + 1] = img.data[o + 2] = 255;
+        img.data[o + 3] = a;
+      }
+    }
+    sg.putImageData(img, 0, 0);
+    const big = document.createElement('canvas');
+    big.width = this.W;
+    big.height = this.H;
+    const bg = big.getContext('2d');
+    bg.imageSmoothingEnabled = true;
+    bg.filter = 'blur(4px)';
+    bg.drawImage(small, 0, 0, this.W, this.H);
+    this.maskCanvas = big;
   }
 
   _fit(wrapper) {
@@ -122,24 +161,13 @@ export class ScarFace {
     const box = new THREE.Box3();
     meshes.forEach((m) => box.expandByObject(m));
     const size = box.getSize(new THREE.Vector3());
+    const mat = meshes[0].material;
 
-    // Texture luminance lookup (256x256 is plenty to tell glass from paint).
-    const map = meshes[0].material.map;
-    let lum = null;
-    if (map && map.image) {
-      const c = document.createElement('canvas');
-      c.width = c.height = 256;
-      const g = c.getContext('2d', { willReadFrequently: true });
-      g.drawImage(map.image, 0, 0, 256, 256);
-      const d = g.getImageData(0, 0, 256, 256).data;
-      lum = (uv) => {
-        const u = ((uv.x % 1) + 1) % 1;
-        const v = ((uv.y % 1) + 1) % 1;
-        const py = map.flipY ? Math.floor((1 - v) * 255) : Math.floor(v * 255);
-        const i = (py * 256 + Math.floor(u * 255)) * 4;
-        return (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
-      };
-    }
+    // The visor glass is the only surface that is both non-metallic AND dark. Either test alone fails on one
+    // theme: on the dark robot the metal body is as dark as the glass; on the white robot the paint isn't metal.
+    const metal = texSampler(mat.metalnessMap, 2);
+    const lum = texSampler(mat.map, -1);
+    const isGlass = (uv) => (metal ? metal(uv) < 0.15 && lum(uv) < 0.35 : lum(uv) < 0.11);
 
     const ray = new THREE.Raycaster();
     const dir = new THREE.Vector3(0, 0, -1);
@@ -149,52 +177,55 @@ export class ScarFace {
       return ray.intersectObjects(meshes, false)[0] || null;
     };
 
-    // 1. Coarse scan of the upper 60% for dark glass.
-    const N = 48;
-    const glass = [];
+    // 1. Grid scan of the upper 60% of the robot: which cells are glass?
+    const N = 64;
+    const gx0 = box.min.x, gy0 = box.min.y + size.y * 0.4, cw = size.x / N, ch = size.y * 0.6 / N;
+    const cell = new Uint8Array(N * N);
     for (let iy = 0; iy < N; iy++) {
-      const y = box.min.y + size.y * (0.4 + 0.6 * (iy + 0.5) / N);
       for (let ix = 0; ix < N; ix++) {
-        const x = box.min.x + size.x * (ix + 0.5) / N;
-        const h = hitAt(x, y);
-        if (!h || !h.uv) continue;
-        const l = lum ? lum(h.uv) : 0;
-        if (l < 0.11) glass.push(h.point);
+        const h = hitAt(gx0 + (ix + 0.5) * cw, gy0 + (iy + 0.5) * ch);
+        if (h && h.uv && isGlass(h.uv)) cell[iy * N + ix] = 1;
       }
     }
-    if (glass.length < 20) return null;
-    // Keep the biggest blob near the median (robust against dark seams elsewhere).
-    const mx = median(glass.map((p) => p.x));
-    const my = median(glass.map((p) => p.y));
-    const near = glass.filter((p) => Math.abs(p.x - mx) < size.x * 0.35 && Math.abs(p.y - my) < size.y * 0.2);
-    const xs = near.map((p) => p.x).sort((a, b) => a - b);
-    const ys = near.map((p) => p.y).sort((a, b) => a - b);
-    let x0 = pct(xs, 0.04), x1 = pct(xs, 0.96), y0 = pct(ys, 0.06), y1 = pct(ys, 0.94);
-    // Inset so the face screen sits inside the visor rim.
-    let iw = (x1 - x0) * 0.06, ih = (y1 - y0) * 0.08;
-    if ((y1 - y0) < size.y * 0.08 || (x1 - x0) / (y1 - y0) > 3.4) {
-      // Glass and paint too similar to tell apart (dark theme): use the visor rectangle measured on the
-      // light theme, as fractions of the model's bounding box (both themes share the same design).
-      x0 = box.min.x + size.x * VISOR_FALLBACK.fx0;
-      x1 = box.min.x + size.x * VISOR_FALLBACK.fx1;
-      y0 = box.min.y + size.y * VISOR_FALLBACK.fy0;
-      y1 = box.min.y + size.y * VISOR_FALLBACK.fy1;
-      iw = ih = 0;
+    // 2. The visor is the largest connected glass region.
+    const comp = largestComponent(cell, N);
+    if (comp.length < 30) return null;
+    let cx0 = N, cx1 = 0, cy0 = N, cy1 = 0;
+    for (const k of comp) {
+      const ix = k % N, iy = (k / N) | 0;
+      cx0 = Math.min(cx0, ix); cx1 = Math.max(cx1, ix); cy0 = Math.min(cy0, iy); cy1 = Math.max(cy1, iy);
     }
+    const x0 = gx0 + cx0 * cw, x1 = gx0 + (cx1 + 1) * cw, y0 = gy0 + cy0 * ch, y1 = gy0 + (cy1 + 1) * ch;
 
-    // 2. Project a grid onto the visor surface -> face geometry in wrapper-local space.
-    const GX = 24, GY = 14;
+    // 3. Fine mask of the visor's outline inside that box, eroded a little so the face stays inside the rim.
+    const MX = 96, MY = Math.max(24, Math.round(MX * (y1 - y0) / (x1 - x0)));
+    const mask = new Uint8Array(MX * MY);
+    for (let j = 0; j < MY; j++) {
+      for (let i = 0; i < MX; i++) {
+        const h = hitAt(x0 + (i + 0.5) / MX * (x1 - x0), y0 + (j + 0.5) / MY * (y1 - y0));
+        if (h && h.uv && isGlass(h.uv)) mask[j * MX + i] = 1;
+      }
+    }
+    const kept = largestComponent(mask, MX, MY);
+    const solid = new Uint8Array(MX * MY);
+    for (const k of kept) solid[k] = 1;
+    // The texture's painted eyes aren't "glass", so they'd be holes: fill everything the visor encloses.
+    this._buildMask(erode(fillHoles(solid, MX, MY), MX, MY), MX, MY);
+
+    // 4. Project a grid onto the visor surface -> face geometry in wrapper-local space.
+    const GX = 40, GY = Math.max(12, Math.round(GX * (y1 - y0) / (x1 - x0)));
     const inv = wrapper.matrixWorld.clone().invert();
     const positions = [];
     const uvs = [];
-    const fallbackZ = median(near.map((p) => p.z));
+    let lastZ = box.max.z;
     for (let j = 0; j <= GY; j++) {
       for (let i = 0; i <= GX; i++) {
         const u = i / GX, v = j / GY;
-        const x = x0 + iw + (x1 - x0 - 2 * iw) * u;
-        const y = y0 + ih + (y1 - y0 - 2 * ih) * v;
+        const x = x0 + (x1 - x0) * u;
+        const y = y0 + (y1 - y0) * v;
         const h = hitAt(x, y);
-        const p = h ? h.point.clone() : new THREE.Vector3(x, y, fallbackZ);
+        const p = h ? h.point.clone() : new THREE.Vector3(x, y, lastZ);
+        lastZ = p.z;
         p.z += 0.004 * size.y; // hover just above the glass
         p.applyMatrix4(inv);
         positions.push(p.x, p.y, p.z);
@@ -250,34 +281,38 @@ export class ScarFace {
     const g = this.ctx;
     const e = this.currentExpression;
     const color = PALETTE[e];
-    g.clearRect(0, 0, W, H);
+    const CW = this.canvas.width, CH = this.canvas.height;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, CW, CH);
 
-    // Glass: opaque so the texture's painted eyes never show through.
-    const bg = g.createRadialGradient(W * 0.45, H * 0.35, 20, W / 2, H / 2, W * 0.7);
-    bg.addColorStop(0, '#0d1a24');
-    bg.addColorStop(1, '#03070b');
+    // Glass fills the whole visor, opaque so the texture's painted eyes never show through.
+    const bg = g.createRadialGradient(CW * 0.45, CH * 0.35, 10, CW / 2, CH / 2, CW * 0.6);
+    bg.addColorStop(0, '#0e1c27');
+    bg.addColorStop(1, '#02060a');
     g.fillStyle = bg;
-    g.beginPath();
-    g.roundRect(0, 0, W, H, 70);
-    g.fill();
-    // Scanlines + a soft reflection streak.
+    g.fillRect(0, 0, CW, CH);
+    // Scanlines + a soft reflection streak across the glass.
     g.globalAlpha = 0.06;
     g.fillStyle = color;
-    for (let y = 0; y < H; y += 6) g.fillRect(0, y, W, 2);
-    g.globalAlpha = 0.07;
+    for (let y = 0; y < CH; y += 6) g.fillRect(0, y, CW, 2);
+    g.globalAlpha = 0.08;
     g.fillStyle = '#ffffff';
     g.beginPath();
-    g.ellipse(W * 0.3, H * 0.18, W * 0.28, H * 0.07, -0.18, 0, Math.PI * 2);
+    g.ellipse(CW * 0.3, CH * 0.2, CW * 0.26, CH * 0.08, -0.15, 0, Math.PI * 2);
     g.fill();
     g.globalAlpha = 1;
 
+    // The face itself is laid out on a 512x288 design, scaled uniformly into the visor and centred.
+    const s = Math.min(CW / W * 1.05, CH / H * 1.25);
+    g.save();
+    g.translate((CW - W * s) / 2, (CH - H * s) / 2);
+    g.scale(s, s);
     const blinkAmt = this.blinking ? (this.blink <= 1 ? this.blink : 2 - this.blink) : 0;
     const gx = this.gazeX * 22;
     const gy = -this.gazeY * 12;
     const eyeY = H * 0.42 + gy;
     const sep = W * 0.2;
-
-    g.save();
     g.shadowColor = color;
     g.shadowBlur = 22;
     g.fillStyle = color;
@@ -286,6 +321,13 @@ export class ScarFace {
     for (const side of [-1, 1]) this.drawEye(g, W / 2 + side * sep + gx, eyeY, side, blinkAmt, e);
     this.drawMouth(g, W / 2 + gx * 0.5, H * 0.76 + gy * 0.5, e, color);
     g.restore();
+
+    // Cut everything to the visor's real outline (soft edge), so it reads as the visor lighting up.
+    if (this.maskCanvas) {
+      g.globalCompositeOperation = 'destination-in';
+      g.drawImage(this.maskCanvas, 0, 0, CW, CH);
+      g.globalCompositeOperation = 'source-over';
+    }
   }
 
   drawEye(g, cx, cy, side, blinkAmt, e) {
@@ -456,6 +498,80 @@ export class ScarFace {
     }
     g.restore();
   }
+}
+
+/** Channel sampler for a texture (channel -1 = luminance). Returns (uv) -> 0..1, or null if no texture. */
+function texSampler(tex, channel) {
+  if (!tex || !tex.image) return null;
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(tex.image, 0, 0, S, S);
+  const d = g.getImageData(0, 0, S, S).data;
+  return (uv) => {
+    const u = ((uv.x % 1) + 1) % 1;
+    const v = ((uv.y % 1) + 1) % 1;
+    const py = tex.flipY ? Math.floor((1 - v) * (S - 1)) : Math.floor(v * (S - 1));
+    const i = (py * S + Math.floor(u * (S - 1))) * 4;
+    return channel < 0 ? (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255 : d[i + channel] / 255;
+  };
+}
+
+/** Indices of the largest 4-connected set of 1-cells in a w x h grid. */
+function largestComponent(grid, w, h = w) {
+  const seen = new Uint8Array(grid.length);
+  let best = [];
+  for (let s = 0; s < grid.length; s++) {
+    if (!grid[s] || seen[s]) continue;
+    const comp = [];
+    const stack = [s];
+    seen[s] = 1;
+    while (stack.length) {
+      const k = stack.pop();
+      comp.push(k);
+      const x = k % w, y = (k / w) | 0;
+      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const n = ny * w + nx;
+        if (grid[n] && !seen[n]) { seen[n] = 1; stack.push(n); }
+      }
+    }
+    if (comp.length > best.length) best = comp;
+  }
+  return best;
+}
+
+/** Set every 0-cell that can't reach the border through 0-cells (i.e. enclosed holes) to 1. */
+function fillHoles(grid, w, h) {
+  const outside = new Uint8Array(grid.length);
+  const stack = [];
+  for (let x = 0; x < w; x++) stack.push(x, (h - 1) * w + x);
+  for (let y = 0; y < h; y++) stack.push(y * w, y * w + w - 1);
+  while (stack.length) {
+    const k = stack.pop();
+    if (grid[k] || outside[k]) continue;
+    outside[k] = 1;
+    const x = k % w, y = (k / w) | 0;
+    if (x > 0) stack.push(k - 1);
+    if (x < w - 1) stack.push(k + 1);
+    if (y > 0) stack.push(k - w);
+    if (y < h - 1) stack.push(k + w);
+  }
+  const out = new Uint8Array(grid.length);
+  for (let k = 0; k < grid.length; k++) out[k] = outside[k] ? 0 : 1;
+  return out;
+}
+
+function erode(grid, w, h) {
+  const out = new Uint8Array(grid.length);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const k = y * w + x;
+      out[k] = grid[k] && grid[k - 1] && grid[k + 1] && grid[k - w] && grid[k + w] ? 1 : 0;
+    }
+  }
+  return out;
 }
 
 function median(a) {

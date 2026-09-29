@@ -51,11 +51,17 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.9;
 
-const keyLight = new THREE.DirectionalLight(0xddeeff, 1.6);
-keyLight.position.set(5, 8, 6);
-const rimLight = new THREE.DirectionalLight(0x77aacc, 1.2);
-rimLight.position.set(0, 5, -8);
-scene.add(new THREE.AmbientLight(0xffffff, 0.25), keyLight, rimLight);
+// Studio lighting: key from upper-left front, warm fill from the right, and two cool rims from behind
+// that draw a bright outline around the silhouette so the dark robot doesn't vanish on dark wallpapers.
+const keyLight = new THREE.DirectionalLight(0xf2f6ff, 2.2);
+keyLight.position.set(-4, 6, 7);
+const fillLight = new THREE.DirectionalLight(0xffe6cc, 0.7);
+fillLight.position.set(6, 1, 4);
+const rimLight = new THREE.DirectionalLight(0x8fd8ff, 2.4);
+rimLight.position.set(4, 4, -6);
+const rimLight2 = new THREE.DirectionalLight(0x8fd8ff, 1.6);
+rimLight2.position.set(-5, 2, -5);
+scene.add(new THREE.HemisphereLight(0xdfefff, 0x20242c, 0.45), keyLight, fillLight, rimLight, rimLight2);
 
 const space = new ScreenSpace(camera);
 
@@ -147,7 +153,11 @@ async function setModelMode(mode) {
   hoverEngine.attachTo(model);
   eyeVisor.attachTo(model);
   if (!eyeVisor.fitToModel(model, avatarRoot)) console.warn('could not locate the visor; face hidden');
-  rimLight.color.set(mode === 'dark' ? 0x77aacc : 0xccddee);
+  // The white robot needs less exposure and a softer rim, or it blows out.
+  rimLight.color.set(mode === 'dark' ? 0x8fd8ff : 0xcfe6ff);
+  rimLight.intensity = mode === 'dark' ? 2.4 : 1.2;
+  rimLight2.intensity = mode === 'dark' ? 1.6 : 0.8;
+  renderer.toneMappingExposure = mode === 'dark' ? 1.25 : 1.0;
   document.body.classList.toggle('theme-dark', mode === 'dark');
   document.body.classList.toggle('theme-light', mode === 'light');
   // Only the active theme stays in VRAM.
