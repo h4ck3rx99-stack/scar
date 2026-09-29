@@ -74,6 +74,8 @@ class Session:
         self.ui, self.mic, self.vad, self.wake, self.stt, self.speech = ui, mic, vad, wake, stt, speech
         self.agent = agent_factory(self._control)
         self.follow_up_chain = 0      # consecutive follow-up turns without a wake word
+        self.voiced_energy = []       # per-block energy of the current utterance's speech
+        self.user_level = None        # typical loudness of the user's own voice (learned from name/click turns)
         self.state = State.IDLE
         self.preroll = collections.deque(maxlen=int(config.PREROLL_S * 1000 / BLOCK_MS))
         self.utter = []
@@ -112,6 +114,7 @@ class Session:
         self.utter = list(self.preroll)[-preroll_blocks:] if preroll_blocks else []
         self.listen_started = time.monotonic()
         self.speech_ms = self.silence_ms = 0
+        self.voiced_energy = []
         # "Hey Jarvis, minimize Chrome" in one breath: the user is usually still talking when the wake fires.
         self.speech_started = reason in ("follow_up",)
         self.last_activity = time.monotonic()
@@ -152,8 +155,21 @@ class Session:
 
     # --------------------------------------------------------------- audio loop
     async def run(self):
+        last = time.monotonic()
         while True:
             block = await self.mic.queue.get()
+            now = time.monotonic()
+            if now - last > 5:
+                # The PC slept (or the mic stalled): whatever we were doing is stale. Start fresh and quiet.
+                log.info("audio resumed after %.0f s gap; resetting to idle", now - last)
+                if self.turn_task and not self.turn_task.done():
+                    self.turn_task.cancel()
+                self.speech.cancel()
+                self._reset_spot()
+                self.follow_up_chain = 0
+                self.last_activity = now
+                await self._set(State.IDLE)
+            last = now
             try:
                 await self._process(block)
             except Exception:  # noqa: BLE001 - never let one bad block kill the ears
@@ -185,6 +201,7 @@ class Session:
         elif st == State.LISTENING:
             self.utter.append(block)
             if prob >= config.VAD_ON:
+                self.voiced_energy.append(float(np.mean(block ** 2)))
                 self.speech_ms += BLOCK_MS
                 self.silence_ms = 0
                 if self.speech_ms >= config.SPEECH_ONSET_MS:
@@ -276,6 +293,12 @@ class Session:
         if rest is None:
             return
         log.info("name call%s: %r", " (barge-in)" if busy else "", text)
+        if not busy:  # (during barge-in the mic also hears Scar's own voice, so don't learn from it)
+            blocks = audio[: len(audio) // config.BLOCK * config.BLOCK].reshape(-1, config.BLOCK)
+            energy = np.mean(blocks ** 2, axis=1)
+            level = float(np.sqrt(np.percentile(energy, 75))) if len(energy) else 0.0
+            if level > 0:
+                self.user_level = level if self.user_level is None else 0.7 * self.user_level + 0.3 * level
         if busy:
             if self.turn_task and not self.turn_task.done():
                 self.turn_task.cancel()
@@ -298,6 +321,18 @@ class Session:
         audio = np.concatenate(self.utter) if self.utter else np.zeros(0, np.float32)
         self.utter = []
         self.timings["t_end_speech"] = time.perf_counter()
+        # Loudness of the voiced part (median, so one cough or door slam doesn't skew it).
+        level = float(np.sqrt(np.median(self.voiced_energy))) if self.voiced_energy else 0.0
+        trigger = self.timings.get("trigger")
+        if trigger in ("wake", "click") and level > 0:
+            # Learn how loud the user's own voice is at the mic (slow moving average).
+            self.user_level = level if self.user_level is None else 0.7 * self.user_level + 0.3 * level
+        elif trigger == "follow_up" and self.user_level and level < self.user_level * config.FOLLOW_UP_MIN_LEVEL:
+            log.info("follow-up speech too quiet (%.4f vs your %.4f): someone else / background", level, self.user_level)
+            self.last_activity = time.monotonic()
+            self.follow_up_chain = 0
+            await self._set(State.IDLE)
+            return
         await self._set(State.THINKING)
         self.turn_task = asyncio.get_running_loop().create_task(self._turn(audio=audio))
 

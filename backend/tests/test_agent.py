@@ -65,10 +65,17 @@ def test_tool_call_runs_tool_and_stays_quiet():
 
 
 def test_follow_up_offers_ignore_and_respects_it():
-    a, said, tools = make_agent([("tool_calls", [{"id": "1", "name": "ignore", "arguments": {}, "raw": "{}"}])])
+    a, said, tools = make_agent([("text", "YES")], [("tool_calls", [{"id": "1", "name": "ignore", "arguments": {}, "raw": "{}"}])])
     out = run(a.handle("and then he said the index was wrong", {}, follow_up=True))
     assert out == "ignored" and said == [] and tools == []
-    assert "ignore" in a.llm.calls[0]["tools"]
+    assert "ignore" in a.llm.calls[1]["tools"]
+
+
+def test_follow_up_directed_check_no_drops_it_before_the_main_llm():
+    a, said, tools = make_agent([("text", "NO")])
+    out = run(a.handle("blue box, right?", {}, follow_up=True))
+    assert out == "ignored" and said == [] and tools == []
+    assert len(a.llm.calls) == 1   # only the yes/no check ran
 
 
 def test_ignore_not_offered_after_wake_word():

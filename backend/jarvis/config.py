@@ -62,6 +62,8 @@ END_SILENCE_MS = _env("JARVIS_END_SILENCE_MS", 550, int)
 MAX_UTTERANCE_MS = 15000
 MAX_FOLLOW_UP_UTTERANCE_MS = 8000   # longer = somebody else talking / a video playing
 MAX_FOLLOW_UP_CHAIN = 4             # after this many wake-word-free turns, the wake word is needed again
+# Follow-up speech quieter than this fraction of your usual voice level is treated as someone else in the room.
+FOLLOW_UP_MIN_LEVEL = _env("JARVIS_FOLLOW_UP_MIN_LEVEL", 0.5, float)
 NO_SPEECH_TIMEOUT_MS = 4000      # after wake word, give up if nothing is said
 FOLLOW_UP_MS = _env("JARVIS_FOLLOW_UP_MS", 5000, int)
 FOLLOW_UP_TAIL_MS = 250          # wait after playback drains before opening the hot mic

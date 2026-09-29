@@ -10,6 +10,7 @@ from http import HTTPStatus
 
 from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
+from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
 from jarvis import config
@@ -127,6 +128,8 @@ class UiLink:
                 handler = self.handlers.get(ev)
                 if handler:
                     asyncio.get_running_loop().create_task(handler(msg))
+        except ConnectionClosed:
+            pass  # PC sleep / window closed without a goodbye: normal, the body reconnects on its own
         finally:
             self.clients.discard(ws)
             if not self.clients:

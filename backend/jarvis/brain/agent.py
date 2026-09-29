@@ -32,6 +32,11 @@ FOLLOW_UP_RULE = """
 IMPORTANT: this message was picked up WITHOUT the wake word, right after you spoke. It may be background talk, a video,
 or someone speaking to another person. If it is not clearly a request or question for you, call `ignore` and nothing else."""
 
+DIRECTED_SYSTEM = """You judge whether speech picked up by a desktop voice assistant's microphone was meant for the assistant.
+YES: a request, command or question for the assistant, or a direct reply to what it just said (e.g. "and tomorrow?", "open it", "thanks").
+NO: people talking to each other, a lecture, a video or song playing, fragments, filler, or anything unrelated to the assistant.
+When unsure, answer NO. Reply with exactly one word: YES or NO."""
+
 ANSWER_SYSTEM = """You are Scar, a voice assistant. Using the tool results, answer the user's request in 1-3 short spoken
 sentences. No lists, markdown or emojis. Round numbers sensibly. If a tool says a service could not be reached,
 say that service didn't respond and suggest trying again; don't claim the whole PC is offline."""
@@ -109,8 +114,30 @@ class Agent:
         if follow_up and len(text.split()) > 30:
             log.info("ignoring long follow-up utterance (likely background talk)")
             return "ignored"
+        if follow_up and not await self._is_directed(text):
+            log.info("follow-up judged not addressed to Scar: %r", text)
+            return "ignored"
         timings["route"] = "llm"
         return await self._llm_turn(text, timings, follow_up)
+
+    async def _is_directed(self, text):
+        """Tiny yes/no LLM check for wake-word-free follow-ups: was this said *to* the assistant?
+        A dedicated question is far more reliable for a small model than offering an `ignore` tool."""
+        last = next((t["content"] for t in reversed(self.memory.turns) if t["role"] == "assistant"), "")
+        messages = [
+            {"role": "system", "content": DIRECTED_SYSTEM},
+            {"role": "user", "content": f'Assistant just said: "{last[:300]}"\nThen the microphone heard: "{text}"\n'
+                                        "Was that spoken TO the assistant? Answer YES or NO."},
+        ]
+        answer = ""
+        try:
+            async for kind, data in self.llm.stream(messages, max_tokens=3):
+                if kind == "text":
+                    answer += data
+        except Exception as e:  # noqa: BLE001 - if the check fails, don't drop a real request
+            log.warning("directed check failed: %s", e)
+            return True
+        return not answer.strip().upper().startswith("NO")
 
     # ------------------------------------------------------------------ speech
     async def _stream_speech(self, messages, timings, tools=None, max_tokens=400):
