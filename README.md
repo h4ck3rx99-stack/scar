@@ -56,6 +56,7 @@ Open a problem in your browser, then:
 | (after solving, automatically) | presses **Submit** straight away and tells you the verdict ("4 of 5 test cases passed"). It finds the button by its text, or asks the vision model to point at it when the text can't be read. "Turn off auto submit" makes it stop after typing (then say "submit", which asks first). "Turn on run check" adds a Run step before submitting: it compares the page's output with the sample and fixes the code once if needed (off by default, since every site's output panel looks different) |
 | Long problems | Scar scrolls the problem side to read all of it, then scrolls back to the top |
 | HTML / CSS / JS tabs | the solution is written as three parts and each is typed into its own tab |
+| "Solve this using nested loops" / "…with recursion" / "…using a while loop" / "solve this without using lists" | solves it that way. For Python, Scar also checks the code's structure (a loop really inside a loop, a function that calls itself…) and asks the model again if it didn't follow the request |
 | "Give me a hint" / "I'm stuck" | one hint, no full solution |
 | "Explain this problem" | what the input is, what to compute, what to print |
 | "Check my code" / "why is my code not working?" | explains the bug, then offers to put the fixed code in |

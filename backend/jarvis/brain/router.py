@@ -301,6 +301,21 @@ _PROBLEM = r"(?:this|the|that|my|it)? ?(?:problem|question|exercise|assignment|c
 _LANGS = r"python|javascript|js|java|sql|c\+\+|cpp|html|css|html and css"
 
 
+@rule(rf"^(?:solve|do|answer|complete|code|write (?:the |my )?(?:code|solution|program)(?: for)?)(?: {_PROBLEM})?(?: on (?:my |the )?screen)?"
+      r"(?:,? (?:using|with|by using|by|via|use|but use|and use) (?:a |an |the )?(?P<how>.+?)|,? without (?:using |any )?(?:a |an |the )?(?P<avoid>.+?))"
+      r"(?P<sub>(?:,? and| then)? submit(?: it| this)?)?$")
+def _code_solve_how(m):
+    """"solve this using nested loops", "solve it with recursion", "solve this without using lists"."""
+    how, avoid = m["how"], m["avoid"]
+    if how and re.fullmatch(_LANGS, how):
+        args = {"action": "solve", "language": {"js": "JavaScript", "cpp": "C++", "sql": "SQL", "c++": "C++"}.get(how, how.title())}
+    else:
+        args = {"action": "solve", **({"approach": how} if how else {}), **({"avoid": avoid} if avoid else {})}
+    if m["sub"]:
+        args["submit"] = True
+    return "code_assist", args
+
+
 @rule(rf"^(?:solve|do|answer|complete|finish|code|write (?:the |my )?(?:code|solution|program|answer)(?: for)?|type (?:the |my )?(?:code|solution|answer)(?: for)?)"
       rf"(?: {_PROBLEM})?(?: on (?:my |the |this )?screen)?(?: for me)?(?: now)?"
       rf"(?: and (?:type|write|put|paste) it(?: out| in| into the editor)?)?(?: in (?:the )?editor)?"

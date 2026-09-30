@@ -40,7 +40,9 @@ EXTRA_SCHEMA = [
                        "screen and solve it into the page's code editor, give a hint, explain the problem, or check/fix the "
                        "user's code. Use this instead of type_text for code on those pages.",
         {"action": {"type": "string", "enum": ["solve", "hint", "explain", "check"]}, "language": S,
-         "submit": {"type": "boolean", "description": "after solving, offer to submit (the user asked to submit)"}}, ["action"]),
+         "submit": {"type": "boolean", "description": "after solving, offer to submit (the user asked to submit)"},
+         "approach": {"type": "string", "description": "how the user wants it solved, e.g. 'nested loops', 'recursion', 'a while loop'"},
+         "avoid": {"type": "string", "description": "what the user said not to use, e.g. 'lists'"}}, ["action"]),
     _fn("code_run", "Press the page's Run button (or Submit, which asks first).",
         {"which": {"type": "string", "enum": ["run", "submit"]}}, ["which"]),
 ]
@@ -779,7 +781,7 @@ class CodeTools:
             await llm.aclose()
         return out.strip()
 
-    async def t_code_assist(self, action="solve", language=None, submit=False, from_router=False):
+    async def t_code_assist(self, action="solve", language=None, submit=False, approach=None, avoid=None, from_router=False):
         from jarvis.brain.tools import _EDITORS
         from jarvis.core import settings
         from jarvis.hands.windows import foreground_window
@@ -840,9 +842,14 @@ class CodeTools:
 
         # ---- solve
         task = CODE_TASKS["solve_web" if tabs else "solve_html" if lang == "HTML" else "solve"]
+        # "solve this using nested loops" / "without using lists": the user's required approach.
+        if approach:
+            task += f" REQUIRED APPROACH: the solution MUST use {approach} (the user asked for it; it's what the exercise practises)."
+        if avoid:
+            task += f" The solution must NOT use {avoid}."
         passed_samples = None
         if not tabs and lang.startswith("Python") and getattr(self, "_sample_pairs", None):
-            code, passed_samples = await self._solve_with_tests(lang, task, text, self._sample_pairs)
+            code, passed_samples = await self._solve_with_tests(lang, task, text, self._sample_pairs, approach=approach, avoid=avoid)
             parts = {"": code}
         else:
             out = await self._ask_llm(CODE_SYSTEM.format(language=lang, task=task), "Screen text:\n" + text[:9000], 1400)
@@ -851,7 +858,8 @@ class CodeTools:
                 palette = re.findall(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b", "\n".join(getattr(self, "_problem_lines", [])))
                 parts = {k: (snap_colors(v, palette) if k in ("CSS", "") else v) for k, v in parts.items()}
         n = sum(len(c.strip().splitlines()) for c in parts.values())
-        await self.speak(f"Typing {n} lines{' across ' + ', '.join(p for p in parts if p) if tabs else ''}. "
+        await self.speak(f"Typing {n} lines{' across ' + ', '.join(p for p in parts if p) if tabs else ''}"
+                         f"{', using ' + approach if approach else ''}{', without ' + avoid if avoid else ''}. "
                          "Hands off the keyboard for a moment.")
         await asyncio.sleep(0.6)
         for name, code in parts.items():
@@ -871,8 +879,9 @@ class CodeTools:
             return f"wrote {n} lines of {lang}"
         return await self._run_fix_submit(w, editor, parts, lang, text, tabs)
 
-    async def _solve_with_tests(self, lang, task, text, pairs, attempts=4):
-        """Write Python, run it on every sample on this PC, and feed exact differences back until it matches.
+    async def _solve_with_tests(self, lang, task, text, pairs, attempts=4, approach=None, avoid=None):
+        """Write Python, run it on every sample on this PC, and feed exact differences back until it matches (and, if
+        the user asked for an approach like nested loops, until the code really uses it).
         Returns (code, True) when a candidate reproduces all sample outputs, else (closest attempt, False)."""
         messages = [{"role": "system", "content": CODE_SYSTEM.format(language=lang, task=task)},
                     {"role": "user", "content": "Screen text:\n" + text[:9000]}]
@@ -892,11 +901,18 @@ class CodeTools:
                 diff = output_diff(sout, got) or "the output is different"
                 report.append(f"Sample {i} input:\n{sin}\nExpected output:\n{sout}\nYour code printed:\n{got}\n"
                               f"Differences:\n{diff}")
-            log.info("solve attempt %d: %d/%d samples pass", attempt + 1, score, len(pairs))
-            if score > best_score:
-                best, best_score = code, score
-            if score == len(pairs):
+            wrong_way = approach_problem(code, approach, avoid) if (approach or avoid) else ""
+            log.info("solve attempt %d: %d/%d samples pass%s", attempt + 1, score, len(pairs),
+                     f"; approach: {wrong_way}" if wrong_way else "")
+            if score + (0 if wrong_way else 0.5) > best_score:
+                best, best_score = code, score + (0 if wrong_way else 0.5)
+            if score == len(pairs) and not wrong_way:
                 return code, True
+            if score == len(pairs):
+                messages += [{"role": "assistant", "content": code},
+                             {"role": "user", "content": f"The output is right, but {wrong_way}. Rewrite it so it does, "
+                                                         "keeping the output exactly the same. Reply with the full code only."}]
+                continue
             messages += [{"role": "assistant", "content": code},
                          {"role": "user", "content": "I ran your code on the samples and it's wrong:\n\n" + "\n\n".join(report)
                           + "\n\nRe-read the problem, find the mistake and reply with the full corrected code only."}]
@@ -1131,6 +1147,69 @@ def structure_web_task(lines, urls):
         out += ["Image URLs (exact):", *urls]
     out += [r for r in parts["resources"] if r]
     return "\n".join(out)
+
+
+def _uses(code: str) -> dict:
+    """What a Python solution is built from (by its syntax tree, not by searching the text)."""
+    import ast
+    tree = ast.parse(code)
+    loops = (ast.For, ast.While, ast.AsyncFor)
+    found = {"for": False, "while": False, "nested": False, "recursion": False, "function": False,
+             "comprehension": False, "list": False, "dict": False, "set": False, "string_methods": False}
+
+    def walk(node, depth, func):
+        for child in ast.iter_child_nodes(node):
+            d = depth
+            if isinstance(child, loops):
+                found["for" if isinstance(child, (ast.For, ast.AsyncFor)) else "while"] = True
+                d = depth + 1
+                if d >= 2:
+                    found["nested"] = True
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                found["function"] = True
+                walk(child, 0, child.name)
+                continue
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id == func:
+                found["recursion"] = True
+            if isinstance(child, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                found["comprehension"] = True
+            if isinstance(child, (ast.List, ast.ListComp)) or (isinstance(child, ast.Call) and getattr(child.func, "id", "") == "list"):
+                found["list"] = True
+            if isinstance(child, (ast.Dict, ast.DictComp)) or (isinstance(child, ast.Call) and getattr(child.func, "id", "") == "dict"):
+                found["dict"] = True
+            if isinstance(child, (ast.Set, ast.SetComp)) or (isinstance(child, ast.Call) and getattr(child.func, "id", "") == "set"):
+                found["set"] = True
+            walk(child, d, func)
+    walk(tree, 0, None)
+    return found
+
+
+_APPROACHES = [(r"nested\s+(?:for\s+)?loops?|loop\s+inside\s+(?:a\s+)?loop|two\s+loops", "nested", "nested loops (a loop inside a loop)"),
+               (r"while", "while", "a while loop"), (r"for\s+loops?|\bfor\b", "for", "a for loop"),
+               (r"recursi", "recursion", "recursion (a function that calls itself)"),
+               (r"functions?|def\b", "function", "a function (def)"),
+               (r"(?:list\s+)?comprehensions?", "comprehension", "a list comprehension"),
+               (r"dict(?:ionar(?:y|ies))?", "dict", "a dictionary"), (r"\bsets?\b", "set", "a set"),
+               (r"lists?|arrays?", "list", "a list")]
+
+
+def approach_problem(code: str, approach=None, avoid=None) -> str:
+    """'' if the Python code follows the requested approach, else what's wrong (fed back to the model)."""
+    try:
+        used = _uses(code)
+    except SyntaxError as e:
+        return f"the code has a syntax error: {e}"
+    for want, bad in ((approach, False), (avoid, True)):
+        if not want:
+            continue
+        for pat, key, label in _APPROACHES:
+            if re.search(pat, want, re.I):
+                if bad and used[key]:
+                    return f"you were asked NOT to use {label}, but the code uses it"
+                if not bad and not used[key]:
+                    return f"you were asked to use {label}, but the code doesn't"
+                break
+    return ""
 
 
 def snap_colors(css: str, palette) -> str:

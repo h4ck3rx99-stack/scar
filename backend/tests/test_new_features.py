@@ -219,3 +219,42 @@ def test_css_colors_snap_to_the_task_palette():
     out = snap_colors(css, ["#e8f0fe", "#6b7280", "#ffffff"])
     assert "#e8f0fe" in out and "#6b7280" in out and "#e5e7eb" not in out and "#ffffff" in out
     assert snap_colors(css, ["#e8f0fe"]) == css            # a single listed colour isn't a full palette: leave it
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("solve this using nested loops", ("code_assist", {"action": "solve", "approach": "nested loops"})),
+    ("solve it with recursion", ("code_assist", {"action": "solve", "approach": "recursion"})),
+    ("solve this without using lists", ("code_assist", {"action": "solve", "avoid": "lists"})),
+    ("solve this using a while loop and submit", ("code_assist", {"action": "solve", "approach": "while loop", "submit": True})),
+    ("solve this using python", ("code_assist", {"action": "solve", "language": "Python"})),
+])
+def test_solve_with_an_approach_routes(text, expected):
+    assert route(text) == expected
+
+
+def test_approach_checker():
+    from jarvis.brain.tools_extra import approach_problem
+    nested = "n=int(input())\nfor i in range(n):\n    for j in range(i+1):\n        print(j, end=' ')\n    print()"
+    flat = "n=int(input())\nfor i in range(n):\n    print(' '.join(str(j) for j in range(i+1)))"
+    assert approach_problem(nested, "nested loops") == ""
+    assert "nested loops" in approach_problem(flat, "nested loops")
+    assert approach_problem("def f(n):\n    return 1 if n < 2 else n * f(n - 1)\nprint(f(3))", "recursion") == ""
+    assert "NOT" in approach_problem(nested, avoid="nested loops")
+
+
+def test_solve_loop_insists_on_the_requested_approach(monkeypatch):
+    """Right output but no nested loop: Scar must ask again and use the nested-loop version."""
+    import asyncio
+    from jarvis.brain import tools_extra
+    answers = ["n=int(input())\nfor i in range(1, n+1):\n    print(' '.join(str(j) for j in range(1, i+1)))",
+               "n=int(input())\nfor i in range(1, n+1):\n    row = []\n    for j in range(1, i+1):\n        row.append(str(j))\n    print(' '.join(row))"]
+    seen = []
+
+    async def fake_llm(self, messages, max_tokens):
+        seen.append(messages[-1]["content"])
+        return answers[len(seen) - 1]
+    monkeypatch.setattr(tools_extra.CodeTools, "_ask_llm_messages", fake_llm)
+    code, ok = asyncio.run(tools_extra.CodeTools()._solve_with_tests(
+        "Python 3", "solve", "problem", [("3", "1\n1 2\n1 2 3")], approach="nested loops"))
+    assert ok is True and "for j in range" in code
+    assert "nested loops" in seen[1]
