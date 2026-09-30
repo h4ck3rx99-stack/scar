@@ -74,3 +74,26 @@ def test_settings_recap_hour(monkeypatch):
     assert settings.parse_value("recap_hour", "9 pm") == (21, None)
     assert settings.parse_value("recap_hour", "8") == (20, None)
     assert settings.describe("recap_hour", 21) == "recap time is 9 PM"
+
+
+def test_every_key_scar_presses_exists():
+    """press() once crashed on "ctrl"+"a" (the letter wasn't in the key table): every key used anywhere must resolve."""
+    import re
+    from pathlib import Path
+    from jarvis.hands import actions as A
+    src = "\n".join(p.read_text(encoding="utf-8") for p in Path(A.__file__).parents[1].rglob("*.py"))
+    for call in re.findall(r"\bpress\(([^)]*)\)", src):
+        for key in re.findall(r'"([^"]+)"', call):
+            assert A.vk(key) > 0, key
+
+
+@pytest.mark.parametrize("text,problem", [
+    ("First Negative Number\nWrite a program that reads N...\nInput\nThe first line of input is an integer N.\n"
+     "Sample Input 1\n4\n3\nSample Output 1\n-5\nPYTHON Reset Run Submit", True),
+    ("YOUR CONNECTION IS NOT PRIVATE Attackers might be trying to steal your information (for example, passwords). "
+     "CERT AUTHORITY INVALID Back to safety", False),
+    ("Claude Code conversation: I added a sample of the output to the README", False),
+])
+def test_only_real_problems_are_solved(text, problem):
+    from jarvis.brain.tools_extra import looks_like_problem
+    assert looks_like_problem(text) is problem

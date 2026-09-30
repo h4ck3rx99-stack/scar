@@ -49,11 +49,24 @@ def all_work_areas():
     return sorted(areas, key=lambda r: (r.left, r.top))
 
 
+def vk(key: str) -> int:
+    """Virtual-key code for a named key or any single letter / digit ("a", "7"), F1-F12."""
+    if key in VK:
+        return VK[key]
+    if len(key) == 1 and key.isalnum():
+        return ord(key.upper())                     # VK codes for A-Z / 0-9 are their ASCII codes
+    m = re.fullmatch(r"f(\d{1,2})", key)
+    if m and 1 <= int(m.group(1)) <= 12:
+        return 0x6F + int(m.group(1))
+    raise KeyError(key)
+
+
 def press(*keys):
-    for k in keys:
-        user32.keybd_event(VK[k], 0, 0, 0)
-    for k in reversed(keys):
-        user32.keybd_event(VK[k], 0, KEYEVENTF_KEYUP, 0)
+    codes = [vk(k) for k in keys]                   # resolve all first: never leave a modifier held down
+    for c in codes:
+        user32.keybd_event(c, 0, 0, 0)
+    for c in reversed(codes):
+        user32.keybd_event(c, 0, KEYEVENTF_KEYUP, 0)
 
 
 def focus(w: Window):

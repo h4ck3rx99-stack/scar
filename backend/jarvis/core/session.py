@@ -432,6 +432,9 @@ class Session:
             return                      # "thanks", "yes", "stop" said to someone else
         if not hits and len(words) < 3:
             return                      # "show me", "go ahead": too vague without the name
+        from jarvis.brain.agent import looks_like_request
+        if not hits and not looks_like_request(text):
+            return                      # "I'm not sure if I get to the end of the day": thinking aloud, not a request
         loop = asyncio.get_running_loop()
         if self.user_level:
             blocks = audio[: len(audio) // config.BLOCK * config.BLOCK].reshape(-1, config.BLOCK)

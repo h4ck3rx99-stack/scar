@@ -353,6 +353,17 @@ CODE_TASKS = {
 }
 
 
+_PROBLEM_SIGNS = [r"sample\s+input", r"sample\s+output", r"expected\s+output", r"\binput\s+format\b", r"\boutput\s+format\b",
+                  r"\bconstraints?\b", r"\btest\s*cases?\b", r"\bexplanation\b", r"write\s+a\s+(?:program|function|query|code)",
+                  r"\bthe\s+(?:first|second|next)\s+line\s+(?:of\s+input\s+)?(?:contains|is)", r"\breturn\s+the\b",
+                  r"\b(?:submit|run)\b.{0,40}\b(?:submit|run|reset)\b", r"\bcoding\s+practice\b", r"\bexample\s*\d\b"]
+
+
+def looks_like_problem(text: str) -> bool:
+    """A real coding problem shows at least two of these signs (a privacy-error page saying "for example" is not one)."""
+    return sum(1 for p in _PROBLEM_SIGNS if re.search(p, text, re.I | re.S)) >= 2
+
+
 def _strip_fences(code: str) -> str:
     code = code.strip()
     m = re.search(r"```[\w+#-]*\n(.*?)```", code, re.S)
@@ -396,7 +407,7 @@ class CodeTools:
             await self.speak("Switch to the browser or editor with the problem, then ask me again.")
             return f"foreground is {w.exe}, not a browser or editor"
         text = await self._page_text(w)
-        if not re.search(r"\b(?:input|output|sample|example|constraints?|write a (?:program|function|query)|given|return|print)\b", text, re.I):
+        if not looks_like_problem(text):
             await self.speak("I can't see a coding problem on the screen. Open it and scroll so the question is visible.")
             return "no problem on screen"
         if len(text.strip()) < 40:
@@ -440,9 +451,12 @@ class CodeTools:
         """Click into the page's code editor, replace what's there, paste the code (pasting keeps indentation)."""
         from jarvis.hands import actions as A
         from jarvis.skills import screen
-        hit = await self.vision_locate("the code editor area where the code is typed (not the problem text)", w)
-        if not hit:
-            await self.speak("I can't find the code editor on this page.")
+        hit = await self.vision_locate("the code editor panel (the area with line numbers where code is typed, not the "
+                                       "problem statement)", w)
+        f = w.frame
+        if not hit or hit[2] * hit[3] > 0.8 * f.width * f.height or hit[2] < 120 or hit[3] < 80:
+            # No box, or "the whole window": there is no editor to type into, so don't click or paste anything.
+            await self.speak("I can't find a code editor on this page, so I didn't type anything.")
             return False
         x, y, bw, bh = hit
         await self.ui.fly_to(x, y, purpose="click", button={"x": x - bw // 2, "y": y - bh // 2, "width": bw, "height": bh})
