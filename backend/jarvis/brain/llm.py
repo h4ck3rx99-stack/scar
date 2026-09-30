@@ -32,7 +32,8 @@ class Endpoint:
 class LLM:
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(30, connect=3))
-        self.local = Endpoint("local", config.LLM_URL, config.LLM_MODEL, local=True)
+        self.local = Endpoint("local", config.LLM_URL, config.LLM_MODEL,
+                              key=config.llm_key() if config.MANAGE_LLAMA_SERVER else None, local=True)
         self.cloud = None
         if config.CLOUD_LLM_URL and config.CLOUD_LLM_KEY and config.CLOUD_LLM_MODEL:
             self.cloud = Endpoint("cloud", config.CLOUD_LLM_URL, config.CLOUD_LLM_MODEL, key=config.CLOUD_LLM_KEY)
@@ -119,14 +120,15 @@ class LLM:
         mark = "\u0001NEXT"
         body = {"messages": [*messages, {"role": "user", "content": mark}], "tools": tools,
                 "chat_template_kwargs": {"enable_thinking": False}}
-        r = await self.client.post(f"{base}/apply-template", json=body)
+        r = await self.client.post(f"{base}/apply-template", json=body, headers=self.local.headers())
         prompt = r.json().get("prompt", "")
         cut = prompt.find(mark)
         if cut <= 0:
             return
         async with _slot_lock(0):
             await self.client.post(f"{base}/completion", json={"prompt": prompt[:cut], "n_predict": 1, "id_slot": 0,
-                                                              "cache_prompt": True, "temperature": 0})
+                                                              "cache_prompt": True, "temperature": 0},
+                                   headers=self.local.headers())
 
     async def health(self):
         try:

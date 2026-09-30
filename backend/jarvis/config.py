@@ -95,6 +95,23 @@ LLM_GGUF = _env("JARVIS_LLM_GGUF", str(MODELS_DIR / "llm" / "Qwen3.5-4B-Q4_K_M.g
 LLM_MMPROJ = _env("JARVIS_LLM_MMPROJ", str(MODELS_DIR / "llm" / "Qwen3.5-4B-mmproj-F16.gguf"))  # vision encoder
 LLM_PORT = _env("JARVIS_LLM_PORT", 8080, int)
 LLM_URL = f"http://127.0.0.1:{LLM_PORT}/v1"
+
+
+def llm_key() -> str:
+    """Key for the local llama-server. Without one, any web page open in a browser on this PC could call it
+    (it allows all origins). Kept in %APPDATA%\\jarvis\\llm_key so every Scar process uses the same one."""
+    path = APPDATA_DIR / "llm_key"
+    try:
+        key = path.read_text(encoding="utf-8").strip()
+        if key:
+            return key
+    except OSError:
+        pass
+    import secrets
+    key = secrets.token_urlsafe(24)
+    APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(key, encoding="utf-8")
+    return key
 LLM_MODEL = "local"
 MANAGE_LLAMA_SERVER = _bool(_env("JARVIS_MANAGE_LLAMA_SERVER", "true"))
 

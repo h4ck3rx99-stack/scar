@@ -51,7 +51,9 @@ Open a problem in your browser, then:
 | Say | What happens |
 |---|---|
 | "Solve this problem" / "solve" / "write the code" / "write the code only HTML" / "solve this question in Python" | reads the problem off the screen, writes a solution in the page's language (Python, HTML, JavaScript, SQL…) with the exact input/output format, and **types** it into the page's code editor, replacing the starter code. learning.ccbp.in blocks paste, so Scar types line by line and undoes the editor's auto-indent, auto-closed brackets / tags and autocomplete as it goes. Keep your hands off the keyboard for those few seconds |
-| "Solve and submit this" | solves, then asks "Submit it now?" |
+| (after solving, automatically) | presses **Run**, compares the output with the problem's Sample Output, fixes the code once if it errors or doesn't match, then presses **Submit** and tells you the verdict. If hidden test cases fail, it fixes once more and resubmits. It never submits code that visibly fails the sample. Turn this off with "turn off auto submit" (then say "submit" yourself, which asks first) |
+| Long problems | Scar scrolls the problem side to read all of it, then scrolls back to the top |
+| HTML / CSS / JS tabs | the solution is written as three parts and each is typed into its own tab |
 | "Give me a hint" / "I'm stuck" | one hint, no full solution |
 | "Explain this problem" | what the input is, what to compute, what to print |
 | "Check my code" / "why is my code not working?" | explains the bug, then offers to put the fixed code in |

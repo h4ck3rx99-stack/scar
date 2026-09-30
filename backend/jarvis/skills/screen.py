@@ -35,6 +35,28 @@ async def _recognize(img):
     return await engine.recognize_async(bmp), w0 / img.width
 
 
+async def ocr_words(img):
+    """[(word, (left, top, right, bottom)), ...] in the image's own pixel coordinates, reading order."""
+    result, k = await _recognize(img)
+    out = []
+    for line in result.lines:
+        for wd in line.words:
+            r = wd.bounding_rect
+            out.append((wd.text, (int(r.x * k), int(r.y * k), int((r.x + r.width) * k), int((r.y + r.height) * k))))
+    return out
+
+
+def scroll_at(x, y, notches):
+    """Mouse-wheel over a point (negative = down) without clicking; the pointer goes back afterwards."""
+    old = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(old))
+    user32.SetCursorPos(int(x), int(y))
+    time.sleep(0.03)
+    user32.mouse_event(0x0800, 0, 0, int(notches * 120), 0)
+    time.sleep(0.03)
+    user32.SetCursorPos(old.x, old.y)
+
+
 async def ocr_image(img) -> str:
     result, _ = await _recognize(img)
     return "\n".join(line.text for line in result.lines)

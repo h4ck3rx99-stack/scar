@@ -1,5 +1,31 @@
-"""Clipboard history, macros storage, WhatsApp / recap / pointing routes, typing targets."""
+"""Clipboard history, macros storage, WhatsApp / recap / pointing routes, typing targets, coding-practice helpers."""
 import pytest
+
+
+def test_sample_io_and_output_matching():
+    from jarvis.brain.tools_extra import output_matches, sample_io
+    problem = ("Output\nprint Top\nSample Input 1\n3\nRavi 92\nAsha 67\nJohn 40\nSample Output 1\nRavi: A\nAsha: C\n"
+               "John: F\nTop: Ravi\nConstraints\n1 <= N")
+    sin, sout = sample_io(problem)
+    assert sin == "3\nRavi 92\nAsha 67\nJohn 40" and sout == "Ravi: A\nAsha: C\nJohn: F\nTop: Ravi"
+    assert output_matches(sout, "Output\nRavi: A\nAsha: C\nJohn: F\nTop: Ravi") == "exact"
+    assert output_matches(sout, "Ravi: A\nAsha: C\nJohn: F\nTop : Ravi") == "loose"      # the bug that failed 0/4
+    assert output_matches(sout, "Traceback (most recent call last)") == ""
+
+
+@pytest.mark.parametrize("verdict,failed", [("3/5 test cases passed", True), ("5/5 test cases passed", False),
+                                            ("All test cases passed", False), ("Test case 2 failed", True),
+                                            ("Wrong Answer", True)])
+def test_submit_verdicts(verdict, failed):
+    from jarvis.brain.tools_extra import submit_failed
+    assert submit_failed(verdict) is failed
+
+
+def test_web_solution_is_split_into_tabs():
+    from jarvis.brain.tools_extra import split_web_parts
+    parts = split_web_parts("=== HTML ===\n<div class=\"card\">\n  <h1>Hi</h1>\n</div>\n=== CSS ===\n.card { color: red; }\n=== JS ===\n")
+    assert parts["HTML"] == '<div class="card">\n  <h1>Hi</h1>\n</div>\n'
+    assert parts["CSS"] == ".card { color: red; }\n" and not parts["JS"].strip()
 
 from jarvis.brain.router import route
 from jarvis.skills import cliphistory, macros
@@ -97,3 +123,26 @@ def test_every_key_scar_presses_exists():
 def test_only_real_problems_are_solved(text, problem):
     from jarvis.brain.tools_extra import looks_like_problem
     assert looks_like_problem(text) is problem
+
+
+def test_submit_button_is_not_a_word_in_a_sentence(monkeypatch):
+    """The web mock had "Submit to check your page." under the editor; Scar clicked that text instead of the button."""
+    import asyncio
+    from types import SimpleNamespace
+    from jarvis.brain import tools_extra
+    from jarvis.skills import screen
+    words = [("Submit", (900, 980, 960, 1000)), ("to", (966, 980, 980, 1000)), ("check", (986, 980, 1030, 1000)),
+             ("HTML", (820, 90, 870, 110)), ("CSS", (890, 90, 930, 110)), ("JS", (950, 90, 970, 110)),
+             ("Submit", (1830, 90, 1900, 110))]
+
+    async def fake_words(img):
+        return words
+
+    async def fake_shot(self, w):
+        return None
+    monkeypatch.setattr(screen, "ocr_words", fake_words)
+    monkeypatch.setattr(tools_extra.CodeTools, "_shot", fake_shot)
+    w = SimpleNamespace(frame=SimpleNamespace(left=0, top=0))
+    assert asyncio.run(tools_extra.CodeTools()._find_button(w, "Submit")) == (1865, 100)
+    words[:] = words[:3]                        # only the sentence is left: no button
+    assert asyncio.run(tools_extra.CodeTools()._find_button(w, "Submit")) is None

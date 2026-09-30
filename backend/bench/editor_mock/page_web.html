@@ -1,0 +1,70 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Coding Practice - Scar test</title>
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; display: flex; height: 100vh; background: #f2f4f8; }
+  #problem { width: 42%; padding: 24px 32px; overflow-y: auto; font-size: 18px; line-height: 1.7; color: #222; }
+  #right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #tabs { height: 46px; display: flex; align-items: flex-end; gap: 4px; padding: 0 12px; background: #1e1e1e; }
+  #tabs button { padding: 9px 22px; border: 0; background: #2d2d2d; color: #bbb; font-size: 16px; font-weight: bold; cursor: pointer; }
+  #tabs button.on { background: #3c3c3c; color: #fff; }
+  #tabs .sp { flex: 1; }
+  #tabs .act { margin-bottom: 6px; background: #e6ebf5; color: #222; font-weight: normal; border-radius: 6px; }
+  #tabs .sub { background: #2066e6; color: #fff; }
+  #editor { flex: 1; min-height: 0; }
+  #out { height: 90px; background: #111; color: #ddd; font: 15px Consolas, monospace; padding: 10px; }
+  .gap { height: 240px; color: #999; }
+</style></head>
+<body>
+<div id="problem">
+  <h2>Profile Card</h2>
+  <p>Build a profile card using HTML and CSS.</p>
+  <div class="gap">Scroll down for the requirements and the styles.</div>
+  <h3>Requirements</h3>
+  <p>Use a <b>div</b> element with the class name <b>card</b>. Inside it, add an <b>h1</b> element with the text
+  <b>Asha Rao</b>, a <b>p</b> element with the class name <b>role</b> and the text <b>Frontend Developer</b>, and a
+  <b>button</b> element with the text <b>Follow</b>.</p>
+  <div class="gap"></div>
+  <h3>Styles</h3>
+  <p>The card should have the background color <b>#e8f0fe</b>. The role should have the color <b>#6b7280</b>.</p>
+  <h3>Test Cases</h3>
+  <p>The page should have a div with the class card. The h1 should have the text Asha Rao. The card background and the
+  role color should match the given values.</p>
+</div>
+<div id="right">
+  <div id="tabs"><button data-t="html" class="on">HTML</button><button data-t="css">CSS</button><button data-t="js">JS</button>
+    <span class="sp"></span><button class="act sub" id="submit">Submit</button></div>
+  <div id="editor"></div>
+  <div id="out">Submit to check your page.</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/loader.js"></script>
+<script>
+  const post = (path, body) => fetch(path, { method: 'POST', body: JSON.stringify(body) }).then((r) => r.json());
+  require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' } });
+  require(['vs/editor/editor.main'], function () {
+    const models = {
+      html: monaco.editor.createModel('<!-- Write your HTML here -->\n', 'html'),
+      css: monaco.editor.createModel('/* Write your CSS here */\n', 'css'),
+      js: monaco.editor.createModel('// Write your JS here\n', 'javascript'),
+    };
+    const ed = monaco.editor.create(document.getElementById('editor'), {
+      model: models.html, theme: 'vs-dark', fontSize: 16, automaticLayout: true,
+      autoClosingBrackets: 'always', autoClosingQuotes: 'always', autoIndent: 'full', formatOnType: true,
+    });
+    ed.onDidPaste(() => ed.trigger('block', 'undo'));
+    document.addEventListener('paste', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
+    for (const [tab, m] of Object.entries(models)) {
+      let t = null;
+      m.onDidChangeContent(() => { clearTimeout(t); t = setTimeout(() => post('/save', { tab, code: m.getValue() }), 300); });
+    }
+    document.querySelectorAll('#tabs button[data-t]').forEach((b) => b.onclick = () => {
+      document.querySelectorAll('#tabs button[data-t]').forEach((x) => x.classList.toggle('on', x === b));
+      ed.setModel(models[b.dataset.t]); ed.focus();
+    });
+    const out = document.getElementById('out');
+    document.getElementById('submit').onclick = async () => {
+      out.textContent = 'Submitting...';
+      out.textContent = (await post('/submit', { web: true, html: models.html.getValue(), css: models.css.getValue() })).verdict;
+    };
+  });
+</script>
+</body></html>

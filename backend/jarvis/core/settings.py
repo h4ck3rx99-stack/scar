@@ -36,6 +36,8 @@ SPEC = {
                     "names": ["personality", "tone", "style", "mood", "answer style", "attitude"]},
     "city": {"kind": "text", "default": "", "side": "backend", "label": "home city",
              "names": ["city", "home city", "location", "weather city", "my city"]},
+    "code_auto_submit": {"kind": "bool", "default": True, "side": "backend", "label": "auto-submit coding solutions",
+                         "names": ["auto submit", "auto-submit", "auto submit code", "submit automatically", "automatic submit"]},
     "clipboard_history": {"kind": "bool", "default": True, "side": "backend", "label": "clipboard history",
                           "names": ["clipboard history", "copy history", "clipboard memory"]},
     "evening_recap": {"kind": "bool", "default": True, "side": "backend", "label": "evening recap offer",

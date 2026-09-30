@@ -2,23 +2,30 @@
 <html><head><meta charset="utf-8"><title>Coding Practice - Scar test</title>
 <style>
   body { margin: 0; font-family: Arial, sans-serif; display: flex; height: 100vh; background: #f2f4f8; }
-  #problem { width: 45%; padding: 24px 32px; overflow: auto; font-size: 17px; line-height: 1.5; color: #222; }
-  #right { flex: 1; display: flex; flex-direction: column; }
-  #bar { height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: #fff; }
+  #problem { width: 45%; padding: 24px 32px; overflow-y: auto; font-size: 18px; line-height: 1.7; color: #222; }
+  #right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #bar { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: #fff; }
   #bar span { flex: 1; font-weight: bold; }
-  #bar button { padding: 8px 18px; border: 0; border-radius: 6px; background: #e6ebf5; }
-  #editor { flex: 1; }
+  #bar button { padding: 8px 18px; border: 0; border-radius: 6px; background: #e6ebf5; font-size: 15px; cursor: pointer; }
+  #editor { flex: 1; min-height: 0; }
+  #out { height: 150px; background: #111; color: #ddd; font: 15px Consolas, monospace; padding: 10px; white-space: pre-wrap; overflow: auto; }
   pre { background: #fff; padding: 8px; }
+  .gap { height: 260px; color: #999; }
 </style></head>
 <body>
 <div id="problem">
   <h2>Grade Report</h2>
-  <p>Write a program that reads N, followed by N lines each containing a student name and a mark separated by a space.
-  For each student print the name followed by a colon and the grade: <b>A</b> if mark &gt;= 90, <b>B</b> if mark &gt;= 75,
-  <b>C</b> if mark &gt;= 50, otherwise <b>F</b>. Finally print <b>Top: </b> followed by the name of the student with the
-  highest mark (the first one if tied).</p>
-  <h3>Input</h3><p>The first line of input is an integer N. The next N lines contain a name and a mark.</p>
-  <h3>Output</h3><p>N lines of the form name: grade, then the Top line.</p>
+  <p>A teacher wants a quick grade report for a class. Write a program that reads the marks of the students and
+  prints each student's grade, followed by the top student.</p>
+  <div class="gap">Read the whole problem carefully. The grading rules and the tie rule are described further below.</div>
+  <h3>Input</h3><p>The first line of input is an integer N. The next N lines each contain a student name and a mark,
+  separated by a space.</p>
+  <div class="gap">(scroll down for the output rules)</div>
+  <h3>Output</h3><p>For each student, in input order, print the name, a colon, a space and the grade.</p>
+  <p>Grades: <b>A</b> if the mark is at least 90, <b>B</b> if at least 75, <b>C</b> if at least 50, otherwise <b>F</b>.</p>
+  <p>After that print <b>Top: </b> followed by the name of the student with the highest mark.
+  <b>If several students share the highest mark, print the one who appears first in the input.</b></p>
+  <div class="gap"></div>
   <h3>Sample Input 1</h3><pre>3
 Ravi 92
 Asha 67
@@ -27,29 +34,30 @@ John 40</pre>
 Asha: C
 John: F
 Top: Ravi</pre>
-  <h3>Constraints</h3><p>1 &lt;= N &lt;= 100</p>
+  <h3>Constraints</h3><p>1 &lt;= N &lt;= 100. Marks are integers from 0 to 100.</p>
 </div>
 <div id="right">
-  <div id="bar"><span>__LANG__</span><button>Reset</button><button>Run</button><button style="background:#2066e6;color:#fff">Submit</button></div>
+  <div id="bar"><span>PYTHON</span><button id="reset">Reset</button><button id="run">Run</button>
+    <button id="submit" style="background:#2066e6;color:#fff">Submit</button></div>
   <div id="editor"></div>
+  <div id="out">Output will appear here.</div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/loader.js"></script>
 <script>
+  const post = (path, body) => fetch(path, { method: 'POST', body: JSON.stringify(body) }).then((r) => r.json());
   require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' } });
   require(['vs/editor/editor.main'], function () {
-    const starter = '__LANG__' === 'html' ? '<!DOCTYPE html>\n<html>\n  <head></head>\n  <body>\n  </body>\n</html>' : '# Write your code here\n';
     const ed = monaco.editor.create(document.getElementById('editor'), {
-      value: starter, language: '__LANG__', theme: 'vs-dark', fontSize: 16, automaticLayout: true,
+      value: '# Write your code here\n', language: 'python', theme: 'vs-dark', fontSize: 16, automaticLayout: true,
       autoClosingBrackets: 'always', autoClosingQuotes: 'always', autoIndent: 'full', formatOnType: true,
     });
-    // Like learning.ccbp.in: paste is blocked.
-    ed.onDidPaste(() => { ed.trigger('block', 'undo'); });
+    ed.onDidPaste(() => ed.trigger('block', 'undo'));               // paste is blocked, like learning.ccbp.in
     document.addEventListener('paste', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
     let t = null;
-    ed.onDidChangeModelContent(() => {
-      clearTimeout(t);
-      t = setTimeout(() => fetch('/' + '__LANG__', { method: 'POST', body: ed.getValue() }), 300);
-    });
+    ed.onDidChangeModelContent(() => { clearTimeout(t); t = setTimeout(() => post('/save', { tab: 'python', code: ed.getValue() }), 300); });
+    const out = document.getElementById('out');
+    document.getElementById('run').onclick = async () => { out.textContent = 'Running...'; out.textContent = (await post('/run', { code: ed.getValue() })).output || '(no output)'; };
+    document.getElementById('submit').onclick = async () => { out.textContent = 'Submitting...'; out.textContent = (await post('/submit', { code: ed.getValue() })).verdict; };
   });
 </script>
 </body></html>

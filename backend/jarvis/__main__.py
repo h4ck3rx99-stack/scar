@@ -41,7 +41,8 @@ async def ensure_llama_server(llm):
         return None
     cmd = [config.LLAMA_SERVER, "-m", config.LLM_GGUF, "-ngl", "99", "-c", "16384", "--port", str(config.LLM_PORT),
            "--host", "127.0.0.1", "--jinja", "-fa", "on", "--no-webui", "-np", "2", "--kv-unified",
-           "--checkpoint-min-step", "256"]   # Qwen3.5 is hybrid: resume points every 256 tokens keep the prompt cache useful
+           "--checkpoint-min-step", "256",   # Qwen3.5 is hybrid: resume points every 256 tokens keep the prompt cache useful
+           "--api-key", config.llm_key()]    # the server allows all origins: without a key any web page could use it
     if Path(config.LLM_MMPROJ).is_file():
         cmd += ["--mmproj", config.LLM_MMPROJ]  # lets the model see screenshots
     log.info("starting llama-server: %s", " ".join(cmd))
