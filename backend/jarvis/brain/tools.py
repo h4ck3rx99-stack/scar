@@ -276,6 +276,8 @@ class Tools(MoreTools, ExtraTools, CodeTools):
                 C.reveal(w.hwnd)
             await self.ui.send("proxy_end", window_id=hex(w.hwnd),
                                final_bounds=(w.frame.as_dict() if w.alive else bounds))
+            # The snapshot only exists for the animation: delete it (nothing Scar sees on screen is kept on disk).
+            loop.call_later(3.0, lambda: (config.CAPTURE_DIR / name).unlink(missing_ok=True))
 
     async def _cloth_move(self, w: Window, target):
         """Animate the window as a rubbery card from its current frame to `target`, then place the real window."""

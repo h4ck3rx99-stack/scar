@@ -134,6 +134,15 @@ JARVIS_CLOUD_LLM_MODEL=
 
 Data lives in `%APPDATA%\jarvis` (notes, to-dos, reminders, remembered facts). Screenshots go to `Pictures\Jarvis`.
 
+## Disk space
+
+- Screenshots Scar takes to solve problems or answer "what's on my screen" live only in memory and are never saved.
+- Window snapshots for the rubbery drag animation are deleted a few seconds after the animation.
+- Saved only when you ask: "take a screenshot" (Pictures\Jarvis), notes, macros.
+- Capped: `backend\logs\jarvis.log` rotates at 2 MB (one old copy kept); `latency.csv` keeps the last 2000 turns.
+- The file index (`%APPDATA%\jarvis\files.db`, for "search my files") skips installed libraries, SDKs, build folders
+  and header files, and keeps up to ~70 KB of text per file: about 2 MB instead of 107 MB.
+
 ## Under the hood
 
 - `frontend/` — Electron overlay + Three.js robot (`src/main.js`, `assistantController.js`, `scarFace.js`, `clothProxy.js`)

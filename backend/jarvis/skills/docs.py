@@ -19,11 +19,21 @@ from jarvis.skills.files import SKIP_DIRS, folder
 
 log = logging.getLogger("docs")
 
-TEXT_EXT = {".txt", ".md", ".csv", ".json", ".py", ".js", ".ts", ".java", ".c", ".cpp", ".h", ".html", ".css", ".sql", ".ipynb", ".tex", ".log"}
+# (no .h / .hpp: header files are almost always from installed libraries, and were 90% of a 107 MB index)
+TEXT_EXT = {".txt", ".md", ".csv", ".json", ".py", ".js", ".ts", ".java", ".c", ".cpp", ".html", ".css", ".sql", ".ipynb", ".tex"}
 DOC_EXT = {".pdf", ".docx", ".pptx"}
 MAX_BYTES = 40 * 1024 * 1024
 MAX_FILES = 6000
 CHUNK = 1200
+MAX_CHUNKS = 60          # ~70 KB of text per file is plenty to find it; whole books aren't needed
+# Third-party trees (installed compilers, SDKs, library folders, build output) are not the user's documents.
+THIRD_PARTY_DIRS = {"include", "libraries", "library", "lib", "libs", "vendor", "third_party", "thirdparty", "packages",
+                    "sdk", "build", "dist", "out", "bin", "obj", "target", "deps", "external", "extern", ".cache"}
+_VERSIONED = re.compile(r"[-_ ]v?\d+(?:\.\d+)+(?:[-_.].*)?$", re.I)       # mingw-w64-v11.0.0, python-3.11.4
+
+
+def skip_dir(name: str) -> bool:
+    return name.lower() in THIRD_PARTY_DIRS or bool(_VERSIONED.search(name))
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, mtime REAL, name TEXT);
@@ -89,6 +99,7 @@ class FileIndex:
         self.db.commit()
         self.indexed = 0
         self.busy = False
+        self._vacuumed = False
 
     def roots(self):
         return [p for p in (folder(n) for n in ("documents", "downloads", "desktop")) if p]
@@ -103,7 +114,7 @@ class FileIndex:
             seen, n_new = set(), 0
             for root in self.roots():
                 for dirpath, dirnames, filenames in os.walk(root):
-                    dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+                    dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".") and not skip_dir(d)]
                     for f in filenames:
                         p = Path(dirpath) / f
                         ext = p.suffix.lower()
@@ -123,19 +134,30 @@ class FileIndex:
                         with self._lock:
                             self.db.execute("DELETE FROM chunks WHERE path=?", (key,))
                             self.db.executemany("INSERT INTO chunks(path, name, text) VALUES (?,?,?)",
-                                                [(key, p.name, c) for c in chunks(text)][:400])
+                                                [(key, p.name, c) for c in chunks(text)][:MAX_CHUNKS])
                             self.db.execute("INSERT OR REPLACE INTO files(path, mtime, name) VALUES (?,?,?)", (key, st.st_mtime, p.name))
                             self.db.commit()
                         n_new += 1
                         if len(seen) >= MAX_FILES:
                             break
             gone = set(known) - seen
+            if not self._vacuumed:
+                # One-time cleanup of an index built before these limits: trim long files, then give the space back.
+                with self._lock:
+                    self.db.execute("DELETE FROM chunks WHERE rowid IN (SELECT rowid FROM (SELECT rowid, ROW_NUMBER() "
+                                    "OVER (PARTITION BY path ORDER BY rowid) AS n FROM chunks) WHERE n > ?)", (MAX_CHUNKS,))
+                    self.db.commit()
             with self._lock:
                 for key in gone:
                     self.db.execute("DELETE FROM chunks WHERE path=?", (key,))
                     self.db.execute("DELETE FROM files WHERE path=?", (key,))
                 self.db.commit()
                 self.indexed = self.db.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+                if not self._vacuumed and (gone or n_new):
+                    self.db.execute("INSERT INTO chunks(chunks) VALUES('optimize')")
+                    self.db.commit()
+                    self.db.execute("VACUUM")
+                self._vacuumed = True
             log.info("file index: %d files (%d updated, %d removed) in %.0fs", self.indexed, n_new, len(gone), time.time() - t0)
         finally:
             self.busy = False

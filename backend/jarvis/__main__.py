@@ -22,10 +22,20 @@ log = logging.getLogger("jarvis")
 def setup_logging():
     config.LOG_DIR.mkdir(exist_ok=True)
     fmt = "%(asctime)s %(levelname).1s %(name)-8s %(message)s"
+    from logging.handlers import RotatingFileHandler
+    # Capped: 2 MB per file, one old file kept (at most ~4 MB of logs, ever).
     logging.basicConfig(level=logging.INFO, format=fmt, datefmt="%H:%M:%S", handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(config.LOG_DIR / "jarvis.log", encoding="utf-8"),
+        RotatingFileHandler(config.LOG_DIR / "jarvis.log", maxBytes=2 * 1024 * 1024, backupCount=1, encoding="utf-8"),
     ])
+    # Keep only the latest 2000 rows of the per-turn timing log.
+    lat = config.LOG_DIR / "latency.csv"
+    try:
+        rows = lat.read_text(encoding="utf-8").splitlines()
+        if len(rows) > 2500:
+            lat.write_text("\n".join(rows[:1] + rows[-2000:]) + "\n", encoding="utf-8")
+    except OSError:
+        pass
     for noisy in ("httpx", "websockets", "faster_whisper"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     for noisy in ("phonemizer", "pypdf", "pypdf._cmap", "pypdf._reader"):
