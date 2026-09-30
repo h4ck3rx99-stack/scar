@@ -297,14 +297,25 @@ def _play_anything(m):
 
 
 # --- coding practice (learning.ccbp.in / NxtWave and similar) ------------------------------
-_PROBLEM = r"(?:this|the|that|my)? ?(?:problem|question|exercise|assignment|challenge|coding question|practice question)"
+_PROBLEM = r"(?:this|the|that|my|it)? ?(?:problem|question|exercise|assignment|challenge|coding question|practice question|code|program|task)?"
+_LANGS = r"python|javascript|js|java|sql|c\+\+|cpp|html|css|html and css"
 
 
-@rule(rf"^(?:solve|do|answer|complete|write (?:the )?(?:code|solution|program) for) {_PROBLEM}(?: on (?:my |the )?screen)?(?: and (?:type|write|put|paste) it(?: out| in| into the editor)?)?(?: in (?P<lang>python|javascript|java|sql|c\+\+|c))?$"
-      r"|^(?:write|type) (?:the )?(?:solution|code|answer)(?: for (?:this|the) (?:problem|question))?(?: in (?:the )?editor)?(?: in (?P<lang2>python|javascript|java|sql|c\+\+|c))?$")
+@rule(rf"^(?:solve|do|answer|complete|finish|code|write (?:the |my )?(?:code|solution|program|answer)(?: for)?|type (?:the |my )?(?:code|solution|answer)(?: for)?)"
+      rf"(?: {_PROBLEM})?(?: on (?:my |the |this )?screen)?(?: for me)?(?: now)?"
+      rf"(?: and (?:type|write|put|paste) it(?: out| in| into the editor)?)?(?: in (?:the )?editor)?"
+      rf"(?: (?:in|using|with|only)(?: only)? (?P<lang>{_LANGS}))?(?: only)?"
+      rf"(?P<sub>(?:,? and| then)? submit(?: it| this)?(?: after (?:typing|writing)(?: it)?)?)?$"
+      rf"|^(?:only )?(?P<lang2>{_LANGS}) (?:code|solution)(?: only)?$")
 def _code_solve(m):
     lang = m["lang"] or m["lang2"]
-    return "code_assist", {"action": "solve", **({"language": lang.title() if lang != "sql" else "SQL"} if lang else {})}
+    args = {"action": "solve"}
+    if lang:
+        args["language"] = {"js": "JavaScript", "cpp": "C++", "sql": "SQL", "css": "HTML", "html and css": "HTML",
+                            "html": "HTML", "c++": "C++"}.get(lang, lang.title())
+    if m["sub"]:
+        args["submit"] = True
+    return "code_assist", args
 
 
 @rule(rf"^(?:give me |i need |can i get )?(?:a |another )?hint(?: for {_PROBLEM})?$|^(?:help me|i'm stuck)(?: with| on)? {_PROBLEM}$|^i'm stuck$")

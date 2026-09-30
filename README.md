@@ -50,7 +50,8 @@ Open a problem in your browser, then:
 
 | Say | What happens |
 |---|---|
-| "Solve this problem" / "…and type it out" / "solve this question in Python" | reads the problem off the screen, writes a solution in the page's language with the exact input/output format, and pastes it into the page's code editor (replacing the starter code; pasting keeps indentation and brackets exact) |
+| "Solve this problem" / "solve" / "write the code" / "write the code only HTML" / "solve this question in Python" | reads the problem off the screen, writes a solution in the page's language (Python, HTML, JavaScript, SQL…) with the exact input/output format, and **types** it into the page's code editor, replacing the starter code. learning.ccbp.in blocks paste, so Scar types line by line and undoes the editor's auto-indent, auto-closed brackets / tags and autocomplete as it goes. Keep your hands off the keyboard for those few seconds |
+| "Solve and submit this" | solves, then asks "Submit it now?" |
 | "Give me a hint" / "I'm stuck" | one hint, no full solution |
 | "Explain this problem" | what the input is, what to compute, what to print |
 | "Check my code" / "why is my code not working?" | explains the bug, then offers to put the fixed code in |

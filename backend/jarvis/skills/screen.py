@@ -133,6 +133,48 @@ class INPUT(ctypes.Structure):
 PASTING = {"text": None}   # what Scar itself put on the clipboard (clipboard history ignores it)
 
 
+def _unicode_keys(text: str):
+    for ch in text:
+        code = ord(ch)
+        down = INPUT(INPUT_KEYBOARD, _INPUTUNION(ki=KEYBDINPUT(0, code, KEYEVENTF_UNICODE, 0, None)))
+        up = INPUT(INPUT_KEYBOARD, _INPUTUNION(ki=KEYBDINPUT(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, None)))
+        arr = (INPUT * 2)(down, up)
+        user32.SendInput(2, arr, ctypes.sizeof(INPUT))
+        time.sleep(0.006)
+
+
+def type_code(code: str, replace_all=True):
+    """Type code into a web / IDE code editor key by key, for editors that block pasting (learning.ccbp.in does).
+
+    Editors "help" while you type: they auto-indent after Enter, auto-close brackets, quotes and HTML tags, and
+    pop up autocomplete that Enter would accept. Per line this: types the line with its own exact indentation over
+    whatever indentation the editor inserted (Shift+Home selects it, typing replaces it), deletes anything the editor
+    auto-inserted after the cursor (Shift+End, Delete), and closes autocomplete (Escape) before pressing Enter."""
+    from jarvis.hands import actions as A
+    lines = code.replace("\r\n", "\n").replace("\t", "    ").rstrip("\n").split("\n")
+    if replace_all:
+        A.press("ctrl", "a")                        # the first line replaces the editor's starter code
+        time.sleep(0.1)
+    for i, line in enumerate(lines):
+        if i > 0:
+            A.press("escape")
+            time.sleep(0.03)
+            A.press("enter")
+            time.sleep(0.05)
+            A.press("shift", "home")                # select the auto-indent (or nothing on a flat line)
+            time.sleep(0.03)
+        if line.strip():
+            _unicode_keys(line)                     # replaces the selected auto-indent with the exact one
+        elif i > 0:
+            _unicode_keys(" ")                      # replace a selected auto-indent on a blank line...
+            A.press("backspace")                    # ...and leave the line truly empty
+        time.sleep(0.03)
+        A.press("shift", "end")                     # auto-closed ) ] } " </tag> left after the cursor
+        time.sleep(0.03)
+        A.press("delete")
+    A.press("escape")
+
+
 def type_text(text: str, w: Window | None = None, paste: bool = False):
     """Type text into the focused (or given) window.
     Code and longer text is pasted, not typed: editors auto-indent after every Enter, so typing a multi-line

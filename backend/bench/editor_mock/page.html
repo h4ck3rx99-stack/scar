@@ -1,0 +1,55 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Coding Practice - Scar test</title>
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; display: flex; height: 100vh; background: #f2f4f8; }
+  #problem { width: 45%; padding: 24px 32px; overflow: auto; font-size: 17px; line-height: 1.5; color: #222; }
+  #right { flex: 1; display: flex; flex-direction: column; }
+  #bar { height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: #fff; }
+  #bar span { flex: 1; font-weight: bold; }
+  #bar button { padding: 8px 18px; border: 0; border-radius: 6px; background: #e6ebf5; }
+  #editor { flex: 1; }
+  pre { background: #fff; padding: 8px; }
+</style></head>
+<body>
+<div id="problem">
+  <h2>Grade Report</h2>
+  <p>Write a program that reads N, followed by N lines each containing a student name and a mark separated by a space.
+  For each student print the name followed by a colon and the grade: <b>A</b> if mark &gt;= 90, <b>B</b> if mark &gt;= 75,
+  <b>C</b> if mark &gt;= 50, otherwise <b>F</b>. Finally print <b>Top: </b> followed by the name of the student with the
+  highest mark (the first one if tied).</p>
+  <h3>Input</h3><p>The first line of input is an integer N. The next N lines contain a name and a mark.</p>
+  <h3>Output</h3><p>N lines of the form name: grade, then the Top line.</p>
+  <h3>Sample Input 1</h3><pre>3
+Ravi 92
+Asha 67
+John 40</pre>
+  <h3>Sample Output 1</h3><pre>Ravi: A
+Asha: C
+John: F
+Top: Ravi</pre>
+  <h3>Constraints</h3><p>1 &lt;= N &lt;= 100</p>
+</div>
+<div id="right">
+  <div id="bar"><span>__LANG__</span><button>Reset</button><button>Run</button><button style="background:#2066e6;color:#fff">Submit</button></div>
+  <div id="editor"></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/loader.js"></script>
+<script>
+  require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' } });
+  require(['vs/editor/editor.main'], function () {
+    const starter = '__LANG__' === 'html' ? '<!DOCTYPE html>\n<html>\n  <head></head>\n  <body>\n  </body>\n</html>' : '# Write your code here\n';
+    const ed = monaco.editor.create(document.getElementById('editor'), {
+      value: starter, language: '__LANG__', theme: 'vs-dark', fontSize: 16, automaticLayout: true,
+      autoClosingBrackets: 'always', autoClosingQuotes: 'always', autoIndent: 'full', formatOnType: true,
+    });
+    // Like learning.ccbp.in: paste is blocked.
+    ed.onDidPaste(() => { ed.trigger('block', 'undo'); });
+    document.addEventListener('paste', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
+    let t = null;
+    ed.onDidChangeModelContent(() => {
+      clearTimeout(t);
+      t = setTimeout(() => fetch('/' + '__LANG__', { method: 'POST', body: ed.getValue() }), 300);
+    });
+  });
+</script>
+</body></html>

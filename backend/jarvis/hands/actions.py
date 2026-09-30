@@ -17,7 +17,7 @@ WM_SYSCOMMAND, SC_CLOSE = 0x0112, 0xF060
 SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
 MONITOR_DEFAULTTONEAREST = 2
 KEYEVENTF_KEYUP = 0x2
-VK = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B, "tab": 0x09, "w": 0x57, "t": 0x54, "f4": 0x73, "enter": 0x0D, "v": 0x56, "escape": 0x1B, "f": 0x46, "down": 0x28,
+VK = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B, "tab": 0x09, "w": 0x57, "t": 0x54, "f4": 0x73, "enter": 0x0D, "home": 0x24, "end": 0x23, "delete": 0x2E, "backspace": 0x08, "v": 0x56, "escape": 0x1B, "f": 0x46, "down": 0x28,
       "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD, "play_pause": 0xB3, "next": 0xB0, "previous": 0xB1}
 
 
@@ -63,18 +63,46 @@ def vk(key: str) -> int:
 
 def press(*keys):
     codes = [vk(k) for k in keys]                   # resolve all first: never leave a modifier held down
+    # Navigation keys are "extended": without the flag, with Num Lock on, apps can read Home/End/Delete/arrows as
+    # numpad digits (Home would type 7).
+    ext = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E}
     for c in codes:
-        user32.keybd_event(c, 0, 0, 0)
+        user32.keybd_event(c, user32.MapVirtualKeyW(c, 0), 0x0001 if c in ext else 0, 0)
     for c in reversed(codes):
-        user32.keybd_event(c, 0, KEYEVENTF_KEYUP, 0)
+        user32.keybd_event(c, user32.MapVirtualKeyW(c, 0), KEYEVENTF_KEYUP | (0x0001 if c in ext else 0), 0)
 
 
-def focus(w: Window):
+def is_front(w: Window) -> bool:
+    fg = user32.GetForegroundWindow()
+    return bool(fg) and (fg == w.hwnd or user32.GetAncestor(fg, 3) == w.hwnd or user32.GetAncestor(w.hwnd, 3) == fg)
+
+
+def focus(w: Window) -> bool:
+    """Bring a window to the front. Returns whether it really is in front (callers must not send keys otherwise:
+    Ctrl+W or typing would land in whatever app the user has open)."""
     if w.minimized:
         user32.ShowWindow(w.hwnd, SW_RESTORE)
-    # Windows only lets the foreground process change focus; a synthetic Alt tap lifts that lock.
-    press("alt")
-    user32.SetForegroundWindow(w.hwnd)
+    if is_front(w):
+        return True
+    kernel32 = ctypes.windll.kernel32
+    for _ in range(3):
+        # Windows only lets the foreground process change focus. Borrow its input queue (AttachThreadInput) and tap
+        # Alt, which lifts the foreground lock, then ask for the switch.
+        fg = user32.GetForegroundWindow()
+        fg_thread = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+        me = kernel32.GetCurrentThreadId()
+        attached = bool(fg_thread and fg_thread != me and user32.AttachThreadInput(me, fg_thread, True))
+        try:
+            press("alt")
+            user32.BringWindowToTop(w.hwnd)
+            user32.SetForegroundWindow(w.hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(me, fg_thread, False)
+        time.sleep(0.08)
+        if is_front(w):
+            return True
+    return False
 
 
 def minimize(w):
@@ -278,7 +306,8 @@ def open_app(name: str):
 
 def cycle_to_tab(w: Window, query: str, max_tabs=30):
     """Browser-agnostic tab switch: Ctrl+Tab through tabs until the window title matches."""
-    focus(w)
+    if not focus(w):
+        return None
     time.sleep(0.15)
     q = query.lower()
     start = w.title
@@ -292,16 +321,20 @@ def cycle_to_tab(w: Window, query: str, max_tabs=30):
     return None
 
 
-def close_tab(w: Window):
-    focus(w)
+def close_tab(w: Window) -> bool:
+    if not focus(w):
+        return False                  # never send Ctrl+W to some other app
     time.sleep(0.1)
     press("ctrl", "w")
+    return True
 
 
-def new_tab(w: Window):
-    focus(w)
+def new_tab(w: Window) -> bool:
+    if not focus(w):
+        return False
     time.sleep(0.1)
     press("ctrl", "t")
+    return True
 
 
 def media(key: str, times=1):

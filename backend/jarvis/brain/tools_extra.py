@@ -39,7 +39,8 @@ EXTRA_SCHEMA = [
     _fn("code_assist", "Coding practice pages (learning.ccbp.in / NxtWave, LeetCode, HackerRank...): read the problem on "
                        "screen and solve it into the page's code editor, give a hint, explain the problem, or check/fix the "
                        "user's code. Use this instead of type_text for code on those pages.",
-        {"action": {"type": "string", "enum": ["solve", "hint", "explain", "check"]}, "language": S}, ["action"]),
+        {"action": {"type": "string", "enum": ["solve", "hint", "explain", "check"]}, "language": S,
+         "submit": {"type": "boolean", "description": "after solving, offer to submit (the user asked to submit)"}}, ["action"]),
     _fn("code_run", "Press the page's Run button (or Submit, which asks first).",
         {"which": {"type": "string", "enum": ["run", "submit"]}}, ["which"]),
 ]
@@ -342,7 +343,11 @@ You get OCR text of their screen: the problem statement, sample input/output, an
 Language: use the one the page or the editor shows ({language}); if unclear, Python 3.
 Task: {task}"""
 CODE_TASKS = {
-    "solve": "Write a complete, correct solution that reads input and prints output EXACTLY in the format the problem "
+    "solve_html": "Write the complete HTML for what the problem describes: match the required text, element types, ids, "
+                  "class names and structure exactly as stated. Put required CSS in a <style> tag inside <head> and any "
+                  "JavaScript in a <script> tag at the end of <body>. Reply with ONLY the code, no markdown fences, no "
+                  "explanation.",
+    "solve":"Write a complete, correct solution that reads input and prints output EXACTLY in the format the problem "
              "shows (no extra prompts or text). Reply with ONLY the code, no markdown fences, no explanation.",
     "check": "Find what is wrong with the student's code in the editor (logic, syntax, output format). First line: a short "
              "spoken explanation (max 2 sentences) starting with 'EXPLAIN:'. Then the full corrected code after a line "
@@ -372,14 +377,24 @@ def _strip_fences(code: str) -> str:
     return code.strip("\n") + "\n"
 
 
+_LANG_SIGNS = {
+    # uppercase editor-tab labels (case-sensitive, strongest), then words and code in the page
+    "HTML": ([r"\bHTML\b", r"\bCSS\b"], [r"<(?:div|html|body|h1|p|img|button|a|ul|li|span|section|head)\b", r"\bhtml\b", r"\bcss\b",
+                                        r"\bbootstrap\b", r"\belement\b", r"\bstyle\b", r"\bweb ?page\b"]),
+    "Python 3": ([r"\bPYTHON\b"], [r"\bpython\b", r"\bdef \w+\(", r"\bprint\(", r"\binput\(\)"]),
+    "JavaScript": ([r"\bJAVASCRIPT\b", r"\bJS\b", r"\bNODE\b"], [r"\bjavascript\b", r"console\.log", r"\bfunction \w+\(", r"\bconst \w+ ="]),
+    "SQL": ([r"\bSQL\b", r"\bSQLITE\b"], [r"\bselect\b.+\bfrom\b", r"\bsql\b", r"\btable\b", r"\bquery\b"]),
+    "Java": ([r"\bJAVA\b"], [r"public static void main", r"\bjava\b"]),
+    "C++": ([r"\bC\+\+\b", r"\bCPP\b"], [r"#include", r"\bcout\b", r"\bc\+\+"]),
+}
+
+
 def _guess_language(text: str) -> str:
-    t = text.lower()
-    for lang, pat in (("Python 3", r"\bpython\b|\bdef \w+\(|print\("), ("JavaScript", r"\bjavascript\b|\bconsole\.log\b|\bfunction \w+\("),
-                      ("SQL", r"\bselect\b.+\bfrom\b|\bsqlite\b|\bsql\b"), ("Java", r"\bpublic static void main\b|\bjava\b"),
-                      ("C++", r"#include|\bcout\b|\bc\+\+\b"), ("HTML/CSS", r"<div|\bhtml\b|\bcss\b")):
-        if re.search(pat, t):
-            return lang
-    return "Python 3"
+    scores = {}
+    for lang, (labels, words) in _LANG_SIGNS.items():
+        scores[lang] = 3 * sum(len(re.findall(p, text)) for p in labels) + sum(1 for p in words if re.search(p, text, re.I))
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "Python 3"
 
 
 class CodeTools:
@@ -391,7 +406,7 @@ class CodeTools:
         img = await asyncio.get_running_loop().run_in_executor(None, window_image, w)
         return await ocr_image(img)
 
-    async def t_code_assist(self, action="solve", language=None, from_router=False):
+    async def t_code_assist(self, action="solve", language=None, submit=False, from_router=False):
         from jarvis.brain.llm import LLM
         from jarvis.hands import actions as A
         from jarvis.hands.windows import foreground_window
@@ -413,8 +428,10 @@ class CodeTools:
         if len(text.strip()) < 40:
             await self.speak("I can't read a problem on the screen. Scroll so the question is visible and try again.")
             return "no problem text"
-        lang = language or _guess_language(text)
-        messages = [{"role": "system", "content": CODE_SYSTEM.format(language=lang, task=CODE_TASKS[action])},
+        lang = {"html": "HTML", "css": "HTML", "js": "JavaScript", "javascript": "JavaScript", "python": "Python 3",
+                "sql": "SQL", "java": "Java", "c++": "C++", "cpp": "C++"}.get((language or "").lower(), language) or _guess_language(text)
+        task = CODE_TASKS["solve_html" if action == "solve" and lang == "HTML" else action]
+        messages = [{"role": "system", "content": CODE_SYSTEM.format(language=lang, task=task)},
                     {"role": "user", "content": "Screen text:\n" + text[:6000]}]
         llm = LLM()
         out = ""
@@ -442,6 +459,12 @@ class CodeTools:
             return "explained; offered fix"
         code = _strip_fences(out)
         ok = await self._code_into_editor(w, code)
+        if ok and submit:
+            async def do_submit():
+                await self.t_click_element("Submit")
+            self.pending_confirm = do_submit
+            await self.speak(f"The {lang} solution is in. Submit it now?")
+            return f"wrote {len(code.splitlines())} lines of {lang}; asked to submit"
         if ok:
             await self.speak(f"Done, that's a {lang} solution in the editor. Say run the code to test it.")
             return f"wrote {len(code.splitlines())} lines of {lang}"
@@ -464,10 +487,29 @@ class CodeTools:
         await asyncio.sleep(0.15)
         A.real_click(x, y)
         await asyncio.sleep(0.2)
-        A.press("ctrl", "a")             # inside the editor this selects only the editor's code
-        await asyncio.sleep(0.1)
-        # Always paste code, even one line: editors auto-close brackets and quotes while typing ("print(" -> "print()").
-        await asyncio.get_running_loop().run_in_executor(None, lambda: screen.type_text(code.rstrip("\n"), None, paste=True))
+        if A.user32.GetForegroundWindow() != w.hwnd:
+            await self.speak("I couldn't get into the editor, so I didn't type anything.")
+            return False
+        # Typed, not pasted: coding sites like learning.ccbp.in block paste. type_code works around the editor's
+        # auto-indent, auto-closed brackets / tags and autocomplete, line by line.
+        n = len(code.strip().splitlines())
+        await self.speak(f"Typing {n} lines. Hands off the keyboard for a moment." if n > 8 else "Typing it in.")
+        await asyncio.sleep(0.6 if n > 8 else 0.2)
+        await asyncio.get_running_loop().run_in_executor(None, screen.type_code, code)
+        # Check it's really there (a blocked or unfocused editor stays empty).
+        from rapidfuzz import fuzz
+        from jarvis.hands.capture import window_image
+        await asyncio.sleep(0.4)
+        img = await asyncio.get_running_loop().run_in_executor(None, window_image, w)
+        f = w.frame
+        box = img.crop((max(0, x - f.left - bw // 2), max(0, y - f.top - bh // 2),
+                        min(img.width, x - f.left + bw // 2), min(img.height, y - f.top + bh // 2)))
+        seen = (await screen.ocr_image(box)).lower()
+        probes = [ln.strip().lower() for ln in code.splitlines() if len(ln.strip()) >= 6][:4]
+        if probes and max(fuzz.partial_ratio(p, seen) for p in probes) < 70:
+            await self.speak("Hmm, I typed it but I can't see it in the editor. The site may be blocking typed input too.")
+            log.warning("code typed but not visible in the editor; saw %r", seen[:200])
+            return False
         return True
 
     async def t_code_run(self, which="run", from_router=False):

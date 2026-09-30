@@ -484,12 +484,12 @@ class Tools(MoreTools, ExtraTools, CodeTools):
             await self.speak("No browser is open.")
             return "no browser"
         loop = asyncio.get_running_loop()
-        if action == "close":
-            await self.speak("Closing the tab.")
-            A.close_tab(w)
-        elif action == "new":
-            await self.speak("New tab.")
-            A.new_tab(w)
+        if action in ("close", "new"):
+            ok = await loop.run_in_executor(None, A.close_tab if action == "close" else A.new_tab, w)
+            if not ok:
+                await self.speak(f"I couldn't switch to {w.spoken_name}, so I left the tabs alone.")
+                return "couldn't focus the browser"
+            await self.speak("Closed the tab." if action == "close" else "New tab.")
         elif action == "switch" and query:
             hit = await uia.select_tab(w, query)
             if hit:
@@ -868,7 +868,9 @@ class Tools(MoreTools, ExtraTools, CodeTools):
         if target and not action.startswith(("show_desktop", "task_view", "search", "run", "settings", "notifications",
                                              "quick_settings", "file_explorer", "task_manager", "snip", "emoji",
                                              "clipboard_history", "switch_window")):
-            A.focus(target)
+            if not await loop.run_in_executor(None, A.focus, target):
+                await self.speak(f"I couldn't switch to {target.spoken_name}, so I didn't press anything.")
+                return "couldn't focus the window"
             await asyncio.sleep(0.12)
         await loop.run_in_executor(None, keys.do_action, action, int(times or 1))
         return "done"
