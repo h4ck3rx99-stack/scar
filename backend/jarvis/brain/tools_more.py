@@ -35,6 +35,8 @@ MORE_SCHEMA = [
     _fn("search_here", "Type a search into the search bar of the app or site that's open (Spotify, YouTube, Settings, a shop...).",
         {"query": S}, ["query"]),
     _fn("capabilities", "Tell the user what Scar can do."),
+    _fn("chit_chat", "Quick friendly reply to a greeting or small talk.",
+        {"kind": {"type": "string", "enum": ["greeting", "how_are_you", "who_are_you", "who_made_you", "good", "bad", "love"]}}, ["kind"]),
     _fn("self_check", "Run a health check on Scar itself: microphone, voice, AI model, internet, errors."),
     _fn("what_went_wrong", "Explain why the last command failed."),
 ]
@@ -51,6 +53,34 @@ CAPABILITIES = [
     "dictation, writing emails, routines like study mode, pomodoro and a stopwatch",
     "and change my own settings: my size, voice, speed, volume, personality, pranks and how long I listen",
 ]
+
+
+def find_spotify_play(w):
+    """Screen point of Spotify's big green round Play button on a track / album / artist page, or None.
+    Found by colour and shape (a solid #1ED760 circle), so it works whatever the page says; the green
+    "Reload page" pill and the white player-bar button don't match."""
+    import numpy as np
+    from scipy import ndimage
+    from jarvis.hands.capture import window_image
+    img = np.asarray(window_image(w).convert("RGB")).astype(np.int16)
+    r, g, b = img[..., 0], img[..., 1], img[..., 2]
+    mask = (g > 170) & (r < 90) & (b < 140) & (g - r > 110)
+    labels, n = ndimage.label(mask)
+    best = None
+    for i, sl in enumerate(ndimage.find_objects(labels), start=1):
+        h, wd = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+        if not (36 <= h <= 110 and abs(h - wd) <= max(4, h * 0.12)):
+            continue                                  # not a circle of play-button size
+        fill = float((labels[sl] == i).sum()) / (h * wd)
+        if not 0.55 <= fill <= 0.9:                   # a disc (~0.79) with a dark triangle in it
+            continue
+        cy, cx = (sl[0].start + sl[0].stop) // 2, (sl[1].start + sl[1].stop) // 2
+        if best is None or h > best[0]:
+            best = (h, cx, cy)
+    if best is None:
+        return None
+    f = w.frame
+    return f.left + best[1], f.top + best[2]
 
 
 class MoreTools:
@@ -123,11 +153,8 @@ class MoreTools:
         from jarvis.hands import actions as A
         q = (query or "").strip() or self.last_yt_query
         if not q:
-            if from_router:
-                from jarvis.brain.tools import FALLTHROUGH
-                return FALLTHROUGH
-            await self.speak("What should I play?")
-            return "no query"
+            # "Play the first video" on a page Scar didn't search itself: point at it and click.
+            return await self.t_point_click("the first video")
         try:
             vid, title = await self._youtube_top(q)
         except httpx.HTTPError as e:
@@ -142,38 +169,71 @@ class MoreTools:
         A.open_url(f"https://www.youtube.com/watch?v={vid}")
         return f"playing {title}"
 
+    async def _spotify_front(self, wait_s=6.0):
+        """The Spotify window, restored and in front (opening a spotify: link doesn't un-minimize it)."""
+        from jarvis.hands import actions as A
+        from jarvis.hands.windows import list_windows
+        w = None
+        for _ in range(int(wait_s / 0.25)):
+            w = next((x for x in list_windows() if x.exe == "spotify.exe"), None)
+            if w:
+                break
+            await asyncio.sleep(0.25)
+        if w is None:
+            return None
+        if w.minimized:
+            A.restore(w)
+            await asyncio.sleep(0.3)
+        A.focus(w)
+        return w
+
+    async def _spotify_error(self, w):
+        """Spotify sometimes shows its own "Something went wrong / Reload page" screen instead of content."""
+        from jarvis.hands.capture import window_image
+        from jarvis.skills.screen import ocr_image
+        try:
+            text = await ocr_image(await asyncio.get_running_loop().run_in_executor(None, window_image, w))
+        except Exception:  # noqa: BLE001
+            return False
+        return "something went wrong" in text.lower()
+
     async def t_spotify(self, action, query, from_router=False):
         import os
-        from jarvis.hands import uia
-        from jarvis.hands.windows import list_windows
+        from jarvis.hands import actions as A
+        uri = None
         if action == "play":
-            uri = None
             try:
                 from jarvis.skills import research
-                for r in await research.search(f"{query} site:open.spotify.com", n=6):
+                for r in await research.search(f"{query} site:open.spotify.com", n=8):
                     m = re.search(r"open\.spotify\.com/(?:intl-\w+/)?(track|album|playlist|artist)/([A-Za-z0-9]{22})", r["url"])
                     if m:
                         uri = f"spotify:{m.group(1)}:{m.group(2)}"
                         break
             except Exception as e:  # noqa: BLE001 - fall back to a plain search
                 log.warning("spotify lookup failed: %s", e)
-            if uri:
-                await self.speak(f"Playing {query} on Spotify.")
-                os.startfile(uri)
-                # The page opens paused: press its big Play button.
-                for _ in range(12):
-                    await asyncio.sleep(0.5)
-                    w = next((w for w in list_windows() if w.exe == "spotify.exe"), None)
-                    if w:
-                        await asyncio.sleep(1.5)
-                        hit = await uia.find_element(w, "Play")
-                        if hit:
-                            await uia.invoke(hit[0])
-                        break
-                return f"playing {uri}"
-        await self.speak(f"Here's {query} on Spotify.")
-        os.startfile("spotify:search:" + urllib.parse.quote(query))
-        return "searched spotify"
+        os.startfile(uri or "spotify:search:" + urllib.parse.quote(query))
+        w = await self._spotify_front()
+        if w is None:
+            await self.speak("Spotify didn't open. Is it installed?")
+            return "no spotify window"
+        await asyncio.sleep(2.0)                      # let the page render
+        if await self._spotify_error(w):
+            await self.speak("Spotify is showing its own error page. Click Reload page in Spotify, then ask me again.")
+            return "spotify error page"
+        if not uri:
+            await self.speak(f"Here's {query} on Spotify." if action == "search" else
+                             f"I couldn't find {query} directly, so here are Spotify's results.")
+            return "searched spotify"
+        spot = await asyncio.get_running_loop().run_in_executor(None, find_spotify_play, w)
+        if spot:
+            await self.ui.fly_to(*spot, purpose="click", button={"x": spot[0] - 28, "y": spot[1] - 28, "width": 56, "height": 56})
+            A.focus(w)
+            await asyncio.sleep(0.1)
+            A.real_click(*spot)
+            await self.speak(f"Playing {query} on Spotify.")
+            return f"playing {uri}"
+        await self.speak(f"{query} is up on Spotify. Press the green play button.")
+        return f"opened {uri}"
 
     async def t_search_here(self, query, from_router=False):
         from jarvis.hands import actions as A
@@ -196,6 +256,31 @@ class MoreTools:
         A.focus(w)
         await self.speak(f"Searching {w.spoken_name} for {query}.")
         return "done"
+
+    # ------------------------------------------------------------ small talk (instant, no LLM round trip)
+    async def t_chit_chat(self, kind, from_router=False):
+        import datetime
+        import random
+        h = datetime.datetime.now().hour
+        part = "morning" if h < 12 else "afternoon" if h < 17 else "evening"
+        funny = settings.get("personality") in ("funny", "sarcastic")
+        lines = {
+            "greeting": [f"Hey! Good {part}.", "Hi there! What can I do for you?", "Hello! I'm all ears.",
+                         "Hey hey! What's up?"] + (["Oh, it's you. My favourite human.", "Reporting for duty, captain!"] if funny else []),
+            "how_are_you": ["All systems green, thanks for asking! How about you?", "Running smooth and feeling helpful. You?",
+                            "Great! My fans are quiet and my circuits are happy. How are you doing?"]
+                           + (["Honestly? Better now that someone's talking to me.", "Fantastic. I just defragmented my feelings."] if funny else []),
+            "who_are_you": ["I'm Scar, your desktop assistant. I live on your screen, run entirely on this PC, and I can "
+                            "open things, answer questions, look at your screen and a lot more. Ask me what I can do!"],
+            "who_made_you": ["I was built right here on this PC, by you and a lot of late-night code. I run on local models, "
+                             "so nothing leaves your computer unless you ask me to look something up."],
+            "good": ["Glad to hear it!", "Love that.", "Nice! Anything I can help with?"],
+            "bad": ["Sorry to hear that. Want me to put on some music, or set a break reminder?",
+                    "That's rough. I'm here if you need anything, even just a timer for a break."],
+            "love": ["Aww, right back at you!", "You're making my visor glow."],
+        }
+        await self.speak(random.choice(lines.get(kind, lines["greeting"])))
+        return "said hello"
 
     # ------------------------------------------------------------ about Scar
     async def t_capabilities(self, from_router=False):

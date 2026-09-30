@@ -17,7 +17,7 @@ WM_SYSCOMMAND, SC_CLOSE = 0x0112, 0xF060
 SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
 MONITOR_DEFAULTTONEAREST = 2
 KEYEVENTF_KEYUP = 0x2
-VK = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B, "tab": 0x09, "w": 0x57, "t": 0x54, "f4": 0x73,
+VK = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B, "tab": 0x09, "w": 0x57, "t": 0x54, "f4": 0x73, "enter": 0x0D, "v": 0x56, "escape": 0x1B, "f": 0x46, "down": 0x28,
       "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD, "play_pause": 0xB3, "next": 0xB0, "previous": 0xB1}
 
 
@@ -168,6 +168,10 @@ SITES = {
     "twitter": "https://x.com", "x": "https://x.com", "reddit": "https://www.reddit.com", "maps": "https://maps.google.com",
     "stack overflow": "https://stackoverflow.com", "spotify web": "https://open.spotify.com",
     "nxtwave": "https://learning.ccbp.in", "next wave": "https://learning.ccbp.in", "ccbp": "https://learning.ccbp.in",
+    "my course": "https://learning.ccbp.in/course", "my courses": "https://learning.ccbp.in/course",
+    "course": "https://learning.ccbp.in/course", "courses": "https://learning.ccbp.in/course",
+    "ccbp course": "https://learning.ccbp.in/course", "nxtwave course": "https://learning.ccbp.in/course",
+    "nxtwave learning": "https://learning.ccbp.in", "ccbp learning": "https://learning.ccbp.in",
 }
 SEARCH = {
     "youtube": "https://www.youtube.com/results?search_query={}", "google": "https://www.google.com/search?q={}",

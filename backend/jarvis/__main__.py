@@ -39,8 +39,9 @@ async def ensure_llama_server(llm):
     if not config.MANAGE_LLAMA_SERVER:
         log.warning("llama-server not reachable and JARVIS_MANAGE_LLAMA_SERVER=false")
         return None
-    cmd = [config.LLAMA_SERVER, "-m", config.LLM_GGUF, "-ngl", "99", "-c", "12288", "--port", str(config.LLM_PORT),
-           "--host", "127.0.0.1", "--jinja", "-fa", "on", "--no-webui", "-np", "1"]
+    cmd = [config.LLAMA_SERVER, "-m", config.LLM_GGUF, "-ngl", "99", "-c", "16384", "--port", str(config.LLM_PORT),
+           "--host", "127.0.0.1", "--jinja", "-fa", "on", "--no-webui", "-np", "2", "--kv-unified",
+           "--checkpoint-min-step", "256"]   # Qwen3.5 is hybrid: resume points every 256 tokens keep the prompt cache useful
     if Path(config.LLM_MMPROJ).is_file():
         cmd += ["--mmproj", config.LLM_MMPROJ]  # lets the model see screenshots
     log.info("starting llama-server: %s", " ".join(cmd))
@@ -186,9 +187,20 @@ async def main(text_only=False):
     scheduler = Scheduler(fire)
     session = Session(ui, mic, vad, wake, stt, speech, lambda control: Agent(ui, speech.say, control, scheduler))
     runtime.session = session
+    if config.KWS and not text_only:
+        from jarvis.audio import kws
+        if kws.available():
+            try:
+                session.kws = await loop.run_in_executor(None, kws.NameSpotter)
+            except Exception as e:  # noqa: BLE001 - the Whisper name check still works without it
+                log.warning("name wake word unavailable: %s", e)
     # Scar's own settings (settings.json): hook the live objects up, then apply what was saved.
     from jarvis.core import settings
     settings.on_change("voice_volume", lambda v: setattr(speaker, "gain", float(v) / 100))
+    from jarvis.skills import cliphistory
+    settings.on_change("clipboard_history", lambda v: (setattr(cliphistory, "enabled", bool(v)), None if v else cliphistory.clear()))
+    cliphistory.enabled = bool(settings.get("clipboard_history"))
+    cliphistory.start()
     settings.apply_all()
     if aec_ref is not None:
         session.aec, session.aec_ref = EchoCanceller(), aec_ref
@@ -256,7 +268,7 @@ async def main(text_only=False):
 
     atexit.register(capture.reveal_all)
     mic.start()
-    log.info("%s is listening. Say '%s' or 'Hey Jarvis'.", config.NAME, config.NAME)
+    log.info("%s is listening. Say '%s' or 'Hey %s'.", config.NAME, config.NAME, config.NAME)
     await session.run()
 
 

@@ -43,3 +43,18 @@ def test_reference_buffer_resamples_exactly():
     x16 = np.interp(np.arange(0, len(x24), 1.5), np.arange(len(x24)), x24)
     got = np.concatenate(got)
     assert np.max(np.abs(got - x16[: len(got)])) < 1e-4
+
+
+def test_headphones_never_make_the_mic_louder():
+    """Headset: Scar's voice never reaches the mic. The canceller must not add its own junk to faint room noise."""
+    rng = np.random.default_rng(1)
+    aec = EchoCanceller()
+    n = aec.N
+    worst = 0.0
+    for i in range(600):
+        ref = (0.3 * np.sin(np.arange(n) * 0.05 + i) + 0.1 * rng.standard_normal(n)).astype(np.float32)
+        mic = (1e-4 * rng.standard_normal(n)).astype(np.float32)
+        out = aec.process(mic, ref)
+        worst = max(worst, float(np.mean(out ** 2)) / float(np.mean(mic ** 2)))
+    assert worst <= 1.06
+    assert aec.erle_db > -6

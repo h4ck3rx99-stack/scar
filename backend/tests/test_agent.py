@@ -12,6 +12,8 @@ class FakeLLM:
         self.calls = []
 
     async def stream(self, messages, tools=None, max_tokens=400):
+        if max_tokens == 1:
+            return                     # background cache priming (Agent._prime): not a real call
         self.calls.append({"messages": messages, "tools": [t["function"]["name"] for t in tools or []]})
         for item in self.scripts.pop(0):
             yield item
@@ -78,10 +80,21 @@ def test_follow_up_directed_check_no_drops_it_before_the_main_llm():
     assert len(a.llm.calls) == 1   # only the yes/no check ran
 
 
-def test_ignore_not_offered_after_wake_word():
-    a, _, _ = make_agent([("text", "Sure.")])
-    run(a.handle("tell me something", {}))
-    assert "ignore" not in a.llm.calls[0]["tools"]
+def test_stray_ignore_after_wake_word_does_not_drop_the_request():
+    # The tool list is identical on every turn (prompt cache), so "ignore" is always offered; after a wake word it
+    # must never make Scar drop what the user asked.
+    a, said, tools = make_agent([("tool_calls", [{"id": "1", "name": "ignore", "arguments": {}, "raw": "{}"},
+                                                 {"id": "2", "name": "window_action", "arguments": {"app": "chrome", "action": "minimize"}, "raw": "{}"}])])
+    out = run(a.handle("hide chrome for a bit", {}))
+    assert out != "ignored" and tools == [("window_action", {"app": "chrome", "action": "minimize"})]
+
+
+def test_prompt_prefix_is_identical_for_follow_ups():
+    a, _, _ = make_agent([("text", "Sure thing.")], [("text", "YES")], [("text", "Okay.")])
+    run(a.handle("hide chrome for a bit please", {}))
+    run(a.handle("and minimize spotify too okay", {}, follow_up=True))
+    first, last = a.llm.calls[0], a.llm.calls[-1]
+    assert first["messages"][0] == last["messages"][0] and first["tools"] == last["tools"]
 
 
 def test_long_follow_up_is_ignored_without_llm():

@@ -8,7 +8,6 @@ import { HoverEngine } from './hoverEngine.js';
 import { RoamEngine } from './roamEngine.js';
 import { AnimationController } from './animationController.js';
 import { SpeechBubble } from './speechBubble.js';
-import { WellnessEngine } from './wellnessEngine.js';
 import { MischiefEngine } from './mischiefEngine.js';
 import { soundEngine } from './soundEngine.js';
 import { ScarFace } from './scarFace.js';
@@ -77,7 +76,6 @@ const hoverEngine = new HoverEngine(avatarRoot);
 const roamEngine = new RoamEngine(avatarRoot, { speed: state.roamSpeed });
 const animController = new AnimationController(avatarRoot, hoverEngine, roamEngine);
 const speechBubble = new SpeechBubble(camera, avatarRoot);
-const wellnessEngine = new WellnessEngine(speechBubble, { intervalMinutes: 12 });
 const mischiefEngine = new MischiefEngine(avatarRoot, camera, hoverEngine, speechBubble, roamEngine);
 const eyeVisor = new ScarFace(); // Scar's animated face on the visor
 const dragController = new DragController(avatarRoot, eyeVisor, speechBubble, roamEngine, ipcRenderer);
@@ -202,13 +200,11 @@ function applySettings(v) {
     const sl = document.getElementById('scale-slider');
     if (sl) { sl.value = state.sizeMultiplier; document.getElementById('scale-val').textContent = `${state.sizeMultiplier.toFixed(2)}x`; }
   }
-  if (v.pranks != null) { mischiefEngine.allowed = Boolean(v.pranks); state.showPlayful?.(); }
+  if (v.pranks != null) mischiefEngine.allowed = Boolean(v.pranks);
   if (v.idle_moves != null) controller.idleLife.enabled = Boolean(v.idle_moves);
   if (v.roam_speed != null) roamEngine.setSpeed(BASE_ROAM_SPEED * v.roam_speed);
   if (v.sounds != null) {
     soundEngine.muted = !v.sounds;
-    const b = document.getElementById('audio-toggle-btn');
-    if (b) b.textContent = soundEngine.muted ? '🔇 Effects: OFF' : '🔊 Effects: ON';
   }
   if (v.bubbles != null) speechBubble.enabled = Boolean(v.bubbles);
   settingsPanel?.fill(v);
@@ -233,35 +229,8 @@ function setupUI() {
   };
   scaleSlider.onchange = () => { saveSettings({ sizeMultiplier: state.sizeMultiplier }); sendSettings({ size: state.sizeMultiplier }); };
 
-  const audioBtn = document.getElementById('audio-toggle-btn');
-  audioBtn.onclick = () => {
-    soundEngine.muted = !soundEngine.muted;
-    audioBtn.textContent = soundEngine.muted ? '🔇 Effects: OFF' : '🔊 Effects: ON';
-    sendSettings({ sounds: !soundEngine.muted });
-  };
-  document.getElementById('btn-trigger-wellness').onclick = () => wellnessEngine.triggerRandomReminder();
-  const roamBtn = document.getElementById('roam-toggle-btn');
-  roamBtn.onclick = () => {
-    const on = !roamEngine.enabled;
-    roamEngine.setEnabled(on);
-    mischiefEngine.enabled = on;
-    roamBtn.textContent = on ? '🌐 Roam: ON' : '🛑 Roam: OFF';
-    roamBtn.classList.toggle('primary', on);
-  };
-  const playBtn = document.getElementById('playful-toggle-btn');
-  const showPlayful = () => {
-    playBtn.textContent = mischiefEngine.allowed ? '🎭 Playful pranks: ON' : '🎭 Playful pranks: OFF';
-    playBtn.classList.toggle('primary', mischiefEngine.allowed);
-  };
-  state.showPlayful = showPlayful;
   mischiefEngine.allowed = Boolean(state.playful);
-  showPlayful();
-  playBtn.onclick = () => {
-    mischiefEngine.allowed = !mischiefEngine.allowed;
-    showPlayful();
-    saveSettings({ playful: mischiefEngine.allowed });
-    sendSettings({ pranks: mischiefEngine.allowed });
-  };
+  document.getElementById('dock-settings-btn').onclick = () => settingsPanel?.open(20, 80);
   document.getElementById('theme-toggle-btn').onclick = () => {
     const next = state.currentMode === 'dark' ? 'light' : 'dark';
     state.themeOverride = next;
@@ -278,15 +247,6 @@ function setupContextMenu() {
   };
   document.getElementById('menu-close-btn').onclick = hide;
 
-  document.querySelectorAll('.mood-btn').forEach((btn) => {
-    btn.onclick = () => {
-      const mood = btn.getAttribute('data-mood');
-      eyeVisor.setExpression(mood);
-      ({ happy: soundEngine.playHappy, scared: soundEngine.playScared, angry: soundEngine.playAngry,
-        sad: soundEngine.playSad, curious: soundEngine.playCurious }[mood] || soundEngine.playBoop).call(soundEngine);
-      hide();
-    };
-  });
 
   const input = document.getElementById('ctx-command');
   input.onkeydown = (e) => {
@@ -312,7 +272,6 @@ function setupContextMenu() {
     showToast(micOn ? 'Microphone on' : 'Microphone off: Scar hears nothing until you turn it back on');
     hide();
   };
-  document.getElementById('ctx-rest-btn').onclick = () => { wellnessEngine.triggerRandomReminder(); hide(); };
   document.getElementById('ctx-quit-btn').onclick = () => {
     speechBubble.stopAllSpeech();
     if (ipcRenderer) ipcRenderer.send('close-app'); else window.close();
@@ -489,10 +448,9 @@ async function boot() {
     }
   });
   await setModelMode(cfg.osTheme || 'dark');
-  // Standby: no wellness pop-ups or pranks until Scar is called again.
+  // Standby: no pranks until Scar is called again.
   bridge.on('voice_state', (m) => {
     const standby = m.status === 'standby';
-    wellnessEngine.setEnabled(!standby);
     mischiefEngine.enabled = !standby && roamEngine.enabled;
   });
   bridge.on('alert', (m) => { if (controller.mode === 'standby') showToast(m.text); });

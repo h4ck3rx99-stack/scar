@@ -130,15 +130,40 @@ class INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("u", _INPUTUNION)]
 
 
-def type_text(text: str, w: Window | None = None):
-    """Type text into the focused (or given) window as real Unicode key presses."""
+PASTING = {"text": None}   # what Scar itself put on the clipboard (clipboard history ignores it)
+
+
+def type_text(text: str, w: Window | None = None, paste: bool = False):
+    """Type text into the focused (or given) window.
+    Code and longer text is pasted, not typed: editors auto-indent after every Enter, so typing a multi-line
+    snippet key by key doubles its indentation. Pasting keeps it exactly as written; the clipboard is restored."""
     from jarvis.hands import actions as A
     if w is not None:
-        A.focus(w)
-        time.sleep(0.2)
+        for _ in range(3):
+            A.focus(w)
+            time.sleep(0.2)
+            fg = user32.GetForegroundWindow()
+            if fg and (fg == w.hwnd or user32.GetAncestor(fg, 3) == w.hwnd or user32.GetAncestor(w.hwnd, 3) == fg):
+                break
+        else:
+            # Typing into whatever else happens to be in front could put text somewhere private: refuse instead.
+            raise RuntimeError(f"couldn't bring {w.spoken_name} to the front")
+    enter = text.endswith("\n")
+    body = text[:-1] if enter else text
+    if paste or "\n" in body or len(body) > 120:
+        old = get_clipboard()
+        PASTING["text"] = body
+        set_clipboard(body)
+        time.sleep(0.05)
+        A.press("ctrl", "v")
+        time.sleep(0.35)          # let the app read the clipboard before it changes back
+        set_clipboard(old)
+        if enter:
+            A.press("enter")
+        return
     for ch in text:
         if ch == "\n":
-            A.press("enter") if "enter" in A.VK else None
+            A.press("enter")
             continue
         code = ord(ch)
         down = INPUT(INPUT_KEYBOARD, _INPUTUNION(ki=KEYBDINPUT(0, code, KEYEVENTF_UNICODE, 0, None)))

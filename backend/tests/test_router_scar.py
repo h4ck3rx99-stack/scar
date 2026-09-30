@@ -127,3 +127,19 @@ def test_parse_values(monkeypatch):
     assert settings.parse_value("personality", "funnier") == ("funny", None)
     assert settings.parse_value("voice_volume", "up")[0] > 100
     assert settings.parse_value("personality", "grumpy")[1]
+
+
+def test_spotify_play_button_found_by_shape(monkeypatch):
+    from types import SimpleNamespace
+    from PIL import Image, ImageDraw
+    from jarvis.brain import tools_more
+    from jarvis.hands import capture
+    img = Image.new("RGB", (1280, 800), (18, 18, 18))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((900, 500, 1045, 536), radius=18, fill=(30, 215, 96))     # "Reload page" style pill
+    d.ellipse((620, 740, 660, 780), fill=(255, 255, 255))                         # white player-bar button
+    d.ellipse((300, 380, 356, 436), fill=(30, 215, 96))                           # the big green Play button
+    d.polygon([(320, 395), (320, 421), (342, 408)], fill=(0, 0, 0))
+    monkeypatch.setattr(capture, "window_image", lambda w: img)
+    w = SimpleNamespace(frame=SimpleNamespace(left=100, top=50))
+    assert tools_more.find_spotify_play(w) == (100 + 328, 50 + 408)

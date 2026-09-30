@@ -47,9 +47,10 @@ _DANGLING = re.compile(r"(?:\b(?:search|tell me|talk|know|information|info|learn
 _INTERRUPT = re.compile(r"^\W*(?:ok(?:ay)?\W+)?(?:stop|wait|shut up|enough|quiet|be quiet|cancel|hold on|never ?mind|pause|that's enough)\b", re.I)
 
 
-def name_call(text: str):
+def name_call(text: str, misheard_ok=True):
     """If the utterance starts with the assistant's name ("Scar", "Hey Scar, ..."), return the rest of the
-    sentence ("" if nothing followed); otherwise None."""
+    sentence ("" if nothing followed); otherwise None. misheard_ok=False rejects Whisper's usual mishearings
+    ("Scott") unless the keyword spotter also heard the name."""
     words = re.sub(r"[^\w\s']", " ", text.lower()).split()
     if words and words[0] in _GREETING:
         words = words[1:]
@@ -57,7 +58,9 @@ def name_call(text: str):
         return None
     first, name = words[0], config.NAME.lower()
     # Whisper's usual spellings of "Scar" (from real logs: "Scott.").
-    spellings = {name, "skar", "scarr", "scaar", "sccar", "skarr", "scott", "scot", "skaar"} if name == "scar" else {name}
+    spellings = {name, "skar", "scarr", "scaar", "sccar", "skarr", "skaar"} if name == "scar" else {name}
+    if name == "scar" and misheard_ok:
+        spellings |= {"scott", "scot"}
     if first in _NOT_NAME or (first not in spellings and fuzz.ratio(first, name) < 86):
         return None
     return " ".join(text.split()[len(text.split()) - len(words) + 1:]).strip(" ,.!?")
@@ -119,6 +122,9 @@ class Session:
         self.spot_blocks = []
         self.spot_speech_ms = self.spot_silence_ms = 0
         self.spot_task = None
+        self.kws = None               # audio.kws.NameSpotter ("Scar" / "Hey Scar"), set up by __main__
+        self.kws_last = 0.0           # when the spotter last heard a bare "Scar"
+        self.spot_started = 0.0
 
     def _set_voice_filter(self, on):
         vp = runtime.voiceprint
@@ -285,12 +291,23 @@ class Session:
         self.preroll.append(block)
         prob = self.vad(block)
         woke = False
-        if now >= self.wake_cooldown_until:
+        if now >= self.wake_cooldown_until and (config.HEY_JARVIS or self.kws is None):
             woke = self.wake.feed((block * 32767).astype(np.int16))
             if woke:
                 self.wake.reset()
                 self.wake_cooldown_until = now + 1.5
                 log.info("wake word (%.2f)", self.wake.last_score)
+
+        if self.kws is not None:
+            hit = self.kws.feed(block)
+            if hit:
+                if hit.startswith(("HEY_", "OK_")) and now >= self.wake_cooldown_until and self.state != State.LISTENING:
+                    # "Hey Scar" is unmistakable: wake straight away, no transcription round trip.
+                    log.info("wake word (%s)", hit.lower().replace("_", " "))
+                    woke = True
+                    self.wake_cooldown_until = now + 1.5
+                else:
+                    self.kws_last = now
 
         st = self.state
         if st in (State.IDLE, State.SLEEPING, State.STANDBY):
@@ -373,6 +390,7 @@ class Session:
         if prob >= config.VAD_ON:
             if not self.spot_blocks:
                 self.spot_blocks = list(self.preroll)[-10:]  # ~0.3 s before onset
+                self.spot_started = time.monotonic()
             self.spot_speech_ms += BLOCK_MS
             self.spot_silence_ms = 0
         elif self.spot_blocks:
@@ -386,8 +404,20 @@ class Session:
             self._reset_spot()
             if speech_ms < 200 or (self.spot_task and not self.spot_task.done()):
                 return
+            if self.kws is not None and not self._worth_transcribing(speech_ms):
+                return                  # nobody said "Scar" and nothing else needs this burst: save the GPU
             audio = np.concatenate(blocks)
-            self.spot_task = asyncio.get_running_loop().create_task(self._check_name(audio))
+            self.spot_task = asyncio.get_running_loop().create_task(self._check_name(audio, self.spot_started))
+
+    def _worth_transcribing(self, speech_ms):
+        heard_name = self.kws_last >= self.spot_started - 0.3
+        if heard_name:
+            return True
+        if self.state in (State.THINKING, State.SPEAKING):
+            return speech_ms < 1500     # "stop" / "wait" over Scar's voice are short
+        if self.state == State.STANDBY:
+            return False                # standby wakes only on the name
+        return self.always_listen       # ambient commands need every burst transcribed
 
     async def _maybe_ambient_command(self, text, audio, t_end):
         """Always-listening mode: act on speech that wasn't prefixed with the name, but only if it's clearly
@@ -398,7 +428,7 @@ class Session:
             return
         from jarvis.brain.router import route_all
         hits = route_all(text)
-        if hits and hits[0][0] in ("smalltalk", "confirm", "stop"):
+        if hits and hits[0][0] in ("smalltalk", "chit_chat", "confirm", "stop"):
             return                      # "thanks", "yes", "stop" said to someone else
         if not hits and len(words) < 3:
             return                      # "show me", "go ahead": too vague without the name
@@ -425,7 +455,7 @@ class Session:
         await self._set(State.THINKING)
         self.turn_task = loop.create_task(self._turn(text=text))
 
-    async def _check_name(self, audio):
+    async def _check_name(self, audio, started=0.0):
         t_end = time.perf_counter()
         text = await asyncio.get_running_loop().run_in_executor(None, self.stt.transcribe, audio)
         busy = self.state in (State.THINKING, State.SPEAKING)
@@ -440,7 +470,7 @@ class Session:
             self.last_activity = time.monotonic()
             await self._set(State.IDLE)
             return
-        rest = name_call(text)
+        rest = name_call(text, misheard_ok=self.kws is None or self.kws_last >= started - 0.3)
         if rest is None:
             if not busy and self.state != State.STANDBY and self.always_listen:
                 await self._maybe_ambient_command(text, audio, t_end)

@@ -11,6 +11,14 @@ import httpx
 from jarvis import config
 
 log = logging.getLogger("llm")
+_locks = {}
+
+
+def _slot_lock(slot):
+    import asyncio
+    if slot not in _locks:
+        _locks[slot] = asyncio.Lock()
+    return _locks[slot]
 
 
 class Endpoint:
@@ -53,6 +61,19 @@ class LLM:
             body["tools"] = tools
         if ep.local:
             body["chat_template_kwargs"] = {"enable_thinking": False}
+            # Two llama.cpp slots: 0 keeps the big system-prompt + tool-list prefix cached for real turns; 1 takes the
+            # side calls ("was that meant for me?", answer phrasing, vision, code) so they never evict it. llama.cpp
+            # mixes up two requests pinned to the same busy slot, so each slot is used by one request at a time.
+            body["id_slot"] = 0 if tools else 1
+            body["cache_prompt"] = True
+            async with _slot_lock(body["id_slot"]):
+                async for item in self._post(ep, body):
+                    yield item
+            return
+        async for item in self._post(ep, body):
+            yield item
+
+    async def _post(self, ep, body):
         calls = {}
         async with self.client.stream("POST", f"{ep.url}/chat/completions", json=body, headers=ep.headers()) as r:
             if r.status_code != 200:
@@ -85,6 +106,27 @@ class LLM:
                     args = {}
                 out.append({"id": c["id"] or f"call_{i}", "name": c["name"], "arguments": args, "raw": c["arguments"] or "{}"})
             yield "tool_calls", out
+
+    async def prime(self, messages, tools):
+        """Pre-process slot 0 up to exactly where the next user message will start.
+
+        Qwen3.5 is a hybrid (attention + recurrent) model, so llama.cpp can only resume a cached prompt from a saved
+        checkpoint, and it saves one a few tokens before the end of what it processed. Priming with the rendered
+        prompt cut right at "<|im_start|>user\\n" puts that checkpoint inside the part every next question shares."""
+        if self.local is None:
+            return
+        base = self.local.url.rsplit("/v1", 1)[0]
+        mark = "\u0001NEXT"
+        body = {"messages": [*messages, {"role": "user", "content": mark}], "tools": tools,
+                "chat_template_kwargs": {"enable_thinking": False}}
+        r = await self.client.post(f"{base}/apply-template", json=body)
+        prompt = r.json().get("prompt", "")
+        cut = prompt.find(mark)
+        if cut <= 0:
+            return
+        async with _slot_lock(0):
+            await self.client.post(f"{base}/completion", json={"prompt": prompt[:cut], "n_predict": 1, "id_slot": 0,
+                                                              "cache_prompt": True, "temperature": 0})
 
     async def health(self):
         try:

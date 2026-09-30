@@ -36,6 +36,12 @@ SPEC = {
                     "names": ["personality", "tone", "style", "mood", "answer style", "attitude"]},
     "city": {"kind": "text", "default": "", "side": "backend", "label": "home city",
              "names": ["city", "home city", "location", "weather city", "my city"]},
+    "clipboard_history": {"kind": "bool", "default": True, "side": "backend", "label": "clipboard history",
+                          "names": ["clipboard history", "copy history", "clipboard memory"]},
+    "evening_recap": {"kind": "bool", "default": True, "side": "backend", "label": "evening recap offer",
+                      "names": ["evening recap", "daily recap", "end of day recap", "recap"]},
+    "recap_hour": {"kind": "number", "default": 21, "min": 16, "max": 23, "side": "backend", "label": "recap time",
+                   "unit": "o'clock", "names": ["recap time", "recap hour", "evening recap time"]},
     "size": {"kind": "number", "default": 1.0, "min": 0.5, "max": 2.0, "side": "frontend", "label": "size", "unit": "x",
              "names": ["size", "your size", "robot size", "scale"]},
     "pranks": {"kind": "bool", "default": True, "side": "frontend", "label": "playful pranks",
@@ -53,11 +59,12 @@ FRONTEND_KEYS = [k for k, s in SPEC.items() if s["side"] == "frontend"]
 _NAMES = {n: k for k, s in SPEC.items() for n in [k.replace("_", " "), *s["names"]]}
 PERSONALITY = {
     "normal": "",
-    "funny": "Personality: playful and funny; add a light joke or witty remark when it fits, but still answer.",
+    "funny": "Personality: playful and funny; add a light joke or witty remark when it fits, but still answer. "
+             "Humour goes around the facts, never replaces them: everything stated as fact must be true.",
     "formal": "Personality: formal and polished, like a butler. Address the user as 'sir' or 'ma'am' sparingly.",
     "brief": "Personality: extremely brief. One short sentence whenever possible.",
     "detailed": "Personality: thorough. Give fuller explanations (up to 5 sentences) when a question deserves it.",
-    "sarcastic": "Personality: dry, sarcastic wit (friendly, never mean), still genuinely helpful.",
+    "sarcastic": "Personality: dry, sarcastic wit (friendly, never mean), still genuinely helpful and always factually correct.",
     "calm": "Personality: calm, gentle and reassuring.",
 }
 _hooks = {}   # key -> fn(value), registered by whoever owns the live object (session, speaker, ...)
@@ -139,6 +146,8 @@ def parse_value(key, raw):
     if n is None:
         return None, f"I need a number for {s['label']}"
     unit = s.get("unit")
+    if key == "recap_hour" and (re.search(r"p\.?\s?m\b", r) or n < 12 and not re.search(r"a\.?\s?m\b", r)):
+        n = n + 12 if n < 12 else n        # "9", "9 pm" -> 21
     if unit == "minutes" and re.search(r"\bsec", r):
         n /= 60
     elif unit == "seconds" and re.search(r"\bmin", r):
@@ -199,6 +208,9 @@ def describe(key, value=None):
     if s["kind"] == "bool":
         return f"{s['label']} is {'on' if v else 'off'}"
     if s["kind"] == "number":
+        if key == "recap_hour":
+            h = int(v)
+            return f"{s['label']} is {h - 12 if h > 12 else h} {'PM' if h >= 12 else 'AM'}"
         unit = {"x": "times", "percent": "percent"}.get(s.get("unit"), s.get("unit", ""))
         return f"{s['label']} is {v:g} {unit}".strip()
     return f"{s['label']} is {v or 'not set'}"

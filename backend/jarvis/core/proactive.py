@@ -122,6 +122,21 @@ class Proactive:
                 tools.pending_confirm = explain
                 await self.session.announce(f"Looks like {buf.value or 'a program'} just showed an error. Want me to explain it?")
 
+        # Evening recap: offered once a day at the chosen hour, only while the user is actually at the PC.
+        from jarvis.core import settings
+        today = datetime.date.today().isoformat()
+        if (settings.get("evening_recap") and datetime.datetime.now().hour == int(settings.get("recap_hour"))
+                and prefs.load().get("recap_offered") != today and idle_seconds() < 120 and state in ("idle", "follow_up")):
+            prefs.save({**prefs.load(), "recap_offered": today})
+            tools = self.session.agent.tools
+
+            async def recap():
+                data = await tools.t_evening_recap()
+                await self.session.agent._answer_from("evening recap", "evening_recap", {}, data, {})
+
+            tools.pending_confirm = recap
+            await self.session.announce("It's evening. Want a quick recap of your day?")
+
         # Break suggestion after a long stretch of activity.
         idle = idle_seconds()
         now = time.time()

@@ -73,6 +73,7 @@ class EchoCanceller:
         self.prev_ref = np.zeros(block, np.float32)
         self.erle_db = 0.0
         self.residual_ratio = 1.0
+        self.resets = 0           # divergence resets (headphones give it nothing to learn)
 
     def process(self, mic: np.ndarray, ref: np.ndarray) -> np.ndarray:
         N = self.N
@@ -92,6 +93,15 @@ class EchoCanceller:
             self.erle_db = 0.9 * self.erle_db + 0.1 * 10 * np.log10((mic_pow + 1e-12) / (err_pow + 1e-12))
             # How much echo is still left relative to what we cancelled (drives the residual suppressor).
             self.residual_ratio = float(np.clip(10 ** (-self.erle_db / 10), 0.01, 1.0))
+            if self.erle_db < -6:
+                # Worse than doing nothing (headphones: no echo to learn, or a changed room): start over.
+                self.W[:] = 0
+                self.erle_db = 0.0
+                self.resets += 1
+        # Never hand the ears something louder than the raw mic: that's the filter adding noise, not removing echo.
+        worse = err_pow > mic_pow * 1.05 + 1e-10
+        if worse:
+            self.last_linear = mic.astype(np.float32)
         # Adapt only when Scar is actually playing and the user isn't clearly talking over it (double-talk):
         # the residual being much louder than the echo estimate means there's near-end speech.
         converged = self.erle_db > 6
@@ -104,6 +114,8 @@ class EchoCanceller:
             G = self.mu * np.conj(self.X) * E / (self.Pxx * self.norm + delta)
             g = np.fft.irfft(G, axis=1)[:, :N]              # gradient constraint: keep the causal half
             self.W += np.fft.rfft(np.concatenate([g, np.zeros_like(g)], axis=1), axis=1).astype(np.complex64)
+        if worse:
+            return mic.astype(np.float32)
         return self._suppress(e, y) if ref_pow > 1e-7 else e
 
     # ------------------------------------------------------------ persistence

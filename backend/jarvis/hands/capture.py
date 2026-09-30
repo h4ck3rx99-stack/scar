@@ -28,6 +28,28 @@ _hidden = {}  # hwnd -> (original exstyle, deadline)
 _lock = threading.Lock()
 
 
+def window_image(w: Window) -> Image.Image:
+    """The window's own pixels at full resolution, even when other windows cover it (PrintWindow)."""
+    r, f = w.rect, w.frame
+    width, height = r.width, r.height
+    hwnd_dc = win32gui.GetWindowDC(w.hwnd)
+    mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+    mem_dc = mfc_dc.CreateCompatibleDC()
+    bmp = win32ui.CreateBitmap()
+    bmp.CreateCompatibleBitmap(mfc_dc, width, height)
+    mem_dc.SelectObject(bmp)
+    try:
+        ctypes.windll.user32.PrintWindow(w.hwnd, mem_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
+        info = bmp.GetInfo()
+        img = Image.frombuffer("RGB", (info["bmWidth"], info["bmHeight"]), bmp.GetBitmapBits(True), "raw", "BGRX", 0, 1)
+    finally:
+        win32gui.DeleteObject(bmp.GetHandle())
+        mem_dc.DeleteDC()
+        mfc_dc.DeleteDC()
+        win32gui.ReleaseDC(w.hwnd, hwnd_dc)
+    return img.crop((f.left - r.left, f.top - r.top, f.right - r.left, f.bottom - r.top))
+
+
 def snapshot(w: Window) -> tuple[str, dict]:
     """Capture the window's visible frame to captures/<id>.webp. Returns (filename, bounds)."""
     r, f = w.rect, w.frame

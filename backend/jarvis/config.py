@@ -75,6 +75,9 @@ FOLLOW_UP_MS = _env("JARVIS_FOLLOW_UP_MS", 5000, int)
 FOLLOW_UP_TAIL_MS = 250          # wait after playback drains before opening the hot mic
 SLEEP_AFTER_S = _env("JARVIS_SLEEP_AFTER_S", 180, int)
 WAKE_THRESHOLD = _env("JARVIS_WAKE_THRESHOLD", 0.5, float)
+KWS_THRESHOLD = _env("JARVIS_KWS_THRESHOLD", 0.1, float)    # "Scar" keyword spotter: lower = more sensitive
+KWS = _bool(_env("JARVIS_KWS", "true"))                     # sherpa-onnx name wake word (else Whisper spotting only)
+HEY_JARVIS = _bool(_env("JARVIS_HEY_JARVIS", "false"))      # old openWakeWord "Hey Jarvis" (false-fires on videos/lectures)
 
 # --- Models ------------------------------------------------------------------
 WAKE_MODEL = MODELS_DIR / "wakeword" / "hey_jarvis_v0.1.onnx"

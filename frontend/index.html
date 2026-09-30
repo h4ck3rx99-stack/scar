@@ -27,10 +27,7 @@
         <input id="scale-slider" type="range" min="0.6" max="1.6" step="0.05" value="1">
       </div>
       <button id="theme-toggle-btn" class="dock-btn" style="width: 100%;">🌓 Toggle dark / light</button>
-      <button id="audio-toggle-btn" class="dock-btn" style="width: 100%;">🔊 Effects: ON</button>
-      <button id="btn-trigger-wellness" class="dock-btn" style="width: 100%;">💧 Take a break reminder</button>
-      <button id="roam-toggle-btn" class="dock-btn primary" style="width: 100%;">🌐 Roam: ON</button>
-      <button id="playful-toggle-btn" class="dock-btn" style="width: 100%;">🎭 Playful pranks: OFF</button>
+      <button id="dock-settings-btn" class="dock-btn primary" style="width: 100%;">⚙ All settings</button>
     </div>
   </aside>
 
@@ -43,22 +40,12 @@
 
     <input id="ctx-command" class="ctx-command" type="text" placeholder="Type a command…  (Enter)" autocomplete="off" spellcheck="false">
 
-    <div class="menu-group-label">Mood</div>
-    <div class="menu-mood-grid">
-      <button class="mood-btn" data-mood="happy">😊 Happy</button>
-      <button class="mood-btn" data-mood="scared">😱 Scared</button>
-      <button class="mood-btn" data-mood="angry">😠 Angry</button>
-      <button class="mood-btn" data-mood="sad">😢 Sad</button>
-      <button class="mood-btn" data-mood="curious">🤔 Curious</button>
-      <button class="mood-btn" data-mood="normal">🤖 Normal</button>
-    </div>
 
     <div class="menu-divider"></div>
     <button id="ctx-settings-btn" class="ctx-item">⚙ Settings</button>
     <button id="ctx-roam-btn" class="ctx-item">🌐 Roam freely</button>
     <button id="ctx-mic-btn" class="ctx-item">🎙 Mic: ON</button>
     <button id="ctx-sleep-btn" class="ctx-item">😴 Go to sleep</button>
-    <button id="ctx-rest-btn" class="ctx-item">💧 Break reminder</button>
     <div class="menu-divider"></div>
     <button id="ctx-quit-btn" class="ctx-item danger">✕ Quit Scar</button>
   </div>

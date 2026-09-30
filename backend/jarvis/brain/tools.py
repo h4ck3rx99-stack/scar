@@ -16,6 +16,7 @@ from jarvis.hands import capture as C
 from jarvis.hands import keys, uia
 from jarvis.hands.windows import Rect, Window, find_window, foreground_window, list_windows
 from jarvis import runtime
+from jarvis.brain.tools_extra import _VISUAL, EXTRA_DATA_TOOLS, EXTRA_SCHEMA, CodeTools, ExtraTools
 from jarvis.brain.tools_more import MORE_DATA_TOOLS, MORE_SCHEMA, MoreTools
 from jarvis.skills import calc, files, reminders, screen, store, system, web
 
@@ -25,6 +26,12 @@ def random_of(*options):
     return random.choice(options)
 
 log = logging.getLogger("tools")
+_HERE = {"code editor", "the code editor", "editor", "the editor", "my editor", "my code editor", "ide", "the ide", "here",
+         "this", "it", "this window", "current window", "the current window", "the app", "this app", "that", "there",
+         "same window", "the same window", "code", "my code", "the code", "active window", "the active window",
+         "text editor", "the text box", "text box", "input box", "the input", "compiler", "the compiler"}
+_EDITORS = {"opera.exe", "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "vivaldi.exe", "code.exe", "cursor.exe",
+            "pycharm64.exe", "idea64.exe", "sublime_text.exe", "notepad++.exe", "devcpp.exe", "codeblocks.exe"}
 _SHELLS = {"cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe", "wt.exe", "bash.exe", "wsl.exe"}
 # spoken word, symbol, how it joins: True = no spaces either side, False = spaces kept, None = flag-or-path (slash, dash)
 _SYMBOLS = [("backslash", "\\", True), ("forward slash", "/", None), ("slash", "/", None), ("underscore", "_", True),
@@ -195,11 +202,11 @@ DATA_TOOLS = {"list_windows", "read_screen", "system_status", "list_reminders", 
               "search_my_files", "ask_file", "list_routines", "my_schedule", "news", "define"}
 
 
-SCHEMA += MORE_SCHEMA
-DATA_TOOLS |= MORE_DATA_TOOLS
+SCHEMA += MORE_SCHEMA + EXTRA_SCHEMA
+DATA_TOOLS |= MORE_DATA_TOOLS | EXTRA_DATA_TOOLS
 
 
-class Tools(MoreTools):
+class Tools(MoreTools, ExtraTools, CodeTools):
     def __init__(self, ui, speak, memory, scheduler=None):
         self.ui = ui                # UiLink
         self.speak = speak          # async fn(text) - queues speech, returns immediately
@@ -768,9 +775,16 @@ class Tools(MoreTools):
         if m:
             text, enter = text[:m.start()], True
         target = None
+        if app and app.lower().strip() in _HERE:
+            app = None                              # "the code editor", "here", "this": the window you're working in
         if app:
             target = self._resolve(app)
-            if target is None:
+            if target is None and not from_router:
+                # The model named something that isn't open ("code editor"): never launch a new app for that,
+                # type where the user is working.
+                log.info("type_text: %r isn't an open window; typing into the current one", app)
+                app = None
+            elif target is None:
                 before = {w.hwnd for w in list_windows()}
                 if await loop.run_in_executor(None, A.open_app, app.lower()):
                     await self.speak(f"Opening {app} first.")
@@ -787,9 +801,18 @@ class Tools(MoreTools):
             target = fg if fg is not None else last
         if app and target is not None:
             self.memory.last_window = target
-        command = bool(target and target.exe in _SHELLS) or bool(re.search(r"\b(?:slash|backslash|underscore)\b", text, re.I))
-        text = spoken_symbols(text, command)
-        await loop.run_in_executor(None, screen.type_text, text + ("\n" if enter else ""), target)
+        if "\n" in text:
+            enter = enter and from_router          # a code block: Enter afterwards only if the user said so
+        else:
+            command = bool(target and target.exe in _SHELLS) or bool(re.search(r"\b(?:slash|backslash|underscore)\b", text, re.I))
+            text = spoken_symbols(text, command)
+        # Browsers' code editors and IDEs auto-close brackets and quotes while typing: paste those instead.
+        paste = bool(target and target.exe in _EDITORS and re.search(r"[(\[{\"'<]", text))
+        try:
+            await loop.run_in_executor(None, lambda: screen.type_text(text + ("\n" if enter else ""), target, paste=paste))
+        except RuntimeError as e:
+            await self.speak(f"I couldn't switch to {target.spoken_name}, so I didn't type anything. Click into it and ask again.")
+            return f"error: {e}"
         return f"typed {text!r}" + (f" into {target.spoken_name}" if target else "")
 
     async def t_arrange_windows(self, from_router=False):
@@ -811,6 +834,8 @@ class Tools(MoreTools):
         if w.minimized:
             A.restore(w)
             await asyncio.sleep(0.3)
+        if _VISUAL.search(name):
+            return await self.t_point_click(name)   # "the second video", "the red button": a job for eyes, not names
         hit = await uia.find_element(w, name)
         if not hit:
             # Not in the accessibility tree (web page content, custom UIs): find the words on screen and click them.
@@ -825,10 +850,7 @@ class Tools(MoreTools):
                 A.real_click(*point)
                 self.memory.last_window = w
                 return f"clicked the text '{text}'"
-            if from_router:
-                return FALLTHROUGH
-            await self.speak(f"I can't see {name} in {w.spoken_name}.")
-            return f"no element named {name}"
+            return await self.t_point_click(name)   # last resort: the vision model points at it
         ctrl, rect = hit
         await self.speak(f"Clicking {name}.")
         point = (rect.left + rect.width // 2, rect.top + rect.height // 2)

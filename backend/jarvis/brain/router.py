@@ -78,6 +78,24 @@ def _thanks(m):
     return "smalltalk", {"kind": "thanks"}
 
 
+# --- small talk: instant replies -------------------------------------------------------
+_CHAT = [
+    (r"(?:hi|hello|hey|hey there|hi there|yo|hola|namaste|good (?:afternoon|evening))(?: scar| buddy| there)?", "greeting"),
+    (r"how are you(?: doing| today)?|how(?:'s| is) it going|what's up|whats up|how do you do|how have you been|you good|how are things", "how_are_you"),
+    (r"who are you|what(?:'s| is) your name|what are you|introduce yourself|tell me about yourself", "who_are_you"),
+    (r"who (?:made|created|built|programmed) you|who is your (?:creator|maker)", "who_made_you"),
+    (r"i(?:'m| am) (?:good|fine|great|okay|ok|doing (?:good|great|well|fine))(?: too| thanks| thank you)?|i'm doing well|not bad", "good"),
+    (r"i(?:'m| am) (?:tired|sad|bored|stressed|not (?:good|okay|great)|feeling (?:low|down|bad))", "bad"),
+    (r"i love you|you(?:'re| are) (?:awesome|the best|cool|amazing|great|good)|good (?:job|work|bot)|well done", "love"),
+]
+
+
+@rule(r"^(?:" + "|".join(f"(?P<k{i}>{p})" for i, (p, _) in enumerate(_CHAT)) + r")$")
+def _chat(m):
+    kind = next(k for i, (_, k) in enumerate(_CHAT) if m[f"k{i}"])
+    return "chit_chat", {"kind": kind}
+
+
 # --- about Scar: help, repeat, self check -------------------------------------------
 @rule(r"^(?:what (?:all )?can you do|tell me what you can do|what are your (?:features|abilities|skills|commands|powers)|help(?: me)?"
       r"|what do you do|how can you help(?: me)?|what are you capable of|show me what you can do|what commands (?:do you know|are there))$")
@@ -276,6 +294,134 @@ def _play_anything(m):
     if q in ("it", "that", "this", "again", "something", "music", "some music", "a song", "anything", "the music", "the video", "my music"):
         return None
     return "play_youtube", {"query": q}
+
+
+# --- coding practice (learning.ccbp.in / NxtWave and similar) ------------------------------
+_PROBLEM = r"(?:this|the|that|my)? ?(?:problem|question|exercise|assignment|challenge|coding question|practice question)"
+
+
+@rule(rf"^(?:solve|do|answer|complete|write (?:the )?(?:code|solution|program) for) {_PROBLEM}(?: on (?:my |the )?screen)?(?: and (?:type|write|put|paste) it(?: out| in| into the editor)?)?(?: in (?P<lang>python|javascript|java|sql|c\+\+|c))?$"
+      r"|^(?:write|type) (?:the )?(?:solution|code|answer)(?: for (?:this|the) (?:problem|question))?(?: in (?:the )?editor)?(?: in (?P<lang2>python|javascript|java|sql|c\+\+|c))?$")
+def _code_solve(m):
+    lang = m["lang"] or m["lang2"]
+    return "code_assist", {"action": "solve", **({"language": lang.title() if lang != "sql" else "SQL"} if lang else {})}
+
+
+@rule(rf"^(?:give me |i need |can i get )?(?:a |another )?hint(?: for {_PROBLEM})?$|^(?:help me|i'm stuck)(?: with| on)? {_PROBLEM}$|^i'm stuck$")
+def _code_hint(m):
+    return "code_assist", {"action": "hint"}
+
+
+@rule(rf"^(?:explain|what does) {_PROBLEM}(?: mean| ask| want)?(?: me to do)?$|^what (?:is|does) {_PROBLEM} (?:asking|want)(?: me to do)?$")
+def _code_explain(m):
+    return "code_assist", {"action": "explain"}
+
+
+@rule(r"^(?:check|debug|review|fix) (?:my |the |this )?code$|^what(?:'s| is) wrong with (?:my |the |this )?code$|^why (?:is|does) (?:my |the |this )?code (?:not work(?:ing)?|fail(?:ing)?|wrong|giv(?:e|ing) (?:the |a )?wrong (?:answer|output))$"
+      r"|^(?:my |the )?code (?:isn't|is not|doesn't|does not) work(?:ing)?$|^why (?:did|are) (?:the )?test ?cases? fail(?:ing)?$")
+def _code_check(m):
+    return "code_assist", {"action": "check"}
+
+
+@rule(r"^(?:run|execute|test) (?:the |my |this )?code$|^(?:click |press )?run(?: code)?$|^run (?:the )?test ?cases$")
+def _code_run(m):
+    return "code_run", {"which": "run"}
+
+
+@rule(r"^submit(?: (?:the |my |this )?(?:code|solution|answer|it))?$|^(?:click |press )submit$")
+def _code_submit(m):
+    return "code_run", {"which": "submit"}
+
+
+# --- pointing at things Scar just described ------------------------------------------
+@rule(r"^(?:click|tap|press|open|select|choose)(?: on)? (?:that|it|this|that one|this one|the one you (?:mentioned|said|described|found))$")
+def _click_that(m):
+    return "point_click", {"target": "that"}
+
+
+@rule(r"^(?P<a>double click|right click|hover over|hover on|hover)(?: on)? (?:the )?(?P<t>.+)$")
+def _click_kind(m):
+    a = {"double click": "double_click", "right click": "right_click"}.get(m["a"], "hover")
+    return "point_click", {"target": m["t"], "action": a}
+
+
+# --- WhatsApp ----------------------------------------------------------------------------
+@rule(r"^(?:send |text |message )?(?:a )?(?:whatsapp|whats app)(?: message)? to (?P<c>.+?)(?: saying| that says| that| message)[:,]? (?P<m>.+)$"
+      r"|^(?:send|write) (?:a )?(?:message|text) to (?P<c2>.+?) on (?:whatsapp|whats app)(?: saying| that says| that)?[:,]? (?P<m2>.+)$"
+      r"|^(?:whatsapp|message|text) (?P<c3>[a-z]+(?: [a-z]+)?) (?:saying|that says|that)[:,]? (?P<m3>.+)$"
+      r"|^(?:tell|ask) (?P<c4>[a-z]+(?: [a-z]+)?) on (?:whatsapp|whats app)(?: that)? (?P<m4>.+)$")
+def _whatsapp(m):
+    c = m["c"] or m["c2"] or m["c3"] or m["c4"]
+    msg = m["m"] or m["m2"] or m["m3"] or m["m4"]
+    return "whatsapp", {"contact": c.strip(), "message": msg.strip()}
+
+
+@rule(r"^(?:save|add|remember|store) (?P<n>[a-z]+(?: [a-z]+)??)(?:'s| s)? (?:phone |mobile |whatsapp )?number (?:as|is|to) (?P<num>[\d +\-()]{7,})$"
+      r"|^(?P<n2>[a-z]+(?: [a-z]+)?)(?:'s| s) (?:phone |mobile |whatsapp )?number is (?P<num2>[\d +\-()]{7,})$")
+def _save_contact(m):
+    return "save_contact", {"name": (m["n"] or m["n2"]).strip(), "number": (m["num"] or m["num2"]).strip()}
+
+
+# --- clipboard history -------------------------------------------------------------------
+@rule(r"^(?:what did i (?:just )?copy(?: earlier| before| last| today)?|what have i copied|what(?:'s| is) (?:in|on) my clipboard history"
+      r"|(?:show|read|list|tell me) (?:me )?(?:my )?(?:clipboard history|recent copies|what i copied))$")
+def _clip_list(m):
+    return "clipboard_history", {"action": "list"}
+
+
+@rule(r"^paste (?:what i copied|the thing i copied|what i had copied)(?: (?P<w>earlier|before|previously))?$"
+      r"|^paste (?:the )?(?P<w2>previous|second|third|fourth|fifth|2nd|3rd|4th|5th) (?:thing|item|one|copy)(?: i copied)?$"
+      r"|^paste (?:the )?(?P<q>link|url|email|email address)(?: i copied)?(?: earlier| before)?$"
+      r"|^paste (?:what i copied|the thing i copied|the one) (?:about|with|containing|that says|mentioning) (?P<q2>.+)$")
+def _clip_paste(m):
+    q = m["q"] or m["q2"]
+    return "clipboard_history", {"action": "paste", "which": None if q else (m["w2"] or "previous"), "query": q}
+
+
+@rule(r"^(?:clear|delete|wipe|forget) (?:my )?clipboard history$")
+def _clip_clear(m):
+    return "clipboard_history", {"action": "clear"}
+
+
+# --- macros ("watch me do this") ------------------------------------------------------------
+@rule(r"^(?:watch me(?: do (?:this|something|it))?|learn (?:this|how i do this)(?: task)?|start recording(?: a| my)?(?: macro| task)?(?: called (?P<n>.+))?"
+      r"|record (?:a |my )?(?:macro|task)(?: called (?P<n2>.+))?|remember how i do this)$")
+def _macro_start(m):
+    return "macro", {"action": "start", "name": m["n"] or m["n2"]}
+
+
+@rule(r"^(?:stop recording|done recording|finish recording|end recording|i'm done|i am done|that's it|done)(?:(?: and)? (?:save it as|call it|name it) (?P<n>.+))?$")
+def _macro_stop(m):
+    return "macro", {"action": "stop", "name": m["n"]}
+
+
+@rule(r"^(?:save it as|call it|name it|save that as|save this as) (?P<n>.+)$")
+def _macro_save(m):
+    return "macro", {"action": "save", "name": m["n"]}
+
+
+@rule(r"^(?:run|replay|do|play|start) (?:the |my )?(?P<n>.+?) macro$|^(?:replay|repeat) (?:the |my )?(?P<n2>.+?)$")
+def _macro_play(m):
+    from jarvis.skills import macros
+    name = m["n"] or m["n2"]
+    return ("macro", {"action": "play", "name": name}) if (m["n"] or macros.find(name)) else None
+
+
+@rule(r"^(?:list|show|what are) (?:all )?(?:my |the )?macros$")
+def _macro_list(m):
+    return "macro", {"action": "list"}
+
+
+@rule(r"^(?:delete|remove|forget) (?:the |my )?(?P<n>.+?) macro$")
+def _macro_delete(m):
+    return "macro", {"action": "delete", "name": m["n"]}
+
+
+# --- evening recap ---------------------------------------------------------------------------
+@rule(r"^(?:(?:give me |do )?(?:an? |my )?(?:evening|daily|end of (?:the )?day|day) (?:recap|summary|review)|recap(?: my day)?|how was my day"
+      r"|summari[sz]e my day|what did i get done today)$")
+def _recap(m):
+    return "evening_recap", {}
 
 
 # --- browser tabs -----------------------------------------------------------------
@@ -513,7 +659,10 @@ def _list_routines(m):
 def _run_routine(m):
     from jarvis.skills import routines
     name = m["n"] or m["n2"]
-    return ("run_routine", {"name": name}) if routines.find(name) else None
+    if routines.find(name):
+        return "run_routine", {"name": name}
+    from jarvis.skills import macros
+    return ("macro", {"action": "play", "name": name}) if macros.find(name) else None
 
 
 @rule(r"^(?:add|put|schedule|set) (?P<t>.+?) (?:to my schedule |in my schedule |on my calendar )?(?P<w>(?:every|each|on|at|tomorrow|today|this|next) .+)$")

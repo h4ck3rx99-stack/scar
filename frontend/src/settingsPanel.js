@@ -22,6 +22,9 @@ const FIELDS = [
   { key: 'only_my_voice', label: 'Only my voice', type: 'toggle', hint: 'After "learn my voice"' },
   { key: 'suggestions', label: 'Suggestions', type: 'toggle' },
   { group: 'Other' },
+  { key: 'clipboard_history', label: 'Clipboard history', type: 'toggle', hint: 'Remembers recent copies (in memory only)' },
+  { key: 'evening_recap', label: 'Offer evening recap', type: 'toggle' },
+  { key: 'recap_hour', label: 'Recap time', type: 'range', min: 16, max: 23, step: 1, fmt: (v) => `${Math.round(v) - 12} PM` },
   { key: 'city', label: 'Home city', type: 'text', placeholder: 'from your IP' },
 ];
 

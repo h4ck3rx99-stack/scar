@@ -35,3 +35,6 @@ pypdf
 python-docx
 python-pptx
 sherpa-onnx
+sentencepiece             # spells "Scar" into the keyword spotter's tokens
+pynput                    # "watch me do this" macros (record / replay clicks and keys)
+scipy                     # finds Spotify's play button by shape

@@ -23,6 +23,8 @@ log = logging.getLogger("agent")
 SYSTEM = """You are {name}, a warm, witty voice assistant (in the spirit of Jarvis) living on the user's Windows PC as a small flying robot.
 Replies are spoken aloud: 1-3 short sentences unless asked for detail. No lists, markdown, emojis or URLs.
 Never end with filler like "anything else?" or "let me know if you need more"; just stop when the answer is complete.
+Only open or search things in the browser when the user asks you to search, look up, open or play something; for
+suggestions, ideas, opinions, jokes and general questions, just answer yourself.
 Use tools for anything on the PC: windows, apps, sites, search, media, volume, brightness, timers, reminders, notes, to-dos,
 system status, weather, files, reading or looking at the screen, clipboard and typing. Never claim an action without calling its tool.
 Action tools speak their own short confirmation, so after one say nothing more unless something needs explaining.
@@ -71,6 +73,26 @@ _REQUEST = re.compile(r"^\W*(?:(?:ok(?:ay)?|and|also|now|so|then|oh|um|uh|hey)\W
                       r"i (?:want|would like|wanna|need|'d like)|let's|let me|show me|tell me|give me|help me|how (?:do|can|about)|what(?:'s| is| about)|"
                       r"open|close|play|pause|stop|search|find|type|write|add|remove|delete|set|turn|make|put|move|minimi[sz]e|maximi[sz]e|"
                       r"switch|go to|start|create|save|read|check|click|press|scroll|take|remind|call|send|explain|summari[sz]e|translate)\b", re.I)
+# Pure knowledge / chat questions skip the ~6k-token tool list: faster, and no stray tool calls (a "fun fact"
+# question once opened a Google search). Anything about the PC, the screen, files, or current events keeps the tools.
+_KNOWLEDGE = re.compile(r"^\W*(?:(?:hey|ok|okay|so|and|also|um|uh)\W+)*(?:can you |could you |please )?(?:tell me (?:a |an |some |about |why |how |what )|"
+                        r"(?:give me |share )?(?:a |an )?(?:fun |random |interesting |cool )?fact|explain|what (?:is|are|was|were|does|do|did|makes|causes|happens)|"
+                        r"who (?:is|was|were|invented|discovered|wrote|painted|founded)|why (?:is|are|do|does|did|can't|cannot)|how (?:does|do|did|is|are|many|much|far|old|big|long)|"
+                        r"when (?:was|did|is)|where (?:is|are|was|did)|define|describe|compare|summari[sz]e the (?:story|plot|history)|"
+                        r"(?:tell me )?(?:a )?(?:joke|riddle|poem|story)|what's the difference|which is (?:better|bigger|faster))", re.I)
+_NEEDS_TOOLS = re.compile(r"\b(?:screen|window|tab|file|folder|document|pdf|my |open|close|click|type|search|play|volume|brightness|"
+                          r"battery|wifi|bluetooth|timer|remind|note|schedule|calendar|weather|news|today|tonight|tomorrow|yesterday|"
+                          r"latest|current|currently|now|price|cost|stock|score|live|this|that|these|here|app|pc|computer|laptop|"
+                          r"system|cpu|ram|memory|disk|clipboard|copied|download|youtube|spotify|whatsapp|chrome|code|error)\b", re.I)
+# Suggestions and ideas are answered from the model's own head too, even when they mention "my" ("a name for my cat").
+_IDEAS = re.compile(r"^\W*(?:(?:hey|ok|okay|so|um)\W+)*(?:can you |could you |please )?(?:suggest|recommend|brainstorm|think of|come up with|"
+                    r"give me (?:some |a few |a |an )?(?:ideas?|names?|suggestions?|tips|options|recipes?)|"
+                    r"what (?:should|could|can) i (?:name|call|cook|make|eat|gift|get|buy|watch|read|say|write|do))", re.I)
+_LIVE = re.compile(r"\b(?:screen|window|file|folder|open|search|youtube|spotify|weather|news|price|prices|today|tonight|latest|"
+                   r"current|now|near me|this|that)\b", re.I)
+KNOWLEDGE_SYSTEM = """You are {name}, a warm, witty voice assistant. Answer from your own knowledge in 1-3 short spoken sentences
+(up to 5 if asked to explain). No lists, markdown, emojis or URLs. Facts must be true: if you are not sure, say so briefly
+instead of guessing. Jokes, riddles and stories are fine when asked for, but never present something false as a fact."""
 _TYPE_ORIGINAL = re.compile(r"(?i)\btype(?:\s+out)?[\s,:]+(.+?)\s*$")
 _FAIL_PREFIXES = ("error", "No open", "Bad", "Unknown", "not found", "no ", "I can't", "Couldn't", "Wikipedia had no", "Web search for")
 
@@ -86,7 +108,10 @@ class Memory:
 
     def add(self, user, assistant):
         self.turns += [{"role": "user", "content": user}, {"role": "assistant", "content": assistant or "(done)"}]
-        self.turns = self.turns[-config.HISTORY_TURNS * 2:]
+        if len(self.turns) > config.HISTORY_TURNS * 2:
+            # Trim by half, not one turn at a time: a sliding window changes the prompt's start every turn and
+            # defeats the LLM's prompt cache; this way the cache is only rebuilt every few turns.
+            self.turns = self.turns[-config.HISTORY_TURNS:]
         if runtime.memory is not None:
             runtime.memory.add("conversation", user[:120], f"User: {user}\nScar: {assistant or '(done)'}")
 
@@ -114,16 +139,39 @@ class Agent:
 
     async def warm_up(self):
         """Prime llama.cpp's prompt cache with the system prompt + tool schema, so the first real
-        question doesn't pay ~1-2 s to process them."""
+        question doesn't pay ~10 s to process them. One real chat request first (the first chat request after
+        llama-server starts never reused a completion-primed prefix), then the precise prime."""
         messages = [{"role": "system", "content": self._system()}, {"role": "user", "content": "hi"}]
         try:
-            async for _ in self.llm.stream(messages, tools=SCHEMA, max_tokens=1):
+            async for _ in self.llm.stream(messages, tools=SCHEMA + [IGNORE_TOOL], max_tokens=1):
                 pass
         except Exception as e:  # noqa: BLE001 - warm-up is best effort
             log.warning("LLM warm-up failed: %s", e)
+        await self._prime()
+
+    async def _prime(self):
+        """Lay down a llama.cpp save point right after the current conversation, so the next question only
+        processes its own words. (Qwen3.5 is a hybrid model: the cache can only resume from such save points, and the
+        chat template writes past replies slightly differently from how they were generated, so without this every
+        turn re-read the whole ~7k-token prompt: 8-10 s.)"""
+        messages = [{"role": "system", "content": self._system()}, *self.memory.turns]
+        try:
+            if hasattr(self.llm, "prime"):
+                await self.llm.prime(messages, SCHEMA + [IGNORE_TOOL])
+        except Exception as e:  # noqa: BLE001 - priming is best effort
+            log.debug("LLM priming failed: %s", e)
 
     async def handle(self, text: str, timings: dict, follow_up=False, quiet=False):
         """Returns "ignored" when a follow-up turn turned out not to be meant for Scar."""
+        turns_before = len(self.memory.turns)
+        try:
+            return await self._handle(text, timings, follow_up, quiet)
+        finally:
+            if len(self.memory.turns) != turns_before or turns_before == 0:
+                import asyncio
+                self._prime_task = asyncio.get_running_loop().create_task(self._prime())
+
+    async def _handle(self, text: str, timings: dict, follow_up=False, quiet=False):
         text = text.strip()
         if not text:
             return None
@@ -140,6 +188,10 @@ class Agent:
                     if args.get("app"):               # "type dir /s on command prompt": the app isn't part of the text
                         typed = re.sub(rf"\s+(?:in|on|into|inside)\s+(?:the\s+|my\s+)?(?:{re.escape(args['app'])}|cmd)\W*$", "", typed, flags=re.I)
                     args = {**args, "text": typed.rstrip("?.!") if args.get("app") else typed}
+            if name == "whatsapp":
+                m = re.search(r"(?i)\b(?:saying|that says|that)[:,]?\s+(.+?)\s*$", text)
+                if m:
+                    args = {**args, "message": m.group(1)}   # keep capitals and punctuation for the message
             if name == "look_at_screen" and len(text.split()) >= 5:
                 args = {**args, "question": text}     # keep the user's actual question, not a generic "describe it"
             if name in CONTROLS:
@@ -165,9 +217,21 @@ class Agent:
         if follow_up and not looks_like_request(text) and not await self._is_directed(text):
             log.info("follow-up judged not addressed to Scar: %r", text)
             return "ignored"
-        timings["route"] = "llm"
         self.last_request = text
+        if (_KNOWLEDGE.match(text) and not _NEEDS_TOOLS.search(text)) or (_IDEAS.match(text) and not _LIVE.search(text)):
+            timings["route"] = "knowledge"
+            return await self._knowledge_turn(text, timings)
+        timings["route"] = "llm"
         return await self._llm_turn(text, timings, follow_up)
+
+    async def _knowledge_turn(self, text, timings):
+        from jarvis.core import settings
+        style = settings.PERSONALITY.get(settings.get("personality"), "")
+        messages = [{"role": "system", "content": KNOWLEDGE_SYSTEM.format(name=config.NAME) + ("\n" + style if style else "")},
+                    *self.memory.turns[-6:], {"role": "user", "content": text}]
+        spoken, _ = await self._stream_speech(messages, timings, max_tokens=300)
+        self.memory.add(text, " ".join(spoken))
+        return None
 
     async def _repeat(self, what, timings):
         """"Say that again" repeats the last answer; "do that again" re-runs the last request."""
@@ -237,9 +301,11 @@ class Agent:
     async def _llm_turn(self, text, timings, follow_up):
         """Act -> observe -> continue. Single commands take one LLM round; multi-step requests
         ("open YouTube, search lofi and play the first one") loop until done, up to MAX_STEPS."""
-        system = self._system() + (FOLLOW_UP_RULE if follow_up else "")
-        tools = SCHEMA + ([IGNORE_TOOL] if follow_up else [])
-        messages = [{"role": "system", "content": system}, *self.memory.turns, {"role": "user", "content": text}]
+        # System prompt and tool list are byte-identical on every turn (the follow-up rule rides on the user message),
+        # so llama.cpp can reuse the cached ~7k-token prefix instead of re-reading it.
+        tools = SCHEMA + [IGNORE_TOOL]
+        user = text + ("\n\n(" + FOLLOW_UP_RULE.strip() + ")" if follow_up else "")
+        messages = [{"role": "system", "content": self._system()}, *self.memory.turns, {"role": "user", "content": user}]
         multi_step = bool(_MULTI.search(text))
         said, trail, evidence = [], [], [text]   # evidence: everything the user and the tools actually said
         uses = {}                                  # tool name -> calls this turn (stops retry loops)
@@ -250,6 +316,10 @@ class Agent:
             if not calls:
                 break
             calls = calls[:MAX_TOOL_CALLS]
+            if not follow_up:
+                calls = [c for c in calls if c["name"] != "ignore"]   # only meaningful for wake-word-free follow-ups
+                if not calls:
+                    break
             if step == 0 and any(c["name"] == "ignore" for c in calls):
                 log.info("LLM judged the follow-up as not addressed to Scar")
                 return "ignored"
@@ -321,6 +391,7 @@ class Agent:
         except Exception as e:  # noqa: BLE001 - fall back to the OCR text
             log.warning("describe failed: %s", e)
             out = (shot.get("ocr") or "")[:2000]
+        self.tools.last_seen = out.strip()
         return out.strip() or "nothing readable"
 
     async def _answer_from(self, text, name, args, result, timings):
@@ -350,6 +421,7 @@ class Agent:
                         {"role": "user", "content": f"User asked: {question}\nText read from their screen:\n{ocr}"}]
             spoken, _ = await self._stream_speech(messages, timings, max_tokens=250)
         self.memory.add(text, " ".join(spoken))
+        self.tools.last_seen = " ".join(spoken)     # "click that" / "open the second one" refer to this
 
 
 _WRITES = {"take_note": "text", "write_text": "instructions", "add_todo": "item", "type_text": "text"}
