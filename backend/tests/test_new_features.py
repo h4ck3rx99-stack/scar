@@ -189,3 +189,33 @@ def test_local_runner_refuses_system_code():
     assert run_python_locally("print(int(input()) * 2)", "21") == "42"
     assert run_python_locally("import os\nos.remove('x')", "") is None
     assert run_python_locally("open('x', 'w')", "") is None
+
+
+def test_ccbp_web_task_is_split_into_page_text_and_rules():
+    """The real Musical Night task: the model once put the Instructions and Note on the page and used a URL that OCR
+    had misread ("-l-img")."""
+    from jarvis.brain.tools_extra import structure_web_task
+    lines = ["Musical Night Section", "In this assignment, let's build a Musical Night Section by applying the concepts we",
+             "learned till now.", "Refer to the below image.", "Start Musical Night",
+             "We bring you online experiences to make sure you've", "got an exciting plan every day.", "About the Event",
+             "Instructions:", "• Should be able to see vertical scroll if more content is present.", "Note",
+             "Try to achieve the design as close as possible.", "Should be able to see vertical scroll if more content is present.",
+             "Resources", "Use the image URL given below.",
+             "https://assets.ccbp.in/frontend/intermediate-rwd/musical-night-l-", "img.png", "CSS Colors used:", "#12022f",
+             "Concepts Review", "Take a look at the Cheat Sheets."]
+    out = structure_web_task(lines, ["https://assets.ccbp.in/frontend/intermediate-rwd/musical-night-1-img.png"])
+    design = out.split("TEXT SHOWN IN THE DESIGN")[1].split("RULES")[0]
+    rules = out.split("RULES")[1].split("RESOURCES")[0]
+    assert "We bring you online experiences to make sure you've got an exciting plan every day." in design
+    assert "Instructions" not in design and "Should be able to see vertical scroll" in rules
+    assert rules.count("Should be able to see vertical scroll") == 1
+    assert "musical-night-1-img.png" in out and "night-l-" not in out and "Cheat Sheets" not in out
+    assert structure_web_task(["Write a program", "Sample Input 1"], []) is None
+
+
+def test_css_colors_snap_to_the_task_palette():
+    from jarvis.brain.tools_extra import snap_colors
+    css = ".card { background-color: #e5e7eb; }\n.role { color: #6b7280; }\n.x { border: 1px solid #fff; }"
+    out = snap_colors(css, ["#e8f0fe", "#6b7280", "#ffffff"])
+    assert "#e8f0fe" in out and "#6b7280" in out and "#e5e7eb" not in out and "#ffffff" in out
+    assert snap_colors(css, ["#e8f0fe"]) == css            # a single listed colour isn't a full palette: leave it

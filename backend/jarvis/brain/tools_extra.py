@@ -347,8 +347,10 @@ CODE_TASKS = {
                   "<meta charset=\"UTF-8\">, the viewport meta and a <title>, then <body>) for what the problem describes: "
                   "match the required text, element types, ids, "
                   "class names and structure exactly as stated. Put required CSS in a <style> tag inside <head> and any "
-                  "JavaScript in a <script> tag at the end of <body>. Reply with ONLY the code, no markdown fences, no "
-                  "explanation.",
+                  "JavaScript in a <script> tag at the end of <body>. Build ONLY the page the task and the EXPECTED "
+                  "DESIGN describe (use the given image URLs); never include the coding website's own interface "
+                  "(CODING PRACTICE, Description, Get Help, Preview, In Progress, Easy, Run, Submit). Reply with ONLY "
+                  "the code, no markdown fences, no explanation.",
     "solve":"Write a complete, correct solution that reads input and prints output EXACTLY in the format the problem "
              "shows (no extra prompts or text). Hidden test cases check every rule in the statement, not just the "
              "samples: before writing, go through each rule (tie-breaking such as 'the first one if tied', 'at least' vs "
@@ -361,8 +363,15 @@ CODE_TASKS = {
                  "The HTML section must be a complete, properly indented document: <!DOCTYPE html>, then <html lang=\"en\"> "
                  "with a <head> (<meta charset=\"UTF-8\">, <meta name=\"viewport\" content=\"width=device-width, "
                  "initial-scale=1.0\">, a <title>) and a <body> holding the page markup. No <style> or <script> tags in "
-                 "it: the CSS and JS tabs are linked by the site. Match the required text, element types, ids, class names "
-                 "and structure exactly. No markdown fences, no explanation.",
+                 "it: the CSS and JS tabs are linked by the site. Build ONLY the web page shown in the EXPECTED DESIGN "
+                 "and asked for in the task: its texts word for word, its images (use the EXACT IMAGE URLS; an image whose "
+                 "name ends in -bg is a background-image, not an <img>), its layout. The task's Instructions, Note, "
+                 "Resources and color/font lists are rules for you to follow, NOT content to put on the page. "
+                 "NEVER include the coding website's own interface (headings or labels like CODING PRACTICE, Description, "
+                 "Get Help, Preview, In Progress, Easy, Run, Submit, Resources, CSS Colors used). COLORS: use only the "
+                 "exact hex values listed under RESOURCES, on the parts the EXPECTED DESIGN says use them (card, "
+                 "headings, paragraphs, background...); never invent other colors. Same for font families. Match any required class names exactly. No markdown fences, "
+                 "no explanation.",
     "fix": "The student's code (below) fails when run; the run output is included. Return the full corrected code "
            "ONLY, no markdown fences, no explanation.",
     "fix_web": "The code (below, in === HTML === / === CSS === / === JS === sections) fails; the output is included. "
@@ -444,7 +453,7 @@ class CodeTools:
         from rapidfuzz import fuzz
         from jarvis.skills.screen import ocr_image, scroll_at
         self._samples = (None, None)                                # never reuse the previous problem's samples
-        self._problem_views = []
+        self._problem_views, self._problem_lines, self._urls = [], [], []
         img = await self._shot(w)
         f = w.frame
         full = await ocr_image(img)
@@ -453,13 +462,22 @@ class CodeTools:
             return full
         ex, ey, ew, eh = editor
         left, right = ex - ew // 2 - f.left, ex + ew // 2 - f.left
+        # The problem panel starts about where the editor does: skip the site's own header above it ("CODING PRACTICE").
+        top = max(0, ey - eh // 2 - f.top - 80)
         if left > img.width * 0.2:
-            region = (0, 0, max(1, left - 6), img.height)          # problem on the left (CCBP layout)
+            region = (0, top, max(1, left - 6), img.height)        # problem on the left (CCBP layout)
         elif right < img.width * 0.8:
-            region = (right + 6, 0, img.width, img.height)         # problem on the right
+            region = (right + 6, top, img.width, img.height)       # problem on the right
         else:
             return full
-        px, py = f.left + (region[0] + region[2]) // 2, f.top + img.height // 2
+        px, py = f.left + (region[0] + region[2]) // 2, f.top + (region[1] + region[3]) // 2
+        # Start from the top: the panel may have been left scrolled down (then only the image URLs and colours at the
+        # bottom were read, never the task or the design image). One long wheel burst doesn't get all the way up.
+        for _ in range(4):
+            scroll_at(px, py, 40)
+            await asyncio.sleep(0.25)
+        await asyncio.sleep(0.5)
+        img = await self._shot(w)
         crop = img.crop(region)
         views, view_imgs = [await ocr_image(crop)], [crop]
         scrolled = 0
@@ -486,6 +504,8 @@ class CodeTools:
         for view in views:
             for ln in view.splitlines():
                 key = re.sub(r"\s+", " ", ln.strip().lower())
+                if _SITE_UI.match(key):
+                    continue                                        # the coding site's own buttons and labels
                 if key and key not in seen:
                     seen.add(key)
                     lines.append(ln)
@@ -497,33 +517,83 @@ class CodeTools:
         if self._samples[1]:
             exact = ("\n\nEXACT SAMPLES (transcribed from the image; trust these over the OCR text above, which can garble "
                      f"them):\nSample Input:\n{self._samples[0] or ''}\nSample Output:\n{self._samples[1]}")
+        # OCR misreads URLs ("musical-night-1-img" came out as "musical-night-l-img": a broken image), so links are
+        # transcribed by the vision model too.
+        url_views = [im for v, im in zip(views, view_imgs) if re.search(r"https?\s*:|www\.|\.png|\.jpe?g", v, re.I)]
+        urls = await self._transcribe_urls(url_views) if url_views else []
+        self._problem_lines, self._urls = lines, urls
+        if urls:
+            exact += "\n\nEXACT IMAGE URLS (transcribed from the image; use these, not the OCR text above):\n" + "\n".join(urls)
         return "\n".join(lines) + exact + "\n\nCODE EDITOR (tabs, language, starter code):\n" + editor_text
 
-    async def _describe_designs(self, views):
-        """Describe the expected-output / design images in the problem pane (web tasks), view by view."""
+    async def _transcribe_urls(self, views):
         from jarvis.brain.llm import LLM
-        # The small model is very sensitive to wording here: longer prompts ("so a developer can rebuild it", "describe
-        # only the design image") made it answer NONE even with the design right there. This exact prompt describes the
-        # design and still says NONE for text-only views (bench-tested).
-        prompt = ("Describe the image of the web page design shown in this screenshot: every visible text, layout, colors, "
-                  "button styles. If there is no such image, reply NONE.")
-        out_parts = []
+        found = []
         llm = LLM()
         try:
-            for im in views[:5]:
-                if im.width > 1400:
-                    im = im.resize((1400, round(im.height * 1400 / im.width)))
+            for im in views[:4]:
                 buf = io.BytesIO()
                 im.convert("RGB").save(buf, "PNG")
                 b64 = base64.b64encode(buf.getvalue()).decode()
                 out = ""
                 async for kind, data in llm.stream([{"role": "user", "content": [
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-                        {"type": "text", "text": prompt}]}], max_tokens=500):
+                        {"type": "text", "text": "List every URL shown in this screenshot exactly, character for character, "
+                                                 "one per line. Nothing else."}]}], max_tokens=400):
                     if kind == "text":
                         out += data
-                out = out.strip()
-                if out and out.upper() != "NONE" and not out.upper().startswith("NONE"):
+                for u in re.findall(r"https?://[^\s<>\"'`)\]]+", out):
+                    u = u.rstrip(".,;")
+                    if u not in found:
+                        found.append(u)
+        except Exception as e:  # noqa: BLE001 - OCR text still has (maybe garbled) URLs
+            log.warning("URL transcription failed: %s", e)
+        finally:
+            await llm.aclose()
+        if found:
+            log.info("URLs transcribed: %s", found)
+        return found
+
+    async def _describe_designs(self, views, palette=None):
+        """Describe the expected-output / design images in the problem pane (web tasks), view by view."""
+        from jarvis.brain.llm import LLM
+        # Two steps, tested on a real learning.ccbp.in task: a one-shot "describe the design" prompt described the CCBP
+        # page itself (title, "In Progress", the instruction list), and Scar then rebuilt CCBP's interface. A yes/no
+        # "is there a design picture here?" classifies views correctly, and a prompt that says "ONLY the picture,
+        # ignoring the task text" then describes the mockup.
+        ask_yes = ("Does this screenshot contain a picture of the expected result of a web page (a design mockup image)? "
+                   "Answer YES or NO.")
+        describe = ("This screenshot is part of a coding task. Describe ONLY the picture of the expected web page (the "
+                    "design mockup image), ignoring the task text around it: its background, the card or sections, every "
+                    "text in it word for word, the images and where they are, colors, font sizes, borders, rounded "
+                    "corners and spacing.")
+        if palette:
+            # CCBP lists the colours without saying what uses them; the model writing the code can't see the picture,
+            # so the vision model maps them (bench: card / role / heading / paragraph colours all matched).
+            describe += (f" The page uses only these colors: {', '.join(palette)}. For each part (background, card, "
+                         "headings, paragraphs, buttons, borders), say which of these colors it uses.")
+        out_parts = []
+        llm = LLM()
+
+        async def ask(b64, prompt, max_tokens):
+            out = ""
+            async for kind, data in llm.stream([{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                    {"type": "text", "text": prompt}]}], max_tokens=max_tokens):
+                if kind == "text":
+                    out += data
+            return out.strip()
+        try:
+            for im in views[:6]:
+                if im.width > 1400:
+                    im = im.resize((1400, round(im.height * 1400 / im.width)))
+                buf = io.BytesIO()
+                im.convert("RGB").save(buf, "PNG")
+                b64 = base64.b64encode(buf.getvalue()).decode()
+                if not (await ask(b64, ask_yes, 3)).upper().startswith("YES"):
+                    continue
+                out = await ask(b64, describe, 600)
+                if out:
                     out_parts.append(out)
         except Exception as e:  # noqa: BLE001 - the text instructions still work without it
             log.warning("design description failed: %s", e)
@@ -735,9 +805,15 @@ class CodeTools:
         tabs = await self._editor_tabs(w, editor) if editor and action in ("solve", "check") else {}
         if tabs:
             lang = "HTML"
-        if lang == "HTML" and getattr(self, "_problem_views", None):
-            # Web tasks show the expected result as an image: have the vision model describe it.
-            design = await self._describe_designs(self._problem_views)
+        if lang == "HTML":
+            # Web task: label what goes on the page vs the rules, with exact URLs...
+            structured = structure_web_task(getattr(self, "_problem_lines", []), getattr(self, "_urls", []))
+            if structured:
+                text = structured + "\n\nCODE EDITOR" + text.split("\n\nCODE EDITOR", 1)[-1]
+            # ...and the expected result is an image: have the vision model describe it.
+            palette = list(dict.fromkeys(h.lower() for h in re.findall(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b",
+                                                                        "\n".join(getattr(self, "_problem_lines", [])))))
+            design = await self._describe_designs(self._problem_views, palette) if getattr(self, "_problem_views", None) else ""
             if design:
                 text = text.replace("\n\nCODE EDITOR", "\n\nEXPECTED DESIGN (described from the images in the problem):\n"
                                     + design + "\n\nCODE EDITOR", 1)
@@ -771,6 +847,9 @@ class CodeTools:
         else:
             out = await self._ask_llm(CODE_SYSTEM.format(language=lang, task=task), "Screen text:\n" + text[:9000], 1400)
             parts = split_web_parts(out) if tabs else {"": _strip_fences(out)}
+            if lang == "HTML":
+                palette = re.findall(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b", "\n".join(getattr(self, "_problem_lines", [])))
+                parts = {k: (snap_colors(v, palette) if k in ("CSS", "") else v) for k, v in parts.items()}
         n = sum(len(c.strip().splitlines()) for c in parts.values())
         await self.speak(f"Typing {n} lines{' across ' + ', '.join(p for p in parts if p) if tabs else ''}. "
                          "Hands off the keyboard for a moment.")
@@ -985,6 +1064,95 @@ def output_matches(expected: str, got: str) -> str:
         return "exact"
     squash = lambda s: re.sub(r"\s+", "", s)  # noqa: E731
     return "loose" if squash("".join(exp_lines)) in squash(got_text) else ""
+
+
+# Labels of the coding site's own interface (learning.ccbp.in and similar) that end up in the OCR of the problem panel.
+# They are not part of the task: the model once rebuilt them as the "solution" (a page reading CODING PRACTICE,
+# Description, Get Help, In Progress, Easy).
+_SITE_UI = re.compile(r"^\W*(?:coding practice|description|get help|in progress|completed|solved|easy|medium|hard|"
+                      r"helpful|give feedback|preview|run|submit|reset|ai tutor|file|code|bug|lightbulb|sparkles|"
+                      r"concepts review|take a look at the cheat sheets\.?|want to quickly review some of the concepts.*|"
+                      r"html|css|javascript|js|python)\W*$", re.I)
+
+
+def structure_web_task(lines, urls):
+    """Split a learning.ccbp.in web task into labelled parts, so the model knows what goes ON the page.
+
+    Layout of those tasks: intro -> "Refer to the below image." -> (the design mockup, whose texts OCR also reads) ->
+    "Instructions:" -> "Note" -> "Resources" (image URLs, "CSS Colors used", "CSS Font families used") -> "Concepts
+    Review". Given as one blob, the small model put the Instructions and Note on the page. Returns None when the page
+    doesn't follow that layout."""
+    parts = {"intro": [], "design": [], "rules": [], "resources": []}
+    state, saw_design = "intro", False
+    for ln in lines:
+        s = ln.strip()
+        low = s.lower()
+        if re.match(r"^refer (?:to )?the (?:below|given|following|above) (?:image|design)", low):
+            state, saw_design = "design", True
+            continue
+        if re.match(r"^(?:instructions?|note|hints?|rules?)\b\s*:?$", low) or re.match(r"^instructions?\s*:", low):
+            state = "rules"
+            continue
+        if re.match(r"^(?:resources?|css colou?rs? used|css font famil(?:y|ies) used|use the image urls? given below)\b", low):
+            state = "resources"
+            if not re.match(r"^resources?\s*:?$", low):
+                parts["resources"].append(s)
+            continue
+        if re.match(r"^concepts review\b", low):
+            break
+        if state == "resources" and re.search(r"https?:|\.png|\.jpe?g|assets\.", low):
+            continue                                        # garbled OCR URLs: replaced by the exact ones below
+        if s.startswith(("•", "-", "*")) and len(s) <= 2:
+            continue
+        parts[state].append(s.lstrip("•*- ").strip())
+    if not saw_design:
+        return None
+
+    def tidy(items):
+        # Join lines that OCR split where the screen wrapped them (else the model adds <br>), and drop repeats
+        # (the same line is read in two scrolled views, once with its bullet and once without).
+        out, seen = [], set()
+        for s in items:
+            key = re.sub(r"\W+", "", s.lower())
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            if out and not re.search(r"[.!?:]$", out[-1]) and s[:1].islower():
+                out[-1] = out[-1] + " " + s
+            else:
+                out.append(s)
+        return out
+    parts = {k: tidy(v) for k, v in parts.items()}
+    out = ["TASK:", *parts["intro"],
+           "", "TEXT SHOWN IN THE DESIGN (put exactly these texts on the page, in this order):", *parts["design"],
+           "", "RULES (follow them; do NOT put them on the page):", *parts["rules"],
+           "", "RESOURCES:"]
+    if urls:
+        out += ["Image URLs (exact):", *urls]
+    out += [r for r in parts["resources"] if r]
+    return "\n".join(out)
+
+
+def snap_colors(css: str, palette) -> str:
+    """Replace hex colours that aren't in the task's "CSS Colors used" list with the nearest listed one (the small model
+    invents close-but-wrong shades like #e5e7eb for #e8f0fe, and CCBP checks the exact values)."""
+    def rgb(h):
+        h = h.lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    pal = [p.lower() for p in palette if re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", p)]
+    if len(pal) < 2:
+        return css
+    pal_rgb = [(p, rgb(p)) for p in pal]
+
+    def fix(m):
+        h = m.group(0).lower()
+        if h in pal:
+            return m.group(0)
+        c = rgb(h)
+        return min(pal_rgb, key=lambda pr: sum((a - b) ** 2 for a, b in zip(pr[1], c)))[0]
+    return re.sub(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b", fix, css)
 
 
 def parse_sample_pairs(text: str):
