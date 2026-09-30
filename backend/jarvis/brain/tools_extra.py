@@ -350,7 +350,10 @@ CODE_TASKS = {
                   "JavaScript in a <script> tag at the end of <body>. Reply with ONLY the code, no markdown fences, no "
                   "explanation.",
     "solve":"Write a complete, correct solution that reads input and prints output EXACTLY in the format the problem "
-             "shows (no extra prompts or text). The screen text comes from OCR, so where the description and the Sample "
+             "shows (no extra prompts or text). Hidden test cases check every rule in the statement, not just the "
+             "samples: before writing, go through each rule (tie-breaking such as 'the first one if tied', 'at least' vs "
+             "'more than', ordering, edge values like 0 or 1, empty cases) and make the code follow all of them. "
+             "The screen text comes from OCR, so where the description and the Sample "
              "Output disagree on spacing or punctuation, copy the Sample Output character for character. Reply with "
              "ONLY the code, no markdown fences, no explanation.",
     "solve_web": "The editor has separate HTML, CSS and JS tabs. Write the solution as three sections, each starting with a "
@@ -376,7 +379,11 @@ CODE_TASKS = {
 _PROBLEM_SIGNS = [r"sample\s+input", r"sample\s+output", r"expected\s+output", r"\binput\s+format\b", r"\boutput\s+format\b",
                   r"\bconstraints?\b", r"\btest\s*cases?\b", r"\bexplanation\b", r"write\s+a\s+(?:program|function|query|code)",
                   r"\bthe\s+(?:first|second|next)\s+line\s+(?:of\s+input\s+)?(?:contains|is)", r"\breturn\s+the\b",
-                  r"\b(?:submit|run)\b.{0,40}\b(?:submit|run|reset)\b", r"\bcoding\s+practice\b", r"\bexample\s*\d\b"]
+                  r"\b(?:submit|run)\b.{0,40}\b(?:submit|run|reset)\b", r"\bcoding\s+practice\b", r"\bexample\s*\d\b",
+                  # web (HTML / CSS / JS) tasks on learning.ccbp.in: instructions and design images, no samples
+                  r"\binstructions?\b", r"\brefer\b.{0,20}\bimage", r"\bimage\s+urls?\b", r"\bresources?\b",
+                  r"\b(?:achieve|replicate)\b.{0,30}\bdesign\b", r"\bexpected\s+output\s+image\b", r"\bcss\s+colou?rs?\b",
+                  r"\bfont\s+famil(?:y|ies)\b", r"\bhtml\s+elements?\b", r"\bbootstrap\b", r"\bnote\s*:", r"\bhints?\b"]
 
 
 def looks_like_problem(text: str) -> bool:
@@ -437,9 +444,11 @@ class CodeTools:
         from rapidfuzz import fuzz
         from jarvis.skills.screen import ocr_image, scroll_at
         self._samples = (None, None)                                # never reuse the previous problem's samples
+        self._problem_views = []
         img = await self._shot(w)
         f = w.frame
         full = await ocr_image(img)
+        self._problem_views = [img]
         if editor is None:
             return full
         ex, ey, ew, eh = editor
@@ -464,6 +473,7 @@ class CodeTools:
                 break                                               # reached the bottom
             views.append(view)
             view_imgs.append(crop)
+        self._problem_views = view_imgs
         # OCR garbles short monospace sample lines ("Ravi: A" came out as "Ravi:" with the grade lost), so the exact
         # samples are transcribed by the vision model from the view that shows them.
         self._samples = (None, None)
@@ -488,6 +498,40 @@ class CodeTools:
             exact = ("\n\nEXACT SAMPLES (transcribed from the image; trust these over the OCR text above, which can garble "
                      f"them):\nSample Input:\n{self._samples[0] or ''}\nSample Output:\n{self._samples[1]}")
         return "\n".join(lines) + exact + "\n\nCODE EDITOR (tabs, language, starter code):\n" + editor_text
+
+    async def _describe_designs(self, views):
+        """Describe the expected-output / design images in the problem pane (web tasks), view by view."""
+        from jarvis.brain.llm import LLM
+        # The small model is very sensitive to wording here: longer prompts ("so a developer can rebuild it", "describe
+        # only the design image") made it answer NONE even with the design right there. This exact prompt describes the
+        # design and still says NONE for text-only views (bench-tested).
+        prompt = ("Describe the image of the web page design shown in this screenshot: every visible text, layout, colors, "
+                  "button styles. If there is no such image, reply NONE.")
+        out_parts = []
+        llm = LLM()
+        try:
+            for im in views[:5]:
+                if im.width > 1400:
+                    im = im.resize((1400, round(im.height * 1400 / im.width)))
+                buf = io.BytesIO()
+                im.convert("RGB").save(buf, "PNG")
+                b64 = base64.b64encode(buf.getvalue()).decode()
+                out = ""
+                async for kind, data in llm.stream([{"role": "user", "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                        {"type": "text", "text": prompt}]}], max_tokens=500):
+                    if kind == "text":
+                        out += data
+                out = out.strip()
+                if out and out.upper() != "NONE" and not out.upper().startswith("NONE"):
+                    out_parts.append(out)
+        except Exception as e:  # noqa: BLE001 - the text instructions still work without it
+            log.warning("design description failed: %s", e)
+        finally:
+            await llm.aclose()
+        if out_parts:
+            log.info("design described from %d image view(s)", len(out_parts))
+        return "\n\n".join(out_parts)
 
     async def _transcribe_output(self, w):
         """The program output shown after Run, read by the vision model (plain OCR garbles short output lines)."""
@@ -523,9 +567,9 @@ class CodeTools:
         buf = io.BytesIO()
         img.convert("RGB").save(buf, "PNG")
         b64 = base64.b64encode(buf.getvalue()).decode()
-        prompt = ("Transcribe the FIRST Sample Input and Sample Output blocks in this screenshot exactly, character for "
+        prompt = ("Transcribe every Sample Input and Sample Output block in this screenshot exactly, character for "
                   "character, keeping every line, space and punctuation mark. Reply in exactly this format and nothing "
-                  "else:\nINPUT:\n<sample input lines>\nOUTPUT:\n<sample output lines>")
+                  "else (one INPUT/OUTPUT pair per sample):\nINPUT:\n<sample input lines>\nOUTPUT:\n<sample output lines>")
         llm = LLM()
         out = ""
         try:
@@ -539,11 +583,12 @@ class CodeTools:
             return None, None
         finally:
             await llm.aclose()
-        m = re.search(r"INPUT:\s*\n(.*?)\n\s*OUTPUT:\s*\n(.*)$", out.strip().strip("`"), re.S)
-        if not m:
+        pairs = parse_sample_pairs(out)
+        self._sample_pairs = pairs
+        if not pairs:
             return None, None
-        log.info("samples transcribed: %r / %r", m.group(1)[:80], m.group(2)[:80])
-        return m.group(1).strip("\n"), m.group(2).strip("\n").rstrip("`").rstrip()
+        log.info("samples transcribed (%d): %r / %r", len(pairs), pairs[0][0][:80], pairs[0][1][:80])
+        return pairs[0]
 
     async def _editor_tabs(self, w, editor):
         """HTML / CSS / JS tabs above the editor -> {"HTML": (x, y), ...} (only when there are two or more)."""
@@ -571,8 +616,10 @@ class CodeTools:
             return re.sub(r"\W", "", wd).lower()
         hits = [(l, t, r, b) for word, (l, t, r, b) in words if norm(word) == label.lower()]
         if not hits:
-            return None
-        buttons = ("run", "submit", "reset", "html", "css", "js", "python")
+            return await self._find_button_by_eye(w, label)
+        # words that can sit next to a button label on the button itself ("Submit Code", "Run Tests")
+        buttons = ("run", "submit", "reset", "html", "css", "js", "python", "code", "answer", "solution", "tests", "test",
+                   "all", "now", "it")
 
         def in_sentence(h):
             # A button label stands alone; the same word inside a sentence ("Submit to check your page") has other
@@ -586,8 +633,19 @@ class CodeTools:
                        if norm(word) in buttons and abs(wt - h[1]) < 40 and 0 < abs(wl - h[0]) < 400)
         l, t, r, b = sorted(hits, key=lambda h: (in_sentence(h), -crowd(h), h[1]))[0]
         if in_sentence((l, t, r, b)):
-            return None                 # only ever seen inside text: there's no such button
+            return await self._find_button_by_eye(w, label)   # only seen inside text: look for the real button
         return f.left + (l + r) // 2, f.top + (t + b) // 2
+
+    async def _find_button_by_eye(self, w, label):
+        """OCR couldn't read the button (white text on a coloured button, an icon, a different label): ask the vision
+        model to point at it. Rejects boxes that are too big to be a button."""
+        hit = await self.vision_locate(f"the {label} button", w)
+        f = w.frame
+        if not hit or hit[2] > 420 or hit[3] > 160 or hit[2] * hit[3] > 0.04 * f.width * f.height:
+            log.info("no %s button found (vision: %s)", label, hit)
+            return None
+        log.info("%s button found by vision at %s", label, hit[:2])
+        return hit[0], hit[1]
 
     async def _press(self, w, point, what):
         from jarvis.hands import actions as A
@@ -617,15 +675,23 @@ class CodeTools:
         await asyncio.sleep(0.15)
         A.real_click(x, y)
         await asyncio.sleep(0.25)
+        f = w.frame
+
+        async def editor_text():
+            img = await self._shot(w)
+            box = img.crop((max(0, x - f.left - bw // 2), max(0, y - f.top - bh // 2),
+                            min(img.width, x - f.left + bw // 2), min(img.height, y - f.top + bh // 2)))
+            return (await screen.ocr_image(box)).lower()
+        before = await editor_text()
         await asyncio.get_running_loop().run_in_executor(None, screen.type_code, code)
         await asyncio.sleep(0.4)
-        f = w.frame
-        img = await self._shot(w)
-        box = img.crop((max(0, x - f.left - bw // 2), max(0, y - f.top - bh // 2),
-                        min(img.width, x - f.left + bw // 2), min(img.height, y - f.top + bh // 2)))
-        seen = (await screen.ocr_image(box)).lower()
-        probes = [ln.strip().lower() for ln in code.splitlines() if len(ln.strip()) >= 6][:4]
-        if probes and max(fuzz.partial_ratio(p, seen) for p in probes) < 70:
+        seen = await editor_text()
+        # OCR reads dark code editors badly ("range(row)" came out as "ange(row)"), so don't demand exact lines: the
+        # typing worked if the editor changed and some of the code's words are visible. Only "nothing happened" fails.
+        words = {wd for wd in re.findall(r"[a-z_]{3,}", code.lower())}
+        found = sum(1 for wd in words if wd in seen)
+        changed = fuzz.ratio(before, seen) < 90
+        if not changed or (words and found == 0):
             log.warning("code typed but not visible in the editor; saw %r", seen[:200])
             return False
         return True
@@ -658,7 +724,10 @@ class CodeTools:
                           "hint": "Let me look.", "explain": "Let me read it."}[action])
         editor = await self._locate_editor(w)
         text = await self._read_problem(w, editor)
-        if not looks_like_problem(text):
+        # A page with a code editor next to readable instructions is a task (HTML tasks have images and instructions,
+        # not "Sample Input"); without an editor, insist on real problem signs.
+        instructions = text.split("\n\nCODE EDITOR")[0]
+        if not (looks_like_problem(text) or (editor is not None and len(instructions.strip()) > 80)):
             await self.speak("I can't see a coding problem on the screen. Open it and try again.")
             return "no problem on screen"
         lang = {"html": "HTML", "css": "HTML", "js": "JavaScript", "javascript": "JavaScript", "python": "Python 3",
@@ -666,6 +735,12 @@ class CodeTools:
         tabs = await self._editor_tabs(w, editor) if editor and action in ("solve", "check") else {}
         if tabs:
             lang = "HTML"
+        if lang == "HTML" and getattr(self, "_problem_views", None):
+            # Web tasks show the expected result as an image: have the vision model describe it.
+            design = await self._describe_designs(self._problem_views)
+            if design:
+                text = text.replace("\n\nCODE EDITOR", "\n\nEXPECTED DESIGN (described from the images in the problem):\n"
+                                    + design + "\n\nCODE EDITOR", 1)
         if action in ("hint", "explain"):
             out = await self._ask_llm(CODE_SYSTEM.format(language=lang, task=CODE_TASKS[action]), "Screen text:\n" + text[:9000], 180)
             await self.speak(out)
@@ -689,8 +764,13 @@ class CodeTools:
 
         # ---- solve
         task = CODE_TASKS["solve_web" if tabs else "solve_html" if lang == "HTML" else "solve"]
-        out = await self._ask_llm(CODE_SYSTEM.format(language=lang, task=task), "Screen text:\n" + text[:9000], 1400)
-        parts = split_web_parts(out) if tabs else {"": _strip_fences(out)}
+        passed_samples = None
+        if not tabs and lang.startswith("Python") and getattr(self, "_sample_pairs", None):
+            code, passed_samples = await self._solve_with_tests(lang, task, text, self._sample_pairs)
+            parts = {"": code}
+        else:
+            out = await self._ask_llm(CODE_SYSTEM.format(language=lang, task=task), "Screen text:\n" + text[:9000], 1400)
+            parts = split_web_parts(out) if tabs else {"": _strip_fences(out)}
         n = sum(len(c.strip().splitlines()) for c in parts.values())
         await self.speak(f"Typing {n} lines{' across ' + ', '.join(p for p in parts if p) if tabs else ''}. "
                          "Hands off the keyboard for a moment.")
@@ -701,11 +781,59 @@ class CodeTools:
             if not await self._type_into(w, editor, code, tabs.get(name) if name else None):
                 await self.speak("I typed it but I can't see it in the editor. The site may be blocking typed input.")
                 return "typing didn't show up"
+        if passed_samples is False:
+            # Tested on this PC and it still doesn't reproduce the sample output: typed for you to look at, not submitted.
+            await self.speak("I couldn't get it to match the sample output after a few tries, so I typed my best attempt "
+                             "but didn't submit. Say check my code, or give me a hint about the problem.")
+            return "typed best attempt; failed the samples locally; not submitted"
         auto = submit or settings.get("code_auto_submit")
         if not auto:
             await self.speak(f"Done, that's a {lang} solution in the editor. Say run the code to test it.")
             return f"wrote {n} lines of {lang}"
         return await self._run_fix_submit(w, editor, parts, lang, text, tabs)
+
+    async def _solve_with_tests(self, lang, task, text, pairs, attempts=4):
+        """Write Python, run it on every sample on this PC, and feed exact differences back until it matches.
+        Returns (code, True) when a candidate reproduces all sample outputs, else (closest attempt, False)."""
+        messages = [{"role": "system", "content": CODE_SYSTEM.format(language=lang, task=task)},
+                    {"role": "user", "content": "Screen text:\n" + text[:9000]}]
+        best, best_score = "", -1
+        for attempt in range(attempts):
+            out = await self._ask_llm_messages(messages, 1400)
+            code = _strip_fences(out)
+            report, score = [], 0
+            for i, (sin, sout) in enumerate(pairs, 1):
+                got = await asyncio.get_running_loop().run_in_executor(None, run_python_locally, code, sin)
+                if got is None:
+                    log.info("candidate uses files/system calls; not run locally")
+                    return code, None                   # can't test it: type it, the site will judge it
+                if same_output(sout, got):
+                    score += 1
+                    continue
+                diff = output_diff(sout, got) or "the output is different"
+                report.append(f"Sample {i} input:\n{sin}\nExpected output:\n{sout}\nYour code printed:\n{got}\n"
+                              f"Differences:\n{diff}")
+            log.info("solve attempt %d: %d/%d samples pass", attempt + 1, score, len(pairs))
+            if score > best_score:
+                best, best_score = code, score
+            if score == len(pairs):
+                return code, True
+            messages += [{"role": "assistant", "content": code},
+                         {"role": "user", "content": "I ran your code on the samples and it's wrong:\n\n" + "\n\n".join(report)
+                          + "\n\nRe-read the problem, find the mistake and reply with the full corrected code only."}]
+        return best, False
+
+    async def _ask_llm_messages(self, messages, max_tokens):
+        from jarvis.brain.llm import LLM
+        llm = LLM()
+        out = ""
+        try:
+            async for kind, data in llm.stream(messages, max_tokens=max_tokens):
+                if kind == "text":
+                    out += data
+        finally:
+            await llm.aclose()
+        return out.strip()
 
     async def _page_after(self, w, before, wait=4.0):
         """New text that appeared on the page after pressing a button (the output / verdict area)."""
@@ -714,6 +842,32 @@ class CodeTools:
         after = await ocr_image(await self._shot(w))
         old = {re.sub(r"\s+", " ", ln.strip().lower()) for ln in before.splitlines()}
         return "\n".join(ln for ln in after.splitlines() if re.sub(r"\s+", " ", ln.strip().lower()) not in old)
+
+    async def _submit_once(self, w, lang):
+        """Press Submit straight after typing (no Run / output check: every site's output panel looks different).
+        Mentions the verdict only when it's clearly readable."""
+        from jarvis.skills.screen import ocr_image
+        sub = await self._find_button(w, "Submit")
+        if sub is None:
+            await self.speak(f"The {lang} code is in, but I can't find a Submit button. Press it yourself.")
+            return "no submit button"
+        before = await ocr_image(await self._shot(w))
+        await self._press(w, sub, "Submit")
+        verdict = await self._page_after(w, before, wait=6.0)
+        log.info("submit result: %r", verdict[:300])
+        counts = re.findall(r"\b(\d+)\s*/\s*(\d+)\s*test", verdict, re.I)
+        if counts:
+            a, b = map(int, counts[-1])
+            await self.speak(f"Submitted: {a} of {b} test cases passed." + ("" if a == b else " Say check my code if you want me to look."))
+            return f"submitted; {a}/{b} passed"
+        if re.search(r"all\s+test\s*cases?\s+passed|congratulations|accepted", verdict, re.I):
+            await self.speak("Submitted, and it passed!")
+            return "submitted; passed"
+        if submit_failed(verdict):
+            await self.speak("Submitted, but some test cases failed. Say check my code if you want me to look.")
+            return "submitted; some tests failed"
+        await self.speak("Submitted.")
+        return "submitted"
 
     async def _fix_and_retype(self, w, editor, parts, lang, problem, tabs, report):
         code_now = "\n\n".join(f"=== {k} ===\n{v}" if k else v for k, v in parts.items())
@@ -728,7 +882,10 @@ class CodeTools:
     async def _run_fix_submit(self, w, editor, parts, lang, problem, tabs):
         """Run -> compare with the sample output -> fix once if wrong -> Submit -> if hidden tests fail, fix once more
         and resubmit. Never submits code that visibly fails the sample."""
+        from jarvis.core import settings
         from jarvis.skills.screen import ocr_image
+        if not settings.get("code_run_check"):
+            return await self._submit_once(w, lang)
         sample_in, sample_out = getattr(self, "_samples", (None, None))
         if not sample_out:
             sample_in, sample_out = sample_io(problem)
@@ -828,6 +985,42 @@ def output_matches(expected: str, got: str) -> str:
         return "exact"
     squash = lambda s: re.sub(r"\s+", "", s)  # noqa: E731
     return "loose" if squash("".join(exp_lines)) in squash(got_text) else ""
+
+
+def parse_sample_pairs(text: str):
+    """'INPUT:\\n..\\nOUTPUT:\\n..' repeated (optionally numbered) -> [(input, output), ...]."""
+    text = text.strip().strip("`")
+    pairs = re.findall(r"INPUT(?:\s*\d+)?:\s*\n(.*?)\n\s*OUTPUT(?:\s*\d+)?:\s*\n(.*?)(?=\n\s*INPUT(?:\s*\d+)?:|\Z)", text, re.S)
+    return [(i.strip("\n"), o.strip("\n").rstrip("`").rstrip()) for i, o in pairs if o.strip()]
+
+
+_UNSAFE = re.compile(r"\b(?:import\s+(?:os|sys\s*,|subprocess|shutil|socket|requests|urllib|ctypes|pathlib|http|asyncio|"
+                     r"multiprocessing|threading|webbrowser|winreg|glob|tempfile)|from\s+(?:os|subprocess|shutil|socket|"
+                     r"urllib|ctypes|pathlib|http)\b|__import__|\beval\s*\(|\bexec\s*\(|\bopen\s*\(|\bcompile\s*\()", re.I)
+
+
+def run_python_locally(code: str, stdin: str, timeout: float = 5.0):
+    """Run a candidate solution on a sample input on this PC: isolated interpreter, empty temp folder, time limit.
+    Code that touches files, the network or the system isn't run at all (returns None)."""
+    import subprocess
+    import sys
+    import tempfile
+    if _UNSAFE.search(code):
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            r = subprocess.run([sys.executable, "-I", "-c", code], input=stdin + "\n", capture_output=True, text=True,
+                               timeout=timeout, cwd=tmp, env={"PYTHONIOENCODING": "utf-8", "SYSTEMROOT": __import__("os").environ.get("SYSTEMROOT", "")},
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except subprocess.TimeoutExpired:
+            return "(timed out: the code took longer than 5 seconds, probably an infinite loop or waiting for input)"
+    return (r.stdout + (("\n" + r.stderr.strip().splitlines()[-1]) if r.returncode and r.stderr.strip() else "")).rstrip("\n")
+
+
+def same_output(expected: str, got: str) -> bool:
+    """Judges usually ignore trailing spaces at line ends and trailing blank lines."""
+    norm = lambda s: [ln.rstrip() for ln in s.rstrip().splitlines()]  # noqa: E731
+    return norm(expected) == norm(got)
 
 
 def output_diff(expected: str, got: str) -> str:

@@ -144,5 +144,48 @@ def test_submit_button_is_not_a_word_in_a_sentence(monkeypatch):
     monkeypatch.setattr(tools_extra.CodeTools, "_shot", fake_shot)
     w = SimpleNamespace(frame=SimpleNamespace(left=0, top=0))
     assert asyncio.run(tools_extra.CodeTools()._find_button(w, "Submit")) == (1865, 100)
-    words[:] = words[:3]                        # only the sentence is left: no button
-    assert asyncio.run(tools_extra.CodeTools()._find_button(w, "Submit")) is None
+    words[:] = words[:3]                        # only the sentence is left: ask the vision model instead
+    asked = []
+
+    async def fake_eye(self, w, label):
+        asked.append(label)
+        return (1500, 60)
+    monkeypatch.setattr(tools_extra.CodeTools, "_find_button_by_eye", fake_eye)
+    assert asyncio.run(tools_extra.CodeTools()._find_button(w, "Submit")) == (1500, 60) and asked == ["Submit"]
+    # a real button label with a second word on it ("Submit Code") is still a button
+    words[:] = [("Submit", (1700, 90, 1760, 110)), ("Code", (1766, 90, 1810, 110))]
+    assert asyncio.run(tools_extra.CodeTools()._find_button(w, "Submit")) == (1730, 100)
+
+
+def test_html_instruction_tasks_count_as_problems():
+    """CCBP web tasks have instructions, a design image and resources, not "Sample Input"."""
+    from jarvis.brain.tools_extra import looks_like_problem
+    text = ("Profile Card\nRefer to the below image.\nInstructions:\nThe page should have an HTML container element "
+            "with the class name card\nResources\nCSS Colors used:\nBackground color Hex Code values: #e8f0fe")
+    assert looks_like_problem(text)
+
+
+def test_solve_loop_catches_a_wrong_answer_and_retries(monkeypatch):
+    """The first candidate prints "Top : Ravi" (the real bug that failed 0/4); the local sample run must catch it and
+    the corrected second candidate must be the one used."""
+    import asyncio
+    from jarvis.brain import tools_extra
+    answers = ['n=int(input())\nfor _ in range(n):\n    a,b=input().split()\nprint("Top : Ravi")',
+               'n=int(input())\nfor _ in range(n):\n    a,b=input().split()\nprint("Top: Ravi")']
+    seen = []
+
+    async def fake_llm(self, messages, max_tokens):
+        seen.append(messages[-1]["content"])
+        return answers[len(seen) - 1]
+    monkeypatch.setattr(tools_extra.CodeTools, "_ask_llm_messages", fake_llm)
+    code, ok = asyncio.run(tools_extra.CodeTools()._solve_with_tests(
+        "Python 3", "solve", "problem", [("1\nRavi 92", "Top: Ravi")]))
+    assert ok is True and 'print("Top: Ravi")' in code
+    assert "'Top: Ravi' but the code printed 'Top : Ravi'" in seen[1]      # the exact difference was fed back
+
+
+def test_local_runner_refuses_system_code():
+    from jarvis.brain.tools_extra import run_python_locally
+    assert run_python_locally("print(int(input()) * 2)", "21") == "42"
+    assert run_python_locally("import os\nos.remove('x')", "") is None
+    assert run_python_locally("open('x', 'w')", "") is None

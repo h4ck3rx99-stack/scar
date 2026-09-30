@@ -48,6 +48,14 @@ class H(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path == "/design.png":
+            data = (HERE / "design.png").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         page = "page_web.html" if self.path.startswith("/web") else "page.html"
         self._send((HERE / page).read_text(encoding="utf-8"))
 
