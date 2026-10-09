@@ -12,3 +12,7 @@ backend/captures/
 backend/.env
 *.blend1
 .antigravity/
+
+# large code archive (redundant with source)
+Scar_assistant_code_only.zip
+*.zip
